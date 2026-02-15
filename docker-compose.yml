@@ -1,0 +1,9 @@
+services:
+  shift_web:
+    build: .
+    container_name: shift_web
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

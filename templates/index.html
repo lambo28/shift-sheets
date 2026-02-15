@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Shift Form</title>
+</head>
+<body>
+
+<h2>Basic Shift Form</h2>
+
+<form method="POST">
+    <label>Driver Number:</label><br>
+    <input type="text" name="driverNumber" required><br><br>
+
+    <label>Shift Start Date:</label><br>
+    <input type="date" name="shiftStartDate" required><br><br>
+
+    <label>Days in Shift Cycle:</label><br>
+    <select name="shiftCycleDays" required>
+        <option value="">-- Select --</option>
+        {% for i in range(7,33) %}
+        <option value="{{i}}">{{i}}</option>
+        {% endfor %}
+    </select><br><br>
+
+    <button type="submit">Save</button>
+</form>
+
+</body>
+</html>
