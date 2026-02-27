@@ -1,2 +1,11 @@
-Flask>=2.2.5,<3
-Flask-SQLAlchemy>=3.0.0,<4
+# Core Flask Framework
+Flask>=2.3.0,<3.0.0
+
+# Database
+Flask-SQLAlchemy>=3.0.0,<4.0.0
+
+# Development tools (optional, for development)
+python-dotenv>=1.0.0,<2.0.0
+
+# Production server (optional)
+gunicorn>=21.0.0,<22.0.0

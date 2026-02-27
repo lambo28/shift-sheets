@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shift Sheet - {{ shift.driver.driver_number }} - Week {{ shift.week_starting.strftime('%m/%d/%Y') }}</title>
+    <style>
+        @media print {
+            body { margin: 0; padding: 20px; font-size: 12px; }
+            .no-print { display: none !important; }
+            .print-break { page-break-after: always; }
+            table { page-break-inside: avoid; }
+            h1, h2, h3 { page-break-after: avoid; }
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.4;
+            color: #333;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 20px;
+        }
+        
+        .company-name {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .sheet-title {
+            font-size: 18px;
+            margin-bottom: 5px;
+        }
+        
+        .driver-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+        }
+        
+        .info-section {
+            flex: 1;
+        }
+        
+        .info-section strong {
+            display: inline-block;
+            width: 120px;
+        }
+        
+        .shift-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        
+        .shift-table th,
+        .shift-table td {
+            border: 1px solid #333;
+            padding: 8px;
+            text-align: center;
+        }
+        
+        .shift-table th {
+            background-color: #333;
+            color: white;
+            font-weight: bold;
+            font-size: 11px;
+        }
+        
+        .shift-table td {
+            height: 40px;
+            vertical-align: top;
+        }
+        
+        .date-col {
+            background-color: #f0f0f0;
+            font-weight: bold;
+            width: 80px;
+        }
+        
+        .time-col {
+            width: 70px;
+        }
+        
+        .number-col {
+            width: 70px;
+        }
+        
+        .route-col {
+            width: 120px;
+            text-align: left;
+        }
+        
+        .notes-col {
+            width: 150px;
+            text-align: left;
+        }
+        
+        .totals {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px 0;
+            padding: 15px;
+            border: 2px solid #333;
+            background-color: #f9f9f9;
+        }
+        
+        .total-box {
+            text-align: center;
+            flex: 1;
+        }
+        
+        .total-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .total-value {
+            font-size: 18px;
+            font-weight: bold;
+            border: 1px solid #333;
+            padding: 10px;
+            background-color: white;
+        }
+        
+        .notes-section {
+            margin-top: 20px;
+            border: 1px solid #333;
+            padding: 15px;
+        }
+        
+        .notes-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .signature-section {
+            margin-top: 30px;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .signature-box {
+            flex: 1;
+            margin: 0 20px;
+            text-align: center;
+        }
+        
+        .signature-line {
+            border-bottom: 1px solid #333;
+            margin-bottom: 5px;
+            height: 40px;
+        }
+        
+        .print-buttons {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            margin: 0 10px;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        
+        .btn:hover {
+            background-color: #0056b3;
+        }
+        
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #545b62;
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print print-buttons">
+        <a href="javascript:window.print()" class="btn">
+            🖨️ Print Sheet
+        </a>
+        <a href="{{ url_for('view_shift', shift_id=shift.id) }}" class="btn btn-secondary">
+            ← Back to View
+        </a>
+    </div>
+
+    <div class="header">
+        <div class="company-name">COMPANY NAME</div>
+        <div class="sheet-title">DRIVER SHIFT SHEET</div>
+        <div>Week: {{ shift.week_starting.strftime('%m/%d/%Y') }} - {{ shift.week_ending.strftime('%m/%d/%Y') }}</div>
+    </div>
+
+    <div class="driver-info">
+        <div class="info-section">
+            <div><strong>Driver #:</strong> {{ shift.driver.driver_number }}</div>
+            <div><strong>Driver Name:</strong> {{ shift.driver.name }}</div>
+            {% if shift.driver.phone %}
+                <div><strong>Phone:</strong> {{ shift.driver.phone }}</div>
+            {% endif %}
+        </div>
+        <div class="info-section">
+            <div><strong>Sheet ID:</strong> #{{ shift.id }}</div>
+            <div><strong>Created:</strong> {{ shift.created_at.strftime('%m/%d/%Y') }}</div>
+        </div>
+    </div>
+
+    <table class="shift-table">
+        <thead>
+            <tr>
+                <th class="date-col">DATE</th>
+                <th class="time-col">START<br>TIME</th>
+                <th class="time-col">END<br>TIME</th>
+                <th class="number-col">BREAK<br>(MIN)</th>
+                <th class="number-col">HOURS<br>WORKED</th>
+                <th class="number-col">START<br>MILEAGE</th>
+                <th class="number-col">END<br>MILEAGE</th>
+                <th class="number-col">MILES<br>DRIVEN</th>
+                <th class="route-col">ROUTE/<br>LOCATION</th>
+                <th class="notes-col">NOTES</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in daily_entries %}
+            <tr>
+                <td class="date-col">
+                    {{ entry.date.strftime('%a') }}<br>
+                    {{ entry.date.strftime('%m/%d') }}
+                </td>
+                <td class="time-col">{{ entry.start_time or '' }}</td>
+                <td class="time-col">{{ entry.end_time or '' }}</td>
+                <td class="number-col">{{ entry.break_time or '' }}</td>
+                <td class="number-col">
+                    {{ "%.1f"|format(entry.hours_worked) if entry.hours_worked else '' }}
+                </td>
+                <td class="number-col">{{ entry.mileage_start or '' }}</td>
+                <td class="number-col">{{ entry.mileage_end or '' }}</td>
+                <td class="number-col">
+                    {{ "%.0f"|format(entry.miles_driven) if entry.miles_driven else '' }}
+                </td>
+                <td class="route-col">{{ entry.route or '' }}</td>
+                <td class="notes-col">{{ entry.notes or '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="totals">
+        <div class="total-box">
+            <div class="total-label">TOTAL HOURS</div>
+            <div class="total-value">{{ "%.1f"|format(shift.total_hours) }}</div>
+        </div>
+        <div class="total-box">
+            <div class="total-label">TOTAL MILES</div>
+            <div class="total-value">{{ "%.0f"|format(shift.total_miles) }}</div>
+        </div>
+    </div>
+
+    <div class="notes-section">
+        <div class="notes-title">WEEK NOTES:</div>
+        <div style="min-height: 60px;">{{ shift.notes or '' }}</div>
+    </div>
+
+    <div class="signature-section">
+        <div class="signature-box">
+            <div class="signature-line"></div>
+            <div><strong>Driver Signature</strong></div>
+            <div>Date: _______________</div>
+        </div>
+        <div class="signature-box">
+            <div class="signature-line"></div>
+            <div><strong>Supervisor Signature</strong></div>
+            <div>Date: _______________</div>
+        </div>
+    </div>
+
+    <div style="text-align: center; margin-top: 30px; font-size: 10px; color: #666;">
+        Generated by Driver Shift Sheets System - {{ "today"|date('m/d/Y') }}
+    </div>
+</body>
+</html>

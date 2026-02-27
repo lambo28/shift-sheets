@@ -1,29 +1,183 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Shift Form</title>
-</head>
-<body>
+{% extends "base.html" %}
 
-<h2>Basic Shift Form</h2>
+{% block title %}Dashboard - Driver Shift Sheets{% endblock %}
 
-<form method="POST">
-    <label>Driver Number:</label><br>
-    <input type="text" name="driverNumber" required><br><br>
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h1 class="mb-4">
+            <i class="fas fa-tachometer-alt"></i> Dashboard
+        </h1>
+    </div>
+</div>
 
-    <label>Shift Start Date:</label><br>
-    <input type="date" name="shiftStartDate" required><br><br>
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4>{{ drivers|length }}</h4>
+                        <p>Total Drivers</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-users fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h4>{{ recent_shifts|length }}</h4>
+                        <p>Recent Shifts</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-calendar-week fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <a href="{{ url_for('new_shift') }}" class="btn btn-light btn-sm">
+                            <i class="fas fa-plus"></i> New Shift
+                        </a>
+                        <p class="mt-2 mb-0">Quick Actions</p>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-plus-circle fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
-    <label>Days in Shift Cycle:</label><br>
-    <select name="shiftCycleDays" required>
-        <option value="">-- Select --</option>
-        {% for i in range(7,33) %}
-        <option value="{{i}}">{{i}}</option>
-        {% endfor %}
-    </select><br><br>
-
-    <button type="submit">Save</button>
-</form>
-
-</body>
-</html>
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-history"></i> Recent Shift Sheets
+                </h5>
+                <a href="{{ url_for('new_shift') }}" class="btn btn-primary btn-sm">
+                    <i class="fas fa-plus"></i> New Shift
+                </a>
+            </div>
+            <div class="card-body">
+                {% if recent_shifts %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Driver</th>
+                                    <th>Week</th>
+                                    <th>Hours</th>
+                                    <th>Miles</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for shift in recent_shifts %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ shift.driver.driver_number }}</strong><br>
+                                        <small class="text-muted">{{ shift.driver.name }}</small>
+                                    </td>
+                                    <td>
+                                        {{ shift.week_starting.strftime('%m/%d') }} - 
+                                        {{ shift.week_ending.strftime('%m/%d/%Y') }}
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-info">
+                                            {{ "%.1f"|format(shift.total_hours) }}h
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-secondary">
+                                            {{ "%.0f"|format(shift.total_miles) }} mi
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <a href="{{ url_for('view_shift', shift_id=shift.id) }}" 
+                                           class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-eye"></i>
+                                        </a>
+                                        <a href="{{ url_for('edit_shift', shift_id=shift.id) }}" 
+                                           class="btn btn-sm btn-outline-success">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <a href="{{ url_for('print_shift', shift_id=shift.id) }}" 
+                                           class="btn btn-sm btn-outline-info" target="_blank">
+                                            <i class="fas fa-print"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-clipboard-list fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">No shift sheets yet</h5>
+                        <p class="text-muted">Create your first shift sheet to get started.</p>
+                        <a href="{{ url_for('new_shift') }}" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Create First Shift
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-users"></i> Drivers
+                </h5>
+                <a href="{{ url_for('add_driver') }}" class="btn btn-primary btn-sm">
+                    <i class="fas fa-user-plus"></i> Add
+                </a>
+            </div>
+            <div class="card-body">
+                {% if drivers %}
+                    {% for driver in drivers %}
+                        <div class="d-flex justify-content-between align-items-center mb-2 p-2 border rounded">
+                            <div>
+                                <strong>{{ driver.driver_number }}</strong><br>
+                                <small class="text-muted">{{ driver.name }}</small>
+                            </div>
+                            <span class="badge bg-light text-dark">
+                                {{ driver.shifts|length }} shifts
+                            </span>
+                        </div>
+                    {% endfor %}
+                    <div class="text-center mt-3">
+                        <a href="{{ url_for('drivers') }}" class="btn btn-sm btn-outline-primary">
+                            View All Drivers
+                        </a>
+                    </div>
+                {% else %}
+                    <div class="text-center py-3">
+                        <i class="fas fa-user-plus fa-2x text-muted mb-2"></i>
+                        <p class="text-muted">No drivers registered</p>
+                        <a href="{{ url_for('add_driver') }}" class="btn btn-primary btn-sm">
+                            <i class="fas fa-plus"></i> Add First Driver
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

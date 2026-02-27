@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}Drivers - Driver Shift Sheets{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>
+        <i class="fas fa-users"></i> Drivers
+    </h1>
+    <a href="{{ url_for('add_driver') }}" class="btn btn-primary">
+        <i class="fas fa-user-plus"></i> Add New Driver
+    </a>
+</div>
+
+{% if drivers %}
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Driver #</th>
+                            <th>Name</th>
+                            <th>Phone</th>
+                            <th>Email</th>
+                            <th>Shifts</th>
+                            <th>Joined</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for driver in drivers %}
+                        <tr>
+                            <td>
+                                <span class="badge bg-primary fs-6">{{ driver.driver_number }}</span>
+                            </td>
+                            <td>{{ driver.name }}</td>
+                            <td>
+                                {% if driver.phone %}
+                                    <a href="tel:{{ driver.phone }}" class="text-decoration-none">
+                                        <i class="fas fa-phone"></i> {{ driver.phone }}
+                                    </a>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if driver.email %}
+                                    <a href="mailto:{{ driver.email }}" class="text-decoration-none">
+                                        <i class="fas fa-envelope"></i> {{ driver.email }}
+                                    </a>
+                                {% else %}
+                                    <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="badge bg-info">{{ driver.shifts|length }} shifts</span>
+                            </td>
+                            <td>{{ driver.created_at.strftime('%m/%d/%Y') }}</td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-sm btn-outline-danger" 
+                                            onclick="confirmDelete({{ driver.id }}, '{{ driver.name }}')">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+{% else %}
+    <div class="text-center py-5">
+        <i class="fas fa-user-plus fa-4x text-muted mb-4"></i>
+        <h3 class="text-muted">No Drivers Registered</h3>
+        <p class="text-muted mb-4">Add your first driver to start creating shift sheets.</p>
+        <a href="{{ url_for('add_driver') }}" class="btn btn-primary btn-lg">
+            <i class="fas fa-user-plus"></i> Add First Driver
+        </a>
+    </div>
+{% endif %}
+
+<!-- Delete confirmation modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Delete</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete driver <strong id="driverName"></strong>?</p>
+                <p class="text-danger">
+                    <i class="fas fa-warning"></i> 
+                    This will also delete all associated shift sheets!
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="deleteForm" method="POST" style="display: inline;">
+                    <button type="submit" class="btn btn-danger">
+                        <i class="fas fa-trash"></i> Delete
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function confirmDelete(driverId, driverName) {
+    document.getElementById('driverName').textContent = driverName;
+    document.getElementById('deleteForm').action = '/driver/' + driverId + '/delete';
+    
+    var myModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    myModal.show();
+}
+</script>
+{% endblock %}

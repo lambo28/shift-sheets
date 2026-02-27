@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Add Driver - Driver Shift Sheets{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i class="fas fa-user-plus"></i> Add New Driver
+                </h3>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="driver_number" class="form-label">Driver Number *</label>
+                                <input type="text" class="form-control" id="driver_number" 
+                                       name="driver_number" required 
+                                       placeholder="e.g., D001, 123, etc.">
+                                <div class="form-text">Unique identifier for the driver</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="name" class="form-label">Full Name *</label>
+                                <input type="text" class="form-control" id="name" 
+                                       name="name" required 
+                                       placeholder="Enter driver's full name">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="phone" class="form-label">Phone Number</label>
+                                <input type="tel" class="form-control" id="phone" 
+                                       name="phone" 
+                                       placeholder="(555) 123-4567">
+                                <div class="form-text">Optional contact number</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="email" class="form-label">Email Address</label>
+                                <input type="email" class="form-control" id="email" 
+                                       name="email" 
+                                       placeholder="driver@company.com">
+                                <div class="form-text">Optional email address</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-end">
+                        <a href="{{ url_for('drivers') }}" class="btn btn-secondary me-2">
+                            <i class="fas fa-times"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Add Driver
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

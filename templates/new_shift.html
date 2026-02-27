@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}New Shift Sheet - Driver Shift Sheets{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i class="fas fa-plus"></i> Create New Shift Sheet
+                </h3>
+            </div>
+            <div class="card-body">
+                {% if drivers %}
+                    <form action="{{ url_for('create_shift') }}" method="POST">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="driver_id" class="form-label">Select Driver *</label>
+                                    <select class="form-select" id="driver_id" name="driver_id" required>
+                                        <option value="">Choose a driver...</option>
+                                        {% for driver in drivers %}
+                                            <option value="{{ driver.id }}">
+                                                {{ driver.driver_number }} - {{ driver.name }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="week_date" class="form-label">Week Starting *</label>
+                                    <input type="date" class="form-control" id="week_date" 
+                                           name="week_date" required>
+                                    <div class="form-text">
+                                        Pick any date in the week - the system will automatically 
+                                        calculate Monday-Sunday
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>Note:</strong> The shift sheet will be created for the full week 
+                            (Monday-Sunday) containing your selected date. You can edit the daily 
+                            entries after creation.
+                        </div>
+                        
+                        <div class="d-flex justify-content-end">
+                            <a href="{{ url_for('index') }}" class="btn btn-secondary me-2">
+                                <i class="fas fa-times"></i> Cancel
+                            </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> Create Shift Sheet
+                            </button>
+                        </div>
+                    </form>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-user-plus fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">No Drivers Available</h5>
+                        <p class="text-muted">You need to add at least one driver before creating shift sheets.</p>
+                        <a href="{{ url_for('add_driver') }}" class="btn btn-primary">
+                            <i class="fas fa-user-plus"></i> Add First Driver
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Set default date to current Monday
+document.addEventListener('DOMContentLoaded', function() {
+    const weekDateInput = document.getElementById('week_date');
+    if (weekDateInput) {
+        const today = new Date();
+        const monday = new Date(today.setDate(today.getDate() - today.getDay() + 1));
+        weekDateInput.value = monday.toISOString().split('T')[0];
+    }
+});
+</script>
+{% endblock %}
