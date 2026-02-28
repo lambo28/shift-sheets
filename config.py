@@ -11,7 +11,7 @@ class Config:
     
     # Database settings
     BASE_DIR = Path(__file__).parent
-    DATABASE_PATH = BASE_DIR / 'data' / 'shifts.db'
+    DATABASE_PATH = BASE_DIR / 'data' / 'shift-sheets.db'
     SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or f'sqlite:///{DATABASE_PATH}'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     

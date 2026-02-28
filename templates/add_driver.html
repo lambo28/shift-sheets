@@ -4,7 +4,7 @@
 
 {% block content %}
 <div class="row">
-    <div class="col-md-8 mx-auto">
+    <div class="col-md-6 mx-auto">
         <div class="card">
             <div class="card-header">
                 <h3 class="mb-0">
@@ -12,120 +12,60 @@
                 </h3>
             </div>
             <div class="card-body">
-                <form method="POST" id="driverForm">
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="driver_number" class="form-label">Driver Number *</label>
-                                <input type="number" class="form-control" id="driver_number" 
-                                       name="driver_number" required 
-                                       placeholder="e.g., 123, 456" min="1">
-                                <div class="form-text">Numeric only - no leading zeros</div>
-                            </div>
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="driver_number" class="form-label">Driver Number *</label>
+                        <input type="number" class="form-control" id="driver_number" 
+                               name="driver_number" required 
+                               placeholder="e.g., 123, 456" min="1">
+                        <div class="form-text">Numeric only - no leading zeros</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Full Name *</label>
+                        <input type="text" class="form-control" id="name" 
+                               name="name" required 
+                               placeholder="e.g., Andrew Smith">
+                        <div class="form-text">Will be formatted as "A. Smith" in displays</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="car_type" class="form-label">Vehicle Type *</label>
+                        <select class="form-select" id="car_type" name="car_type" required>
+                            <option value="">Select vehicle type</option>
+                            <option value="Standard">Standard</option>
+                            <option value="Estate">Estate</option>
+                            <option value="XL Estate">XL Estate</option>
+                            <option value="Minibus">Minibus</option>
+                        </select>
+                        <div class="form-text">Type of vehicle driven</div>
+                    </div>
+
+                    <!-- Driver Attributes -->
+                    <div class="mb-3">
+                        <label class="form-label">Driver Attributes</label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="school_badge" name="school_badge" value="1">
+                            <label class="form-check-label" for="school_badge">
+                                <i class="fas fa-school text-warning"></i> School Badge
+                            </label>
+                            <div class="form-text">Driver is authorized for school routes</div>
                         </div>
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="name" class="form-label">Full Name *</label>
-                                <input type="text" class="form-control" id="name" 
-                                       name="name" required 
-                                       placeholder="e.g., Andrew Smith">
-                                <div class="form-text">Will be formatted as "A. Smith" in displays</div>
-                            </div>
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="pet_friendly" name="pet_friendly" value="1">
+                            <label class="form-check-label" for="pet_friendly">
+                                <i class="fas fa-paw text-success"></i> Pet Friendly
+                            </label>
+                            <div class="form-text">Driver allows pets in vehicle</div>
                         </div>
                     </div>
 
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="car_type" class="form-label">Vehicle Type *</label>
-                                <select class="form-select" id="car_type" name="car_type" required>
-                                    <option value="">Select vehicle type</option>
-                                    <option value="Standard">Standard</option>
-                                    <option value="Estate">Estate</option>
-                                    <option value="XL Estate">XL Estate</option>
-                                    <option value="Minibus">Minibus</option>
-                                </select>
-                                <div class="form-text">Type of vehicle driven</div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="shift_pattern_cycle" class="form-label">Shift Pattern Cycle (Days) *</label>
-                                <select class="form-select" id="shift_pattern_cycle" name="shift_pattern_cycle" required onchange="updateShiftDays()">
-                                    <option value="">Select cycle length</option>
-                                    <option value="7">7 Days</option>
-                                    <option value="8">8 Days</option>
-                                    <option value="14">14 Days</option>
-                                    <option value="16">16 Days</option>
-                                    <option value="21">21 Days</option>
-                                    <option value="24">24 Days</option>
-                                    <option value="28">28 Days</option>
-                                    <option value="32">32 Days</option>
-                                </select>
-                                <div class="form-text">Number of days in the shift rotation cycle</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Daily Shift Pattern Section -->
-                    <div id="dailyShiftSection" style="display: none;">
-                        <hr>
-                        <h5><i class="fas fa-calendar"></i> Daily Shift Pattern</h5>
-                        <p class="text-muted">Set the shift type for each day of the cycle:</p>
-                        <div id="dailyShiftContainer" class="row">
-                            <!-- Dynamic content will be generated here -->
-                        </div>
-                        <hr>
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="shift_start_date" class="form-label">Shift Start Date *</label>
-                                <input type="date" class="form-control" id="shift_start_date" 
-                                       name="shift_start_date" required>
-                                <div class="form-text">When this shift pattern begins</div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="shift_end_date" class="form-label">Shift End Date</label>
-                                <input type="date" class="form-control" id="shift_end_date" 
-                                       name="shift_end_date">
-                                <div class="form-text">Optional - leave blank for ongoing shifts</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-12">
-                            <div class="mb-3">
-                                <label class="form-label">Driver Attributes</label>
-                                <div class="d-flex gap-4">
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" value="1" id="school_badge" name="school_badge">
-                                        <label class="form-check-label" for="school_badge">
-                                            <i class="fas fa-school"></i> School Badge
-                                        </label>
-                                    </div>
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" value="1" id="pet_friendly" name="pet_friendly">
-                                        <label class="form-check-label" for="pet_friendly">
-                                            <i class="fas fa-paw"></i> Pet Friendly
-                                        </label>
-                                    </div>
-                                </div>
-                                <div class="form-text">Special driver qualifications</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="d-flex justify-content-end">
-                        <a href="{{ url_for('drivers') }}" class="btn btn-secondary me-2">
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{{ url_for('drivers') }}" class="btn btn-secondary">
                             <i class="fas fa-times"></i> Cancel
                         </a>
                         <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save"></i> Add Driver
+                            <i class="fas fa-user-plus"></i> Add Driver
                         </button>
                     </div>
                 </form>
@@ -134,49 +74,20 @@
     </div>
 </div>
 
-<script>
-function updateShiftDays() {
-    const cycleSelect = document.getElementById('shift_pattern_cycle');
-    const days = parseInt(cycleSelect.value);
-    const container = document.getElementById('dailyShiftContainer');
-    const section = document.getElementById('dailyShiftSection');
-    
-    // Clear existing content
-    container.innerHTML = '';
-    
-    if (!days || days === 0) {
-        section.style.display = 'none';
-        return;
-    }
-    
-    // Show the section
-    section.style.display = 'block';
-    
-    // Generate form fields for each day
-    for (let day = 1; day <= days; day++) {
-        const colDiv = document.createElement('div');
-        colDiv.className = 'col-md-3 col-sm-6 mb-3';
-        
-        colDiv.innerHTML = `
-            <label for="day_${day}_shift" class="form-label">Day ${day}</label>
-            <select class="form-select form-select-sm" id="day_${day}_shift" name="day_${day}_shift" required>
-                <option value="earlies">Earlies</option>
-                <option value="days">Days</option>
-                <option value="lates">Lates</option>
-                <option value="nights">Nights</option>
-                <option value="day_off">Day Off</option>
-            </select>
-        `;
-        
-        container.appendChild(colDiv);
-    }
-}
-
-// Set default start date to today
-document.addEventListener('DOMContentLoaded', function() {
-    const startDateInput = document.getElementById('shift_start_date');
-    const today = new Date().toISOString().split('T')[0];
-    startDateInput.value = today;
-});
-</script>
+<!-- Info Card -->
+<div class="row mt-4">
+    <div class="col-md-8 mx-auto">
+        <div class="card bg-light">
+            <div class="card-body">
+                <h6><i class="fas fa-info-circle text-primary"></i> Next Steps</h6>
+                <p class="mb-2 small">After creating a driver, you can:</p>
+                <ul class="small mb-0">
+                    <li>Create shift patterns in the <strong>Shift</strong> section</li>
+                    <li>Assign patterns to drivers with date ranges</li>
+                    <li>Generate daily sheets to see who's working</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}

@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Create Shift Pattern - Driver Shift Sheets{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i class="fas fa-calendar-plus"></i> Create Shift Pattern
+                </h3>
+            </div>
+            <div class="card-body">
+                <form method="POST" id="patternForm">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="mb-3">
+                                <label for="name" class="form-label">Pattern Name *</label>
+                                <input type="text" class="form-control" id="name" 
+                                       name="name" required 
+                                       placeholder="e.g., Standard 7-Day, Night Shift Rotation">
+                                <div class="form-text">Give this pattern a descriptive name</div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label for="cycle_length" class="form-label">Cycle Length (Days) *</label>
+                                <select class="form-select" id="cycle_length" name="cycle_length" required onchange="updatePatternDays()">
+                                    <option value="">Select</option>
+                                    <option value="7">7 days (1 week)</option>
+                                    <option value="14">14 days (2 weeks)</option>
+                                    <option value="21">21 days (3 weeks)</option>
+                                    <option value="28">28 days (4 weeks)</option>
+                                </select>
+                                <div class="form-text">How many days before pattern repeats</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description</label>
+                        <textarea class="form-control" id="description" name="description" rows="2" 
+                                  placeholder="Optional description of this shift pattern..."></textarea>
+                    </div>
+
+                    <!-- Pattern Days Section -->
+                    <div id="patternDaysSection" style="display: none;">
+                        <hr>
+                        <h5><i class="fas fa-calendar"></i> Daily Shift Assignment</h5>
+                        <p class="text-muted">Set the shift type for each day of the cycle:</p>
+                        
+                        <div id="patternDaysContainer" class="row">
+                            <!-- Days will be populated by JavaScript -->
+                        </div>
+
+                        <div class="mt-3">
+                            <h6>Shift Types:</h6>
+                            <div class="d-flex flex-wrap gap-2">
+                                <span class="badge bg-warning"><i class="fas fa-sun"></i> Earlies</span>
+                                <span class="badge bg-success"><i class="fas fa-sun"></i> Days</span>
+                                <span class="badge bg-info"><i class="fas fa-moon"></i> Lates</span>
+                                <span class="badge bg-dark"><i class="fas fa-moon"></i> Nights</span>
+                                <span class="badge bg-secondary"><i class="fas fa-bed"></i> Day Off</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr>
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{{ url_for('shifts') }}" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary" id="submitBtn" disabled>
+                            <i class="fas fa-save"></i> Create Pattern
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const dayNames = ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5', 'Day 6', 'Day 7',
+                  'Day 8', 'Day 9', 'Day 10', 'Day 11', 'Day 12', 'Day 13', 'Day 14',
+                  'Day 15', 'Day 16', 'Day 17', 'Day 18', 'Day 19', 'Day 20', 'Day 21',
+                  'Day 22', 'Day 23', 'Day 24', 'Day 25', 'Day 26', 'Day 27', 'Day 28'];
+
+function updatePatternDays() {
+    const cycleLength = parseInt(document.getElementById('cycle_length').value);
+    const container = document.getElementById('patternDaysContainer');
+    const section = document.getElementById('patternDaysSection');
+    const submitBtn = document.getElementById('submitBtn');
+    
+    if (!cycleLength) {
+        section.style.display = 'none';
+        submitBtn.disabled = true;
+        return;
+    }
+    
+    section.style.display = 'block';
+    submitBtn.disabled = false;
+    container.innerHTML = '';
+    
+    for (let i = 0; i < cycleLength; i++) {
+        const dayDiv = document.createElement('div');
+        dayDiv.className = 'col-md-3 mb-3';
+        
+        dayDiv.innerHTML = `
+            <label for="day_${i}_shift" class="form-label">${dayNames[i]}</label>
+            <select class="form-select" id="day_${i}_shift" name="day_${i}_shift" required>
+                <option value="day_off">Day Off</option>
+                <option value="earlies">Earlies</option>
+                <option value="days">Days</option>
+                <option value="lates">Lates</option>
+                <option value="nights">Nights</option>
+            </select>
+        `;
+        
+        container.appendChild(dayDiv);
+    }
+}
+
+// Quick pattern templates
+function applyTemplate(templateName) {
+    const cycleLength = parseInt(document.getElementById('cycle_length').value);
+    if (!cycleLength) return;
+    
+    let pattern = [];
+    
+    switch(templateName) {
+        case 'standard_week':
+            pattern = ['earlies', 'earlies', 'days', 'days', 'lates', 'day_off', 'day_off'];
+            break;
+        case 'five_on_two_off':
+            pattern = ['days', 'days', 'days', 'days', 'days', 'day_off', 'day_off'];
+            break;
+        case 'nights':
+            pattern = ['nights', 'nights', 'nights', 'day_off', 'day_off', 'day_off', 'day_off'];
+            break;
+    }
+    
+    for (let i = 0; i < cycleLength && i < pattern.length; i++) {
+        const select = document.getElementById(`day_${i}_shift`);
+        if (select) {
+            select.value = pattern[i];
+        }
+    }
+}
+</script>
+{% endblock %}

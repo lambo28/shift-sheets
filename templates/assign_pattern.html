@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+
+{% block title %}Assign Pattern - Driver Shift Sheets{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i class="fas fa-calendar-plus"></i> Assign Shift Pattern
+                </h3>
+                <p class="mb-0 text-muted">Driver: <strong>{{ driver.formatted_name() }}</strong> (#{{ driver.formatted_driver_number() }})</p>
+            </div>
+            <div class="card-body">
+                {% if patterns %}
+                    <form method="POST">
+                        <div class="mb-3">
+                            <label for="pattern_id" class="form-label">Select Shift Pattern *</label>
+                            <select class="form-select" id="pattern_id" name="pattern_id" required onchange="showPatternPreview()">
+                                <option value="">Choose a pattern...</option>
+                                {% for pattern in patterns %}
+                                    <option value="{{ pattern.id }}" 
+                                            data-cycle="{{ pattern.cycle_length }}" 
+                                            data-pattern="{{ pattern.get_pattern_data()|join(',') }}">
+                                        {{ pattern.name }} ({{ pattern.cycle_length }} day cycle)
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Pattern Preview -->
+                        <div id="patternPreview" style="display: none;">
+                            <div class="card bg-light mb-3">
+                                <div class="card-body">
+                                    <h6><i class="fas fa-eye"></i> Pattern Preview</h6>
+                                    <div id="patternDisplay" class="d-flex flex-wrap gap-1"></div>
+                                    <small class="text-muted d-block mt-2">E=Earlies, D=Days, L=Lates, N=Nights, OFF=Rest Day</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="start_date" class="form-label">Assignment Start Date *</label>
+                                    <input type="date" class="form-control" id="start_date" 
+                                           name="start_date" required value="{{ today().strftime('%Y-%m-%d') if today else '' }}">
+                                    <div class="form-text">When this pattern assignment begins</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="end_date" class="form-label">Assignment End Date</label>
+                                    <input type="date" class="form-control" id="end_date" name="end_date">
+                                    <div class="form-text">Leave empty for ongoing assignment</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Current Assignment Warning -->
+                        {% set current_assignment = driver.get_current_assignment() %}
+                        {% if current_assignment %}
+                            <div class="alert alert-warning">
+                                <i class="fas fa-exclamation-triangle"></i> 
+                                <strong>Current Assignment:</strong> This driver is already assigned to 
+                                "{{ current_assignment.shift_pattern.name }}" since {{ current_assignment.start_date.strftime('%m/%d/%Y') }}.
+                                {% if not current_assignment.end_date %}
+                                    <br><small>The new assignment will end the current one.</small>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+
+                        <div class="d-flex gap-2 justify-content-end">
+                            <a href="{{ url_for('drivers') }}" class="btn btn-secondary">
+                                <i class="fas fa-times"></i> Cancel
+                            </a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-calendar-plus"></i> Assign Pattern
+                            </button>
+                        </div>
+                    </form>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">No Shift Patterns Available</h5>
+                        <p class="text-muted">You need to create at least one shift pattern before assigning to drivers.</p>
+                        <a href="{{ url_for('add_shift_pattern') }}" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Create First Pattern
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Assignment History -->
+{% if driver.assignments %}
+    <div class="row mt-4">
+        <div class="col-md-10 mx-auto">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="fas fa-history"></i> Assignment History</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Pattern</th>
+                                    <th>Period</th>
+                                    <th>Status</th>
+                                    <th>Assigned</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for assignment in driver.assignments %}
+                                <tr>
+                                    <td>{{ assignment.shift_pattern.name }}</td>
+                                    <td>
+                                        {{ assignment.start_date.strftime('%m/%d/%Y') }} - 
+                                        {{ assignment.end_date.strftime('%m/%d/%Y') if assignment.end_date else 'Ongoing' }}
+                                    </td>
+                                    <td>
+                                        {% if not assignment.end_date %}
+                                            <span class="badge bg-success">Active</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Ended</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ assignment.created_at.strftime('%m/%d/%Y') }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function showPatternPreview() {
+    const select = document.getElementById('pattern_id');
+    const preview = document.getElementById('patternPreview');
+    const display = document.getElementById('patternDisplay');
+    
+    if (!select.value) {
+        preview.style.display = 'none';
+        return;
+    }
+    
+    const option = select.selectedOptions[0];
+    const pattern = option.dataset.pattern.split(',');
+    
+    display.innerHTML = '';
+    pattern.forEach(shift => {
+        const badge = document.createElement('span');
+        badge.className = 'badge ';
+        
+        switch(shift) {
+            case 'day_off':
+                badge.className += 'bg-secondary';
+                badge.textContent = 'OFF';
+                break;
+            case 'earlies':
+                badge.className += 'bg-warning';
+                badge.textContent = 'E';
+                break;
+            case 'days':
+                badge.className += 'bg-success';
+                badge.textContent = 'D';
+                break;
+            case 'lates':
+                badge.className += 'bg-info';
+                badge.textContent = 'L';
+                break;
+            case 'nights':
+                badge.className += 'bg-dark';
+                badge.textContent = 'N';
+                break;
+            default:
+                badge.className += 'bg-light text-dark';
+                badge.textContent = '?';
+        }
+        
+        display.appendChild(badge);
+    });
+    
+    preview.style.display = 'block';
+}
+</script>
+{% endblock %}

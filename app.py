@@ -17,22 +17,18 @@ os.makedirs(app.config.get('BASE_DIR') / 'data', exist_ok=True)
 
 db = SQLAlchemy(app)
 
-# Enhanced database models
+# Clean database models
 class Driver(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     driver_number = db.Column(db.String(50), unique=True, nullable=False)
     name = db.Column(db.String(100), nullable=False)
     car_type = db.Column(db.String(100), nullable=False)  # Standard, Estate, XL Estate, Minibus
-    shift_pattern_cycle = db.Column(db.Integer, nullable=False)  # number of days in cycle
-    daily_shifts = db.Column(db.Text, nullable=False)  # JSON string of daily shift assignments
     school_badge = db.Column(db.Boolean, default=False)
     pet_friendly = db.Column(db.Boolean, default=False)
-    shift_start_date = db.Column(db.Date, nullable=False)
-    shift_end_date = db.Column(db.Date)  # Optional - for temporary assignments
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Relationship to shifts
-    shifts = db.relationship('ShiftSheet', backref='driver', lazy=True)
+    # Relationships
+    assignments = db.relationship('DriverAssignment', backref='driver', lazy=True, cascade='all, delete-orphan')
     
     # Helper method to format name in "A. Someone" style
     def formatted_name(self):
@@ -50,40 +46,75 @@ class Driver(db.Model):
         except:
             return self.driver_number
     
-    # Helper method to get daily shift pattern as list
-    def get_daily_shifts(self):
-        try:
-            import json
-            return json.loads(self.daily_shifts)
-        except:
-            return []
+    # Get current active assignment
+    def get_current_assignment(self, target_date=None):
+        """Get the driver's current shift pattern assignment"""
+        if not target_date:
+            target_date = datetime.now().date()
+            
+        assignment = DriverAssignment.query.filter(
+            DriverAssignment.driver_id == self.id,
+            DriverAssignment.start_date <= target_date,
+            db.or_(
+                DriverAssignment.end_date.is_(None),
+                DriverAssignment.end_date >= target_date
+            )
+        ).first()
+        
+        return assignment
 
-class ShiftSheet(db.Model):
+class ShiftPattern(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    driver_id = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=False)
-    week_starting = db.Column(db.Date, nullable=False)
-    week_ending = db.Column(db.Date, nullable=False) 
-    total_hours = db.Column(db.Float, default=0.0)
-    total_miles = db.Column(db.Float, default=0.0)
-    notes = db.Column(db.Text)
+    name = db.Column(db.String(100), nullable=False, unique=True)
+    description = db.Column(db.Text)
+    cycle_length = db.Column(db.Integer, nullable=False)  # number of days in cycle
+    pattern_data = db.Column(db.Text, nullable=False)  # JSON string of daily shift assignments
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
-    # Relationship to daily entries
-    daily_entries = db.relationship('DailyEntry', backref='shift_sheet', lazy=True, cascade='all, delete-orphan')
+    # Relationships
+    assignments = db.relationship('DriverAssignment', backref='shift_pattern', lazy=True, cascade='all, delete-orphan')
+    
+    # Helper method to get pattern as list
+    def get_pattern_data(self):
+        try:
+            import json
+            return json.loads(self.pattern_data)
+        except:
+            return []
+    
+    # Helper method to set pattern data
+    def set_pattern_data(self, pattern_list):
+        import json
+        self.pattern_data = json.dumps(pattern_list)
+    
+    # Get what shift type for a specific day in the cycle
+    def get_shift_for_day(self, cycle_day):
+        pattern = self.get_pattern_data()
+        if 0 <= cycle_day < len(pattern):
+            return pattern[cycle_day]
+        return 'day_off'
 
-class DailyEntry(db.Model):
+class DriverAssignment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    shift_sheet_id = db.Column(db.Integer, db.ForeignKey('shift_sheet.id'), nullable=False)
-    date = db.Column(db.Date, nullable=False)
-    start_time = db.Column(db.String(10))  # HH:MM format
-    end_time = db.Column(db.String(10))    # HH:MM format
-    break_time = db.Column(db.Integer, default=0)  # minutes
-    hours_worked = db.Column(db.Float, default=0.0)
-    mileage_start = db.Column(db.Integer)
-    mileage_end = db.Column(db.Integer)
-    miles_driven = db.Column(db.Float, default=0.0)
-    route = db.Column(db.String(200))
-    notes = db.Column(db.Text)
+    driver_id = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=False)
+    shift_pattern_id = db.Column(db.Integer, db.ForeignKey('shift_pattern.id'), nullable=False)
+    start_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date)  # Optional - for temporary assignments
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Get shift type for a specific date
+    def get_shift_for_date(self, target_date):
+        """Get the shift type for a specific date based on the pattern cycle"""
+        if target_date < self.start_date:
+            return None
+        if self.end_date and target_date > self.end_date:
+            return None
+            
+        # Calculate which day of the cycle this date falls on
+        days_since_start = (target_date - self.start_date).days
+        cycle_day = days_since_start % self.shift_pattern.cycle_length
+        
+        return self.shift_pattern.get_shift_for_day(cycle_day)
 
 # ✅ Create tables inside application context
 with app.app_context():
@@ -128,34 +159,21 @@ def get_drivers_count_by_shift(target_date):
 
 def get_drivers_for_date(target_date):
     """Get all drivers working on a specific date with their shift assignments"""
-    import json
-    
     drivers_working = {'earlies': [], 'days': [], 'lates': [], 'nights': []}
     
-    # Get all active drivers
-    drivers = Driver.query.filter(
-        Driver.shift_start_date <= target_date
-    ).filter(
+    # Get all active driver assignments for the target date
+    assignments = DriverAssignment.query.filter(
+        DriverAssignment.start_date <= target_date,
         db.or_(
-            Driver.shift_end_date.is_(None),
-            Driver.shift_end_date >= target_date
+            DriverAssignment.end_date.is_(None),
+            DriverAssignment.end_date >= target_date
         )
     ).all()
     
-    for driver in drivers:
-        # Calculate which day of their cycle this target_date falls on
-        days_since_start = (target_date - driver.shift_start_date).days
-        cycle_day = days_since_start % driver.shift_pattern_cycle
-        
-        # Get their shift pattern
-        try:
-            daily_shifts = json.loads(driver.daily_shifts)
-            if cycle_day < len(daily_shifts):
-                shift_type = daily_shifts[cycle_day]
-                if shift_type != 'day_off' and shift_type in drivers_working:
-                    drivers_working[shift_type].append(driver)
-        except:
-            continue
+    for assignment in assignments:
+        shift_type = assignment.get_shift_for_date(target_date)
+        if shift_type and shift_type != 'day_off' and shift_type in drivers_working:
+            drivers_working[shift_type].append(assignment.driver)
     
     return drivers_working
 
@@ -203,28 +221,90 @@ def drivers():
     all_drivers = Driver.query.order_by(Driver.driver_number).all()
     return render_template("drivers.html", drivers=all_drivers)
 
+@app.route("/shifts")
+def shifts():
+    """List all shift patterns"""
+    all_patterns = ShiftPattern.query.order_by(ShiftPattern.name).all()
+    return render_template("shifts.html", patterns=all_patterns)
+
+@app.route("/shift-pattern/add", methods=["GET", "POST"])
+def add_shift_pattern():
+    """Add new shift pattern"""
+    if request.method == "POST":
+        cycle_length = int(request.form.get("cycle_length", 7))
+        pattern_data = []
+        
+        for day in range(cycle_length):
+            shift = request.form.get(f"day_{day}_shift", "day_off")
+            pattern_data.append(shift)
+        
+        pattern = ShiftPattern(
+            name=request.form.get("name"),
+            description=request.form.get("description"),
+            cycle_length=cycle_length
+        )
+        pattern.set_pattern_data(pattern_data)
+        
+        try:
+            db.session.add(pattern)
+            db.session.commit()
+            flash("Shift pattern added successfully!", "success")
+            return redirect(url_for("shifts"))
+        except Exception as e:
+            db.session.rollback()
+            flash(f"Error adding shift pattern: {str(e)}", "error")
+    
+    return render_template("add_shift_pattern.html")
+
+@app.route("/shift-pattern/<int:pattern_id>/delete", methods=["POST"])
+def delete_shift_pattern(pattern_id):
+    """Delete shift pattern"""
+    pattern = ShiftPattern.query.get_or_404(pattern_id)
+    try:
+        db.session.delete(pattern)
+        db.session.commit()
+        flash("Shift pattern deleted successfully!", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error deleting shift pattern: {str(e)}", "error")
+    
+    return redirect(url_for("shifts"))
+
+@app.route("/driver/<int:driver_id>/assign-pattern", methods=["GET", "POST"])
+def assign_pattern_to_driver(driver_id):
+    """Assign a shift pattern to a driver"""
+    driver = Driver.query.get_or_404(driver_id)
+    patterns = ShiftPattern.query.all()
+    
+    if request.method == "POST":
+        assignment = DriverAssignment(
+            driver_id=driver_id,
+            shift_pattern_id=int(request.form.get("pattern_id")),
+            start_date=datetime.strptime(request.form.get("start_date"), '%Y-%m-%d').date(),
+            end_date=datetime.strptime(request.form.get("end_date"), '%Y-%m-%d').date() if request.form.get("end_date") else None
+        )
+        
+        try:
+            db.session.add(assignment)
+            db.session.commit()
+            flash("Shift pattern assigned successfully!", "success")
+            return redirect(url_for("drivers"))
+        except Exception as e:
+            db.session.rollback()
+            flash(f"Error assigning pattern: {str(e)}", "error")
+    
+    return render_template("assign_pattern.html", driver=driver, patterns=patterns)
+
 @app.route("/driver/add", methods=["GET", "POST"])
 def add_driver():
     """Add new driver"""
     if request.method == "POST":
-        # Collect daily shift assignments
-        cycle_days = int(request.form.get("shift_pattern_cycle", 7))
-        daily_shifts = []
-        for day in range(1, cycle_days + 1):
-            shift = request.form.get(f"day_{day}_shift", "day_off")
-            daily_shifts.append(shift)
-        
-        import json
         driver = Driver(
             driver_number=request.form.get("driver_number"),
             name=request.form.get("name"),
             car_type=request.form.get("car_type"),
-            shift_pattern_cycle=cycle_days,
-            daily_shifts=json.dumps(daily_shifts),
             school_badge=bool(request.form.get("school_badge")),
-            pet_friendly=bool(request.form.get("pet_friendly")),
-            shift_start_date=datetime.strptime(request.form.get("shift_start_date"), '%Y-%m-%d').date(),
-            shift_end_date=datetime.strptime(request.form.get("shift_end_date"), '%Y-%m-%d').date() if request.form.get("shift_end_date") else None
+            pet_friendly=bool(request.form.get("pet_friendly"))
         )
         
         try:
@@ -290,139 +370,6 @@ def print_daily_sheet():
     return render_template("print_daily_sheet.html", 
                          target_date=target_date, 
                          drivers_by_shift=drivers_by_shift)
-
-@app.route("/shift/new")
-def new_shift():
-    """Create new shift sheet"""
-    drivers = Driver.query.order_by(Driver.driver_number).all()
-    return render_template("new_shift.html", drivers=drivers)
-
-@app.route("/shift/create", methods=["POST"])
-def create_shift():
-    """Create new shift sheet"""
-    driver_id = request.form.get("driver_id")
-    week_date = request.form.get("week_date")
-    
-    monday, sunday = get_week_dates(week_date)
-    if not monday or not sunday:
-        flash("Invalid date format", "error")
-        return redirect(url_for("new_shift"))
-    
-    # Check if shift already exists for this driver and week
-    existing = ShiftSheet.query.filter_by(
-        driver_id=driver_id, 
-        week_starting=monday
-    ).first()
-    
-    if existing:
-        flash("Shift sheet already exists for this driver and week", "error")
-        return redirect(url_for("view_shift", shift_id=existing.id))
-    
-    # Create new shift sheet
-    shift = ShiftSheet(
-        driver_id=driver_id,
-        week_starting=monday,
-        week_ending=sunday
-    )
-    
-    db.session.add(shift)
-    db.session.commit()
-    
-    # Create daily entries for the week
-    current_date = monday
-    for i in range(7):
-        daily_entry = DailyEntry(
-            shift_sheet_id=shift.id,
-            date=current_date
-        )
-        db.session.add(daily_entry)
-        current_date += timedelta(days=1)
-    
-    db.session.commit()
-    flash("Shift sheet created successfully!", "success")
-    return redirect(url_for("edit_shift", shift_id=shift.id))
-
-@app.route("/shift/<int:shift_id>")
-def view_shift(shift_id):
-    """View shift sheet"""
-    shift = ShiftSheet.query.get_or_404(shift_id)
-    daily_entries = DailyEntry.query.filter_by(shift_sheet_id=shift_id).order_by(DailyEntry.date).all()
-    return render_template("view_shift.html", shift=shift, daily_entries=daily_entries)
-
-@app.route("/shift/<int:shift_id>/edit")
-def edit_shift(shift_id):
-    """Edit shift sheet"""
-    shift = ShiftSheet.query.get_or_404(shift_id)
-    daily_entries = DailyEntry.query.filter_by(shift_sheet_id=shift_id).order_by(DailyEntry.date).all()
-    return render_template("edit_shift.html", shift=shift, daily_entries=daily_entries)
-
-@app.route("/shift/<int:shift_id>/update", methods=["POST"])
-def update_shift(shift_id):
-    """Update shift sheet data"""
-    shift = ShiftSheet.query.get_or_404(shift_id)
-    
-    # Update shift notes
-    shift.notes = request.form.get("shift_notes", "")
-    
-    # Update daily entries
-    daily_entries = DailyEntry.query.filter_by(shift_sheet_id=shift_id).all()
-    
-    total_hours = 0.0
-    total_miles = 0.0
-    
-    for entry in daily_entries:
-        entry_id = str(entry.id)
-        
-        entry.start_time = request.form.get(f"start_time_{entry_id}", "")
-        entry.end_time = request.form.get(f"end_time_{entry_id}", "")
-        entry.break_time = int(request.form.get(f"break_time_{entry_id}", 0) or 0)
-        entry.mileage_start = int(request.form.get(f"mileage_start_{entry_id}") or 0)
-        entry.mileage_end = int(request.form.get(f"mileage_end_{entry_id}") or 0)
-        entry.route = request.form.get(f"route_{entry_id}", "")
-        entry.notes = request.form.get(f"notes_{entry_id}", "")
-        
-        # Calculate hours and miles
-        if entry.start_time and entry.end_time:
-            entry.hours_worked = calculate_hours(entry.start_time, entry.end_time, entry.break_time)
-            total_hours += entry.hours_worked
-        
-        if entry.mileage_start and entry.mileage_end:
-            entry.miles_driven = max(0, entry.mileage_end - entry.mileage_start)
-            total_miles += entry.miles_driven
-    
-    # Update totals
-    shift.total_hours = total_hours
-    shift.total_miles = total_miles
-    
-    try:
-        db.session.commit()
-        flash("Shift sheet updated successfully!", "success")
-    except Exception as e:
-        db.session.rollback()
-        flash(f"Error updating shift sheet: {str(e)}", "error")
-    
-    return redirect(url_for("view_shift", shift_id=shift_id))
-
-@app.route("/shift/<int:shift_id>/print")
-def print_shift(shift_id):
-    """Print-friendly view of shift sheet"""
-    shift = ShiftSheet.query.get_or_404(shift_id)
-    daily_entries = DailyEntry.query.filter_by(shift_sheet_id=shift_id).order_by(DailyEntry.date).all()
-    return render_template("print_shift.html", shift=shift, daily_entries=daily_entries)
-
-@app.route("/shift/<int:shift_id>/delete", methods=["POST"])
-def delete_shift(shift_id):
-    """Delete shift sheet"""
-    shift = ShiftSheet.query.get_or_404(shift_id)
-    try:
-        db.session.delete(shift)
-        db.session.commit()
-        flash("Shift sheet deleted successfully!", "success")
-    except Exception as e:
-        db.session.rollback()
-        flash(f"Error deleting shift sheet: {str(e)}", "error")
-    
-    return redirect(url_for("index"))
 
 if __name__ == "__main__":
     app.run(

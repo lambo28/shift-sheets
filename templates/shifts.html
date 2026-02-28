@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+
+{% block title %}Shift Patterns - Driver Shift Sheets{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>
+        <i class="fas fa-calendar-week"></i> Shift Patterns
+    </h1>
+    <a href="{{ url_for('add_shift_pattern') }}" class="btn btn-primary">
+        <i class="fas fa-plus"></i> Create Pattern
+    </a>
+</div>
+
+{% if patterns %}
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Pattern Name</th>
+                            <th>Description</th>
+                            <th>Cycle Length</th>
+                            <th>Pattern Preview</th>
+                            <th>Assigned To</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pattern in patterns %}
+                        <tr>
+                            <td>
+                                <strong>{{ pattern.name }}</strong>
+                            </td>
+                            <td>
+                                <small class="text-muted">
+                                    {{ pattern.description or 'No description' }}
+                                </small>
+                            </td>
+                            <td>
+                                <span class="badge bg-dark fs-6">
+                                    {{ pattern.cycle_length }} days
+                                </span>
+                            </td>
+                            <td>
+                                <div class="d-flex flex-wrap gap-1">
+                                    {% set pattern_data = pattern.get_pattern_data() %}
+                                    {% for shift in pattern_data[:7] %}
+                                        {% if shift == 'day_off' %}
+                                            <span class="badge bg-secondary">OFF</span>
+                                        {% elif shift == 'earlies' %}
+                                            <span class="badge bg-warning">E</span>
+                                        {% elif shift == 'days' %}
+                                            <span class="badge bg-success">D</span>
+                                        {% elif shift == 'lates' %}
+                                            <span class="badge bg-info">L</span>
+                                        {% elif shift == 'nights' %}
+                                            <span class="badge bg-dark">N</span>
+                                        {% else %}
+                                            <span class="badge bg-light text-dark">?</span>
+                                        {% endif %}
+                                    {% endfor %}
+                                    {% if pattern_data|length > 7 %}
+                                        <span class="text-muted">...</span>
+                                    {% endif %}
+                                </div>
+                                <small class="text-muted d-block mt-1">
+                                    E=Earlies, D=Days, L=Lates, N=Nights, OFF=Rest Day
+                                </small>
+                            </td>
+                            <td>
+                                <span class="badge bg-primary fs-6">
+                                    {{ pattern.assignments|length }} drivers
+                                </span>
+                            </td>
+                            <td>
+                                <small class="text-muted">{{ pattern.created_at.strftime('%m/%d/%Y') }}</small>
+                            </td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-sm btn-outline-info" 
+                                            onclick="viewPattern({{ pattern.id }})" title="View Pattern Details">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" 
+                                            onclick="confirmDelete({{ pattern.id }}, '{{ pattern.name }}')"
+                                            title="Delete Pattern">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+{% else %}
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <i class="fas fa-calendar-plus fa-4x text-muted mb-3"></i>
+            <h3 class="text-muted">No Shift Patterns Created</h3>
+            <p class="text-muted mb-4">Create reusable shift patterns that can be assigned to drivers.</p>
+            <a href="{{ url_for('add_shift_pattern') }}" class="btn btn-primary btn-lg">
+                <i class="fas fa-plus"></i> Create First Pattern
+            </a>
+        </div>
+    </div>
+{% endif %}
+
+<!-- Info Card -->
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card bg-light">
+            <div class="card-body">
+                <h5><i class="fas fa-lightbulb text-warning"></i> How Shift Patterns Work</h5>
+                <div class="row">
+                    <div class="col-md-4">
+                        <h6>1. Create Patterns</h6>
+                        <p class="small text-muted">Define recurring shift cycles (e.g., 7-day, 14-day rotations) with different shift types for each day.</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h6>2. Assign to Drivers</h6>
+                        <p class="small text-muted">Assign patterns to drivers with start/end dates. One driver can have different patterns over time.</p>
+                    </div>
+                    <div class="col-md-4">
+                        <h6>3. Generate Daily Sheets</h6>
+                        <p class="small text-muted">Daily sheets automatically show which drivers work based on their assigned patterns.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Deletion</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete the shift pattern <strong><span id="patternName"></span></strong>?</p>
+                <p class="text-danger"><i class="fas fa-exclamation-triangle"></i> This will also remove all driver assignments using this pattern.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="deleteForm" method="POST" style="display: inline;">
+                    <button type="submit" class="btn btn-danger">Delete Pattern</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pattern Detail Modal -->
+<div class="modal fade" id="patternModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Pattern Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="patternDetails"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function confirmDelete(patternId, patternName) {
+    document.getElementById('patternName').textContent = patternName;
+    document.getElementById('deleteForm').action = `/shift-pattern/${patternId}/delete`;
+    
+    var deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    deleteModal.show();
+}
+
+function viewPattern(patternId) {
+    // This would fetch pattern details via AJAX in a real implementation
+    document.getElementById('patternDetails').innerHTML = `
+        <p class="text-muted">Pattern details would be loaded here...</p>
+    `;
+    
+    var patternModal = new bootstrap.Modal(document.getElementById('patternModal'));
+    patternModal.show();
+}
+</script>
+{% endblock %}
