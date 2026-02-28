@@ -26,6 +26,7 @@ class Driver(db.Model):
     school_badge = db.Column(db.Boolean, default=False)
     pet_friendly = db.Column(db.Boolean, default=False)
     assistance_guide_dogs_exempt = db.Column(db.Boolean, default=False)
+    electric_vehicle = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -117,9 +118,29 @@ class DriverAssignment(db.Model):
         
         return self.shift_pattern.get_shift_for_day(cycle_day)
 
-# ✅ Create tables inside application context
 with app.app_context():
     db.create_all()
+
+# Custom Jinja2 filter for ordinal dates
+@app.template_filter('ordinal_date')
+def ordinal_date(date_obj, format_str='%A, %B %d, %Y'):
+    """Format date with ordinal suffix (1st, 2nd, 3rd, etc.)"""
+    day = date_obj.day
+    if 10 <= day <= 19:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th')
+    
+    # Replace %d with day + suffix in the format string
+    if '%d' in format_str:
+        format_str = format_str.replace('%d', str(day) + suffix)
+    
+    return date_obj.strftime(format_str)
+
+# Add datetime to template context
+@app.context_processor
+def utility_processor():
+    return dict(datetime=datetime)
 
 # Helper functions
 def calculate_hours(start_time, end_time, break_minutes=0):
@@ -278,11 +299,29 @@ def assign_pattern_to_driver(driver_id):
     patterns = ShiftPattern.query.all()
     
     if request.method == "POST":
+        start_date = datetime.strptime(request.form.get("start_date"), '%Y-%m-%d').date()
+        end_date = datetime.strptime(request.form.get("end_date"), '%Y-%m-%d').date() if request.form.get("end_date") else None
+        
+        # Find any overlapping assignments that need to be ended
+        overlapping_assignments = DriverAssignment.query.filter(
+            DriverAssignment.driver_id == driver_id,
+            DriverAssignment.start_date < start_date,  # Started before new assignment
+            db.or_(
+                DriverAssignment.end_date.is_(None),  # Ongoing assignment
+                DriverAssignment.end_date >= start_date  # Or ends after new assignment starts
+            )
+        ).all()
+        
+        # End all overlapping assignments the day before new one starts
+        for assignment in overlapping_assignments:
+            assignment.end_date = start_date - timedelta(days=1)
+        
+        # Create new assignment
         assignment = DriverAssignment(
             driver_id=driver_id,
             shift_pattern_id=int(request.form.get("pattern_id")),
-            start_date=datetime.strptime(request.form.get("start_date"), '%Y-%m-%d').date(),
-            end_date=datetime.strptime(request.form.get("end_date"), '%Y-%m-%d').date() if request.form.get("end_date") else None
+            start_date=start_date,
+            end_date=end_date
         )
         
         try:
@@ -296,6 +335,86 @@ def assign_pattern_to_driver(driver_id):
     
     return render_template("assign_pattern.html", driver=driver, patterns=patterns)
 
+@app.route("/driver/<int:driver_id>/assignment/<int:assignment_id>/end", methods=["POST"])
+def end_assignment(driver_id, assignment_id):
+    """End an active driver assignment"""
+    driver = Driver.query.get_or_404(driver_id)
+    assignment = DriverAssignment.query.get_or_404(assignment_id)
+    
+    # Verify the assignment belongs to this driver
+    if assignment.driver_id != driver_id:
+        flash("Invalid assignment", "error")
+        return redirect(url_for("drivers"))
+    
+    # Check if assignment is still active
+    if assignment.end_date:
+        flash("Assignment is already ended", "error")
+        return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+    
+    try:
+        # Set end date to today
+        assignment.end_date = datetime.now().date()
+        
+        # Check if there was a previous assignment that was ended because of this one
+        # Look for assignments that ended the day before this one started
+        previous_assignment = DriverAssignment.query.filter(
+            DriverAssignment.driver_id == driver_id,
+            DriverAssignment.end_date == assignment.start_date - timedelta(days=1),
+            DriverAssignment.id != assignment_id
+        ).order_by(DriverAssignment.start_date.desc()).first()
+        
+        # If found, restore it to ongoing (remove end date)
+        if previous_assignment:
+            previous_assignment.end_date = None
+            flash(f"Assignment ended and previous pattern '{previous_assignment.shift_pattern.name}' restored for {driver.formatted_name()}", "success")
+        else:
+            flash(f"Assignment ended successfully for {driver.formatted_name()}", "success")
+            
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error ending assignment: {str(e)}", "error")
+    
+    return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+
+@app.route("/driver/<int:driver_id>/assignment/<int:assignment_id>/delete", methods=["POST"])
+def delete_assignment(driver_id, assignment_id):
+    """Delete a driver assignment completely"""
+    driver = Driver.query.get_or_404(driver_id)
+    assignment = DriverAssignment.query.get_or_404(assignment_id)
+    
+    # Verify the assignment belongs to this driver
+    if assignment.driver_id != driver_id:
+        flash("Invalid assignment", "error")
+        return redirect(url_for("drivers"))
+    
+    try:
+        # Check if this assignment auto-ended a previous one and restore it
+        previous_assignment = DriverAssignment.query.filter(
+            DriverAssignment.driver_id == driver_id,
+            DriverAssignment.end_date == assignment.start_date - timedelta(days=1),
+            DriverAssignment.id != assignment_id
+        ).order_by(DriverAssignment.start_date.desc()).first()
+        
+        pattern_name = assignment.shift_pattern.name
+        
+        # Delete the assignment
+        db.session.delete(assignment)
+        
+        # Restore previous assignment if it was auto-ended
+        if previous_assignment:
+            previous_assignment.end_date = None
+            flash(f"Assignment '{pattern_name}' deleted and previous pattern '{previous_assignment.shift_pattern.name}' restored for {driver.formatted_name()}", "success")
+        else:
+            flash(f"Assignment '{pattern_name}' deleted successfully for {driver.formatted_name()}", "success")
+            
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error deleting assignment: {str(e)}", "error")
+    
+    return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+
 @app.route("/driver/add", methods=["GET", "POST"])
 def add_driver():
     """Add new driver"""
@@ -306,7 +425,8 @@ def add_driver():
             car_type=request.form.get("car_type"),
             school_badge=bool(request.form.get("school_badge")),
             pet_friendly=bool(request.form.get("pet_friendly")),
-            assistance_guide_dogs_exempt=bool(request.form.get("assistance_guide_dogs_exempt"))
+            assistance_guide_dogs_exempt=bool(request.form.get("assistance_guide_dogs_exempt")),
+            electric_vehicle=bool(request.form.get("electric_vehicle"))
         )
         
         try:
@@ -319,6 +439,30 @@ def add_driver():
             flash(f"Error adding driver: {str(e)}", "error")
     
     return render_template("add_driver.html")
+
+@app.route("/driver/<int:driver_id>/edit", methods=["GET", "POST"])
+def edit_driver(driver_id):
+    """Edit existing driver"""
+    driver = Driver.query.get_or_404(driver_id)
+    
+    if request.method == "POST":
+        driver.driver_number = request.form.get("driver_number")
+        driver.name = request.form.get("name")
+        driver.car_type = request.form.get("car_type")
+        driver.school_badge = bool(request.form.get("school_badge"))
+        driver.pet_friendly = bool(request.form.get("pet_friendly"))
+        driver.assistance_guide_dogs_exempt = bool(request.form.get("assistance_guide_dogs_exempt"))
+        driver.electric_vehicle = bool(request.form.get("electric_vehicle"))
+        
+        try:
+            db.session.commit()
+            flash("Driver updated successfully!", "success")
+            return redirect(url_for("drivers"))
+        except Exception as e:
+            db.session.rollback()
+            flash(f"Error updating driver: {str(e)}", "error")
+    
+    return render_template("edit_driver.html", driver=driver)
 
 @app.route("/driver/<int:driver_id>/delete", methods=["POST"])
 def delete_driver(driver_id):

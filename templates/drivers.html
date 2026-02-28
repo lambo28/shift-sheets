@@ -23,7 +23,7 @@
                             <th>Name</th>
                             <th>Vehicle Type</th>
                             <th>Attributes</th>
-                            <th>Current Pattern</th>
+                            <th>Shift Patterns</th>
                             <th>Joined</th>
                             <th>Actions</th>
                         </tr>
@@ -39,7 +39,7 @@
                             </td>
                             <td>
                                 <span class="badge bg-{{ 'success' if driver.car_type == 'Standard' else 'info' if driver.car_type == 'Estate' else 'warning' if driver.car_type == 'XL Estate' else 'secondary' }}">
-                                    {{ driver.car_type }}
+                                    {{ driver.car_type }}{% if driver.electric_vehicle %}&nbsp;&nbsp;<i class="fas fa-bolt"></i>{% endif %}
                                 </span>
                             </td>
                             <td>
@@ -66,14 +66,25 @@
                             </td>
                             <td>
                                 {% set current_assignment = driver.get_current_assignment() %}
-                                {% if current_assignment %}
+                                {% set future_assignments = driver.assignments|selectattr('start_date', 'gt', datetime.now().date())|list %}
+                                {% if current_assignment or future_assignments %}
                                     <div class="d-flex flex-column">
-                                        <span class="badge bg-info mb-1">
-                                            {{ current_assignment.shift_pattern.name }}
-                                        </span>
-                                        <small class="text-muted">
-                                            Since {{ current_assignment.start_date.strftime('%m/%d/%Y') }}
-                                        </small>
+                                        {% if current_assignment %}
+                                            <span class="badge bg-success mb-1">
+                                                {{ current_assignment.shift_pattern.name }}
+                                            </span>
+                                            <small class="text-muted">
+                                                Since {{ current_assignment.start_date.strftime('%d/%m/%Y') }}
+                                            </small>
+                                        {% endif %}
+                                        {% for assignment in future_assignments %}
+                                            <span class="badge bg-primary mb-1">
+                                                {{ assignment.shift_pattern.name }}
+                                            </span>
+                                            <small class="text-muted">
+                                                From {{ assignment.start_date.strftime('%d/%m/%Y') }}
+                                            </small>
+                                        {% endfor %}
                                     </div>
                                 {% else %}
                                     <div class="text-muted text-center">
@@ -86,9 +97,13 @@
                                     </div>
                                 {% endif %}
                             </td>
-                            <td>{{ driver.created_at.strftime('%m/%d/%Y') }}</td>
+                            <td>{{ driver.created_at.strftime('%d/%m/%Y') }}</td>
                             <td>
                                 <div class="btn-group" role="group">
+                                    <a href="{{ url_for('edit_driver', driver_id=driver.id) }}" 
+                                       class="btn btn-sm btn-outline-primary" title="Edit Driver">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
                                     {% if current_assignment %}
                                         <a href="{{ url_for('assign_pattern_to_driver', driver_id=driver.id) }}" 
                                            class="btn btn-sm btn-outline-info" title="Change Pattern">
@@ -112,7 +127,7 @@
 
     <!-- Summary Stats -->
     <div class="row mt-4">
-        <div class="col-md-3">
+        <div class="col-md-2">
             <div class="card bg-primary text-white">
                 <div class="card-body text-center">
                     <h4>{{ drivers|length }}</h4>
@@ -120,24 +135,40 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card bg-success text-white">
+        <div class="col-md-2">
+            <div class="card bg-warning text-dark">
                 <div class="card-body text-center">
                     <h4>{{ drivers|selectattr('school_badge')|list|length }}</h4>
-                    <p class="mb-0">School Badge</p>
+                    <p class="mb-0"><i class="fas fa-school"></i> School Badge</p>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card bg-info text-white">
+        <div class="col-md-2">
+            <div class="card bg-success text-white">
                 <div class="card-body text-center">
                     <h4>{{ drivers|selectattr('pet_friendly')|list|length }}</h4>
-                    <p class="mb-0">Pet Friendly</p>
+                    <p class="mb-0"><i class="fas fa-paw"></i> Pet Friendly</p>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card bg-warning text-dark">
+        <div class="col-md-2">
+            <div class="card bg-info text-white">
+                <div class="card-body text-center">
+                    <h4>{{ drivers|selectattr('assistance_guide_dogs_exempt')|list|length }}</h4>
+                    <p class="mb-0"><i class="fas fa-eye"></i> No Assistance</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card bg-dark text-white">
+                <div class="card-body text-center">
+                    <h4>{{ drivers|selectattr('electric_vehicle')|list|length }}</h4>
+                    <p class="mb-0"><i class="fas fa-bolt"></i> Electric</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card bg-secondary text-white">
                 <div class="card-body text-center">
                     {% set drivers_with_patterns = [] %}
                     {% for driver in drivers %}

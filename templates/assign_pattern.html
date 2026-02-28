@@ -60,14 +60,14 @@
 
                         <!-- Current Assignment Warning -->
                         {% set current_assignment = driver.get_current_assignment() %}
-                        {% if current_assignment %}
-                            <div class="alert alert-warning">
+                        {% if current_assignment and not current_assignment.end_date %}
+                            <div class="alert alert-warning" id="assignment-warning" style="display: none;">
                                 <i class="fas fa-exclamation-triangle"></i> 
                                 <strong>Current Assignment:</strong> This driver is already assigned to 
-                                "{{ current_assignment.shift_pattern.name }}" since {{ current_assignment.start_date.strftime('%m/%d/%Y') }}.
-                                {% if not current_assignment.end_date %}
-                                    <br><small>The new assignment will end the current one.</small>
-                                {% endif %}
+                                "{{ current_assignment.shift_pattern.name }}" since {{ current_assignment.start_date.strftime('%d/%m/%Y') }}.
+                                <br><small class="fw-bold">
+                                    <span id="transition-warning">The new assignment will end the current one.</span>
+                                </small>
                             </div>
                         {% endif %}
 
@@ -112,6 +112,7 @@
                                     <th>Period</th>
                                     <th>Status</th>
                                     <th>Assigned</th>
+                                    <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -119,17 +120,47 @@
                                 <tr>
                                     <td>{{ assignment.shift_pattern.name }}</td>
                                     <td>
-                                        {{ assignment.start_date.strftime('%m/%d/%Y') }} - 
-                                        {{ assignment.end_date.strftime('%m/%d/%Y') if assignment.end_date else 'Ongoing' }}
+                                        {{ assignment.start_date.strftime('%d/%m/%Y') }} - 
+                                        {{ assignment.end_date.strftime('%d/%m/%Y') if assignment.end_date else 'Ongoing' }}
                                     </td>
                                     <td>
-                                        {% if not assignment.end_date %}
+                                        {% set today = datetime.now().date() %}
+                                        {% if assignment.start_date > today %}
+                                            <span class="badge bg-primary">Scheduled</span>
+                                        {% elif not assignment.end_date or assignment.end_date >= today %}
                                             <span class="badge bg-success">Active</span>
                                         {% else %}
                                             <span class="badge bg-secondary">Ended</span>
                                         {% endif %}
                                     </td>
-                                    <td>{{ assignment.created_at.strftime('%m/%d/%Y') }}</td>
+                                    <td>{{ assignment.created_at.strftime('%d/%m/%Y') }}</td>
+                                    <td>
+                                        {% set today = datetime.now().date() %}
+                                        <div class="btn-group" role="group">
+                                            {% if assignment.start_date > today %}
+                                                <!-- Future assignment - can delete -->
+                                                <button type="button" class="btn btn-sm btn-outline-danger" 
+                                                        onclick="confirmDeleteAssignment({{ assignment.id }}, '{{ assignment.shift_pattern.name }}')"
+                                                        title="Delete Assignment">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            {% elif not assignment.end_date %}
+                                                <!-- Active assignment - can end -->
+                                                <button type="button" class="btn btn-sm btn-outline-warning" 
+                                                        onclick="confirmEndAssignment({{ assignment.id }}, '{{ assignment.shift_pattern.name }}')"
+                                                        title="End Assignment">
+                                                    <i class="fas fa-stop"></i> End
+                                                </button>
+                                            {% else %}
+                                                <!-- Ended assignment - can delete -->
+                                                <button type="button" class="btn btn-sm btn-outline-danger" 
+                                                        onclick="confirmDeleteAssignment({{ assignment.id }}, '{{ assignment.shift_pattern.name }}')"
+                                                        title="Delete Assignment">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            {% endif %}
+                                        </div>
+                                    </td>
                                 </tr>
                                 {% endfor %}
                             </tbody>
@@ -192,6 +223,73 @@ function showPatternPreview() {
     });
     
     preview.style.display = 'block';
+}
+
+// Handle assignment warning visibility
+document.addEventListener('DOMContentLoaded', function() {
+    const startDateInput = document.getElementById('start_date');
+    const patternSelect = document.getElementById('pattern_id');
+    const assignmentWarning = document.getElementById('assignment-warning');
+    const warningText = document.getElementById('transition-warning');
+
+    function updateWarningVisibilityOnDateChange() {
+        updateWarningVisibility();
+    }
+
+    function updateWarningVisibility() {
+        if (assignmentWarning && patternSelect.value && startDateInput.value) {
+            assignmentWarning.style.display = 'block';
+            updateTransitionWarning();
+        } else if (assignmentWarning) {
+            assignmentWarning.style.display = 'none';
+        }
+    }
+
+    function updateTransitionWarning() {
+        if (warningText && startDateInput.value) {
+            const startDate = new Date(startDateInput.value);
+            const endDate = new Date(startDate);
+            endDate.setDate(endDate.getDate() - 1);
+            
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            startDate.setHours(0, 0, 0, 0);
+            
+            if (startDate > today) {
+                warningText.innerHTML = `Current pattern will continue until ${endDate.toLocaleDateString('en-GB')} and new pattern starts ${startDate.toLocaleDateString('en-GB')}.`;
+            } else {
+                warningText.innerHTML = 'The new assignment will end the current one.';
+            }
+        }
+    }
+    
+    startDateInput.addEventListener('change', updateWarningVisibilityOnDateChange);
+    patternSelect.addEventListener('change', updateWarningVisibility);
+    
+    // Initial check
+    updateWarningVisibility();
+});
+
+function confirmEndAssignment(assignmentId, patternName) {
+    if (confirm(`Are you sure you want to end the assignment for "${patternName}"?\n\nThis will stop the shift pattern from today onwards.`)) {
+        // Create and submit form
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `{{ url_for('end_assignment', driver_id=driver.id, assignment_id=0) }}`.replace('0', assignmentId);
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+function confirmDeleteAssignment(assignmentId, patternName) {
+    if (confirm(`Are you sure you want to DELETE the assignment for "${patternName}"?\n\nThis will permanently remove the assignment from history.`)) {
+        // Create and submit form
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `{{ url_for('delete_assignment', driver_id=driver.id, assignment_id=0) }}`.replace('0', assignmentId);
+        document.body.appendChild(form);
+        form.submit();
+    }
 }
 </script>
 {% endblock %}

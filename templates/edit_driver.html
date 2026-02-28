@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Add Driver - Driver Shift Sheets{% endblock %}
+{% block title %}Edit Driver - Driver Shift Sheets{% endblock %}
 
 {% block content %}
 <div class="row">
@@ -8,7 +8,7 @@
         <div class="card">
             <div class="card-header">
                 <h3 class="mb-0">
-                    <i class="fas fa-user-plus"></i> Add New Driver
+                    <i class="fas fa-edit"></i> Edit Driver: {{ driver.formatted_name() }}
                 </h3>
             </div>
             <div class="card-body">
@@ -17,6 +17,7 @@
                         <label for="driver_number" class="form-label">Driver Number *</label>
                         <input type="number" class="form-control" id="driver_number" 
                                name="driver_number" required 
+                               value="{{ driver.driver_number }}"
                                placeholder="e.g., 123, 456" min="1">
                         <div class="form-text">Numeric only - no leading zeros</div>
                     </div>
@@ -25,6 +26,7 @@
                         <label for="name" class="form-label">Full Name *</label>
                         <input type="text" class="form-control" id="name" 
                                name="name" required 
+                               value="{{ driver.name }}"
                                placeholder="e.g., Andrew Smith">
                         <div class="form-text">Will be formatted as "A. Smith" in displays</div>
                     </div>
@@ -33,17 +35,18 @@
                         <label for="car_type" class="form-label">Vehicle Type *</label>
                         <select class="form-select" id="car_type" name="car_type" required>
                             <option value="">Select vehicle type</option>
-                            <option value="Standard">Standard</option>
-                            <option value="Estate">Estate</option>
-                            <option value="XL Estate">XL Estate</option>
-                            <option value="Minibus">Minibus</option>
+                            <option value="Standard" {{ 'selected' if driver.car_type == 'Standard' else '' }}>Standard</option>
+                            <option value="Estate" {{ 'selected' if driver.car_type == 'Estate' else '' }}>Estate</option>
+                            <option value="XL Estate" {{ 'selected' if driver.car_type == 'XL Estate' else '' }}>XL Estate</option>
+                            <option value="Minibus" {{ 'selected' if driver.car_type == 'Minibus' else '' }}>Minibus</option>
                         </select>
                         <div class="form-text">Type of vehicle driven</div>
                     </div>
 
                     <div class="mb-3">
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="electric_vehicle" name="electric_vehicle" value="1">
+                            <input class="form-check-input" type="checkbox" id="electric_vehicle" 
+                                   name="electric_vehicle" value="1" {{ 'checked' if driver.electric_vehicle else '' }}>
                             <label class="form-check-label" for="electric_vehicle">
                                 <i class="fas fa-bolt text-warning"></i> Electric Vehicle
                             </label>
@@ -55,21 +58,24 @@
                     <div class="mb-3">
                         <label class="form-label">Driver Attributes</label>
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" id="school_badge" name="school_badge" value="1">
+                            <input class="form-check-input" type="checkbox" id="school_badge" 
+                                   name="school_badge" value="1" {{ 'checked' if driver.school_badge else '' }}>
                             <label class="form-check-label" for="school_badge">
                                 <i class="fas fa-school text-warning"></i> School Badge
                             </label>
                             <div class="form-text">Driver is authorized for school routes</div>
                         </div>
                         <div class="form-check mt-2">
-                            <input class="form-check-input" type="checkbox" id="pet_friendly" name="pet_friendly" value="1">
+                            <input class="form-check-input" type="checkbox" id="pet_friendly" 
+                                   name="pet_friendly" value="1" {{ 'checked' if driver.pet_friendly else '' }}>
                             <label class="form-check-label" for="pet_friendly">
                                 <i class="fas fa-paw text-success"></i> Pet Friendly
                             </label>
                             <div class="form-text">Driver allows pets in vehicle</div>
                         </div>
                         <div class="form-check mt-2">
-                            <input class="form-check-input" type="checkbox" id="assistance_guide_dogs_exempt" name="assistance_guide_dogs_exempt" value="1">
+                            <input class="form-check-input" type="checkbox" id="assistance_guide_dogs_exempt" 
+                                   name="assistance_guide_dogs_exempt" value="1" {{ 'checked' if driver.assistance_guide_dogs_exempt else '' }}>
                             <label class="form-check-label" for="assistance_guide_dogs_exempt">
                                 <i class="fas fa-eye text-info"></i> Exempt from Assistance/Guide Dogs
                             </label>
@@ -82,27 +88,10 @@
                             <i class="fas fa-times"></i> Cancel
                         </a>
                         <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-user-plus"></i> Add Driver
+                            <i class="fas fa-save"></i> Update Driver
                         </button>
                     </div>
                 </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Info Card -->
-<div class="row mt-4">
-    <div class="col-md-8 mx-auto">
-        <div class="card bg-light">
-            <div class="card-body">
-                <h6><i class="fas fa-info-circle text-primary"></i> Next Steps</h6>
-                <p class="mb-2 small">After creating a driver, you can:</p>
-                <ul class="small mb-0">
-                    <li>Create shift patterns in the <strong>Shift</strong> section</li>
-                    <li>Assign patterns to drivers with date ranges</li>
-                    <li>Generate daily sheets to see who's working</li>
-                </ul>
             </div>
         </div>
     </div>
