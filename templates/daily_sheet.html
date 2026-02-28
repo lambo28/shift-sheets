@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block title %}Daily Shift Sheet - {{ target_date.strftime('%B %d, %Y') }} - Driver Shift Sheets{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1>
+            <i class="fas fa-calendar-day"></i> Daily Shift Sheet
+        </h1>
+        <h4 class="text-muted">{{ target_date.strftime('%A, %B %d, %Y') }}</h4>
+    </div>
+    <div>
+        <a href="{{ url_for('print_daily_sheet', date=target_date.strftime('%Y-%m-%d')) }}" class="btn btn-outline-primary me-2" target="_blank">
+            <i class="fas fa-print"></i> Print
+        </a>
+        <a href="{{ url_for('daily_sheet_form') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> New Daily Sheet
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    {% set shift_order = ['earlies', 'days', 'lates', 'nights'] %}
+    {% set shift_colors = {'earlies': 'warning', 'days': 'success', 'lates': 'info', 'nights': 'dark'} %}
+    {% set shift_icons = {'earlies': 'fa-sun', 'days': 'fa-sun', 'lates': 'fa-moon', 'nights': 'fa-star'} %}
+    
+    {% for shift_type in shift_order %}
+        {% set drivers = drivers_by_shift[shift_type] %}
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header bg-{{ shift_colors[shift_type] }} text-white">
+                    <h5 class="mb-0">
+                        <i class="fas {{ shift_icons[shift_type] }}"></i>
+                        {{ shift_type.title() }} Shift
+                        <span class="badge bg-light text-dark ms-2">{{ drivers|length }} drivers</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if drivers %}
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Driver #</th>
+                                        <th>Name</th>
+                                        <th>Vehicle</th>
+                                        <th>Attributes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for driver in drivers %}
+                                    <tr>
+                                        <td>
+                                            <span class="badge bg-primary">{{ driver.formatted_driver_number() }}</span>
+                                        </td>
+                                        <td>
+                                            <strong>{{ driver.formatted_name() }}</strong>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-{{ 'success' if driver.car_type == 'Standard' else 'info' if driver.car_type == 'Estate' else 'warning' if driver.car_type == 'XL Estate' else 'secondary' }}">
+                                                {{ driver.car_type }}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <div class="d-flex gap-1">
+                                                {% if driver.school_badge %}
+                                                    <span class="badge bg-warning" title="School Badge">
+                                                        <i class="fas fa-school"></i>
+                                                    </span>
+                                                {% endif %}
+                                                {% if driver.pet_friendly %}
+                                                    <span class="badge bg-success" title="Pet Friendly">
+                                                        <i class="fas fa-paw"></i>
+                                                    </span>
+                                                {% endif %}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center text-muted py-3">
+                            <i class="fas fa-user-slash fa-2x mb-2"></i>
+                            <p class="mb-0">No drivers scheduled for {{ shift_type }} shift</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+</div>
+
+<!-- Summary Section -->
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-bar"></i> Daily Summary
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    {% set total_drivers = drivers_by_shift['earlies']|length + drivers_by_shift['days']|length + drivers_by_shift['lates']|length + drivers_by_shift['nights']|length %}
+                    <div class="col-md-3">
+                        <div class="border-end">
+                            <h3 class="text-primary">{{ total_drivers }}</h3>
+                            <p class="text-muted">Total Drivers</p>
+                        </div>
+                    </div>
+                    {% for shift_type in shift_order %}
+                        <div class="col-md-2">
+                            <div class="border-end">
+                                <h4 class="text-{{ shift_colors[shift_type] }}">{{ drivers_by_shift[shift_type]|length }}</h4>
+                                <p class="text-muted">{{ shift_type.title() }}</p>
+                            </div>
+                        </div>
+                    {% endfor %}
+                    <div class="col-md-1">
+                        <!-- Spacer -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if (drivers_by_shift['earlies']|length + drivers_by_shift['days']|length + drivers_by_shift['lates']|length + drivers_by_shift['nights']|length) == 0 %}
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="alert alert-info text-center">
+            <i class="fas fa-info-circle fa-2x mb-3"></i>
+            <h4>No drivers scheduled for {{ target_date.strftime('%A, %B %d, %Y') }}</h4>
+            <p class="mb-0">This may be a scheduled day off or all drivers may be on different cycle days.</p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

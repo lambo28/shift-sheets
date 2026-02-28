@@ -22,12 +22,41 @@ class Driver(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     driver_number = db.Column(db.String(50), unique=True, nullable=False)
     name = db.Column(db.String(100), nullable=False)
-    phone = db.Column(db.String(20))
-    email = db.Column(db.String(100))
+    car_type = db.Column(db.String(100), nullable=False)  # Standard, Estate, XL Estate, Minibus
+    shift_pattern_cycle = db.Column(db.Integer, nullable=False)  # number of days in cycle
+    daily_shifts = db.Column(db.Text, nullable=False)  # JSON string of daily shift assignments
+    school_badge = db.Column(db.Boolean, default=False)
+    pet_friendly = db.Column(db.Boolean, default=False)
+    shift_start_date = db.Column(db.Date, nullable=False)
+    shift_end_date = db.Column(db.Date)  # Optional - for temporary assignments
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Relationship to shifts
     shifts = db.relationship('ShiftSheet', backref='driver', lazy=True)
+    
+    # Helper method to format name in "A. Someone" style
+    def formatted_name(self):
+        parts = self.name.strip().split()
+        if len(parts) >= 2:
+            first_initial = parts[0][0].upper() + '.'
+            last_name = ' '.join(parts[1:]).title()
+            return f"{first_initial} {last_name}"
+        return self.name.title()
+    
+    # Helper method to format driver number (remove leading zeros)
+    def formatted_driver_number(self):
+        try:
+            return str(int(self.driver_number))
+        except:
+            return self.driver_number
+    
+    # Helper method to get daily shift pattern as list
+    def get_daily_shifts(self):
+        try:
+            import json
+            return json.loads(self.daily_shifts)
+        except:
+            return []
 
 class ShiftSheet(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -77,6 +106,59 @@ def calculate_hours(start_time, end_time, break_minutes=0):
     except:
         return 0.0
 
+def get_operational_date():
+    """Get current operational date considering 6am crossover"""
+    now = datetime.now()
+    if now.hour < 6:
+        # Before 6am, still previous operational day
+        return (now - timedelta(days=1)).date()
+    else:
+        # 6am or later, current operational day
+        return now.date()
+
+def get_drivers_count_by_shift(target_date):
+    """Get count of drivers by shift type for a specific date"""
+    drivers_by_shift = get_drivers_for_date(target_date)
+    return {
+        'earlies': len(drivers_by_shift['earlies']),
+        'days': len(drivers_by_shift['days']),
+        'lates': len(drivers_by_shift['lates']),
+        'nights': len(drivers_by_shift['nights'])
+    }
+
+def get_drivers_for_date(target_date):
+    """Get all drivers working on a specific date with their shift assignments"""
+    import json
+    
+    drivers_working = {'earlies': [], 'days': [], 'lates': [], 'nights': []}
+    
+    # Get all active drivers
+    drivers = Driver.query.filter(
+        Driver.shift_start_date <= target_date
+    ).filter(
+        db.or_(
+            Driver.shift_end_date.is_(None),
+            Driver.shift_end_date >= target_date
+        )
+    ).all()
+    
+    for driver in drivers:
+        # Calculate which day of their cycle this target_date falls on
+        days_since_start = (target_date - driver.shift_start_date).days
+        cycle_day = days_since_start % driver.shift_pattern_cycle
+        
+        # Get their shift pattern
+        try:
+            daily_shifts = json.loads(driver.daily_shifts)
+            if cycle_day < len(daily_shifts):
+                shift_type = daily_shifts[cycle_day]
+                if shift_type != 'day_off' and shift_type in drivers_working:
+                    drivers_working[shift_type].append(driver)
+        except:
+            continue
+    
+    return drivers_working
+
 def get_week_dates(date_str):
     """Get Monday and Sunday for the week containing the given date"""
     try:
@@ -90,10 +172,30 @@ def get_week_dates(date_str):
 # Routes
 @app.route("/")
 def index():
-    """Main dashboard showing recent shifts"""
-    recent_shifts = ShiftSheet.query.order_by(ShiftSheet.created_at.desc()).limit(10).all()
+    """Main dashboard"""
     drivers = Driver.query.all()
-    return render_template("index.html", recent_shifts=recent_shifts, drivers=drivers)
+    
+    # Get operational dates
+    today = get_operational_date()
+    tomorrow = today + timedelta(days=1)
+    
+    # Get driver counts for today and tomorrow
+    today_drivers = get_drivers_for_date(today)
+    tomorrow_drivers = get_drivers_for_date(tomorrow)
+    
+    today_total = sum(len(drivers_list) for drivers_list in today_drivers.values())
+    tomorrow_total = sum(len(drivers_list) for drivers_list in tomorrow_drivers.values())
+    
+    # Get shift distribution for today
+    today_shift_counts = get_drivers_count_by_shift(today)
+    
+    return render_template("index.html", 
+                         drivers=drivers,
+                         today=today,
+                         tomorrow=tomorrow,
+                         today_total=today_total,
+                         tomorrow_total=tomorrow_total,
+                         today_shift_counts=today_shift_counts)
 
 @app.route("/drivers")
 def drivers():
@@ -105,11 +207,24 @@ def drivers():
 def add_driver():
     """Add new driver"""
     if request.method == "POST":
+        # Collect daily shift assignments
+        cycle_days = int(request.form.get("shift_pattern_cycle", 7))
+        daily_shifts = []
+        for day in range(1, cycle_days + 1):
+            shift = request.form.get(f"day_{day}_shift", "day_off")
+            daily_shifts.append(shift)
+        
+        import json
         driver = Driver(
             driver_number=request.form.get("driver_number"),
             name=request.form.get("name"),
-            phone=request.form.get("phone", ""),
-            email=request.form.get("email", "")
+            car_type=request.form.get("car_type"),
+            shift_pattern_cycle=cycle_days,
+            daily_shifts=json.dumps(daily_shifts),
+            school_badge=bool(request.form.get("school_badge")),
+            pet_friendly=bool(request.form.get("pet_friendly")),
+            shift_start_date=datetime.strptime(request.form.get("shift_start_date"), '%Y-%m-%d').date(),
+            shift_end_date=datetime.strptime(request.form.get("shift_end_date"), '%Y-%m-%d').date() if request.form.get("shift_end_date") else None
         )
         
         try:
@@ -136,6 +251,45 @@ def delete_driver(driver_id):
         flash(f"Error deleting driver: {str(e)}", "error")
     
     return redirect(url_for("drivers"))
+
+@app.route("/daily-sheet")
+def daily_sheet_form():
+    """Show form to generate daily shift sheet"""
+    return render_template("daily_sheet_form.html")
+
+@app.route("/daily-sheet/generate", methods=["POST"])
+def generate_daily_sheet():
+    """Generate daily shift sheet for a specific date"""
+    target_date_str = request.form.get("target_date")
+    
+    try:
+        target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
+    except:
+        flash("Invalid date format", "error")
+        return redirect(url_for("daily_sheet_form"))
+    
+    drivers_by_shift = get_drivers_for_date(target_date)
+    
+    return render_template("daily_sheet.html", 
+                         target_date=target_date, 
+                         drivers_by_shift=drivers_by_shift)
+
+@app.route("/daily-sheet/print")
+def print_daily_sheet():
+    """Print-friendly daily shift sheet"""
+    target_date_str = request.args.get("date")
+    
+    try:
+        target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
+    except:
+        flash("Invalid date format", "error")
+        return redirect(url_for("daily_sheet_form"))
+    
+    drivers_by_shift = get_drivers_for_date(target_date)
+    
+    return render_template("print_daily_sheet.html", 
+                         target_date=target_date, 
+                         drivers_by_shift=drivers_by_shift)
 
 @app.route("/shift/new")
 def new_shift():

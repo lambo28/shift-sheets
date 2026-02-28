@@ -21,8 +21,10 @@
                         <tr>
                             <th>Driver #</th>
                             <th>Name</th>
-                            <th>Phone</th>
-                            <th>Email</th>
+                            <th>Vehicle Type</th>
+                            <th>Shift Pattern</th>
+                            <th>Shift Period</th>
+                            <th>Attributes</th>
                             <th>Shifts</th>
                             <th>Joined</th>
                             <th>Actions</th>
@@ -32,35 +34,85 @@
                         {% for driver in drivers %}
                         <tr>
                             <td>
-                                <span class="badge bg-primary fs-6">{{ driver.driver_number }}</span>
-                            </td>
-                            <td>{{ driver.name }}</td>
-                            <td>
-                                {% if driver.phone %}
-                                    <a href="tel:{{ driver.phone }}" class="text-decoration-none">
-                                        <i class="fas fa-phone"></i> {{ driver.phone }}
-                                    </a>
-                                {% else %}
-                                    <span class="text-muted">-</span>
-                                {% endif %}
+                                <span class="badge bg-primary fs-6">{{ driver.formatted_driver_number() }}</span>
                             </td>
                             <td>
-                                {% if driver.email %}
-                                    <a href="mailto:{{ driver.email }}" class="text-decoration-none">
-                                        <i class="fas fa-envelope"></i> {{ driver.email }}
-                                    </a>
-                                {% else %}
-                                    <span class="text-muted">-</span>
-                                {% endif %}
+                                <strong>{{ driver.formatted_name() }}</strong>
                             </td>
                             <td>
-                                <span class="badge bg-info">{{ driver.shifts|length }} shifts</span>
+                                <span class="badge bg-{{ 'success' if driver.car_type == 'Standard' else 'info' if driver.car_type == 'Estate' else 'warning' if driver.car_type == 'XL Estate' else 'secondary' }}">
+                                    {{ driver.car_type }}
+                                </span>
+                            </td>
+                            <td>
+                                <div class="d-flex flex-column">
+                                    <span class="badge bg-dark mb-1">
+                                        {{ driver.shift_pattern_cycle }} day cycle
+                                    </span>
+                                    <small class="text-muted">
+                                        {% set daily_shifts = driver.get_daily_shifts() %}
+                                        {% if daily_shifts %}
+                                            {% set shift_summary = [] %}
+                                            {% for shift in daily_shifts %}
+                                                {% if shift != 'day_off' %}
+                                                    {% set _ = shift_summary.append(shift) %}
+                                                {% endif %}
+                                            {% endfor %}
+                                            {% set unique_shifts = shift_summary | unique | list %}
+                                            {% if unique_shifts | length == 1 %}
+                                                All {{ unique_shifts[0].title() }}
+                                            {% else %}
+                                                Mixed shifts
+                                            {% endif %}
+                                        {% else %}
+                                            Pattern not set
+                                        {% endif %}
+                                    </small>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="d-flex flex-column">
+                                    <small class="text-success fw-bold">
+                                        <i class="fas fa-play"></i> {{ driver.shift_start_date.strftime('%m/%d/%Y') }}
+                                    </small>
+                                    {% if driver.shift_end_date %}
+                                        <small class="text-danger">
+                                            <i class="fas fa-stop"></i> {{ driver.shift_end_date.strftime('%m/%d/%Y') }}
+                                        </small>
+                                    {% else %}
+                                        <small class="text-muted">Ongoing</small>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="d-flex flex-column">
+                                    {% if driver.school_badge %}
+                                        <span class="badge bg-warning mb-1">
+                                            <i class="fas fa-school"></i> School Badge
+                                        </span>
+                                    {% endif %}
+                                    {% if driver.pet_friendly %}
+                                        <span class="badge bg-success mb-1">
+                                            <i class="fas fa-paw"></i> Pet Friendly
+                                        </span>
+                                    {% endif %}
+                                    {% if not driver.school_badge and not driver.pet_friendly %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge bg-info">{{ driver.shifts|length }}</span>
                             </td>
                             <td>{{ driver.created_at.strftime('%m/%d/%Y') }}</td>
                             <td>
                                 <div class="btn-group" role="group">
+                                    <button type="button" class="btn btn-sm btn-outline-info" 
+                                            onclick="viewShiftPattern({{ driver.id }})" title="View Shift Pattern">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
                                     <button type="button" class="btn btn-sm btn-outline-danger" 
-                                            onclick="confirmDelete({{ driver.id }}, '{{ driver.name }}')">
+                                            onclick="confirmDelete({{ driver.id }}, '{{ driver.formatted_name() }}')">
                                         <i class="fas fa-trash"></i>
                                     </button>
                                 </div>
@@ -100,25 +152,63 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <form id="deleteForm" method="POST" style="display: inline;">
-                    <button type="submit" class="btn btn-danger">
-                        <i class="fas fa-trash"></i> Delete
-                    </button>
+                <form method="POST" id="deleteForm" style="display: inline;">
+                    <button type="submit" class="btn btn-danger">Delete Driver</button>
                 </form>
             </div>
         </div>
     </div>
 </div>
-{% endblock %}
 
-{% block extra_scripts %}
+<!-- Shift Pattern modal -->
+<div class="modal fade" id="shiftPatternModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Shift Pattern Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="shiftPatternContent">
+                    <!-- Dynamic content will be loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 function confirmDelete(driverId, driverName) {
     document.getElementById('driverName').textContent = driverName;
     document.getElementById('deleteForm').action = '/driver/' + driverId + '/delete';
     
-    var myModal = new bootstrap.Modal(document.getElementById('deleteModal'));
-    myModal.show();
+    const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
+    modal.show();
+}
+
+function viewShiftPattern(driverId) {
+    // For now, show a placeholder. In a real implementation, you'd fetch data via AJAX
+    const modal = new bootstrap.Modal(document.getElementById('shiftPatternModal'));
+    document.getElementById('shiftPatternContent').innerHTML = `
+        <div class="text-center">
+            <i class="fas fa-spinner fa-spin fa-2x"></i>
+            <p class="mt-2">Loading shift pattern details...</p>
+        </div>
+    `;
+    modal.show();
+    
+    // Simulate loading - in real implementation, fetch from /driver/{id}/pattern endpoint
+    setTimeout(() => {
+        document.getElementById('shiftPatternContent').innerHTML = `
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i>
+                Detailed shift pattern view coming soon! This will show the full cycle breakdown.
+            </div>
+        `;
+    }, 1000);
 }
 </script>
 {% endblock %}

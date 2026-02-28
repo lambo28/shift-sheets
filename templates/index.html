@@ -17,11 +17,12 @@
             <div class="card-body">
                 <div class="d-flex justify-content-between">
                     <div>
-                        <h4>{{ drivers|length }}</h4>
-                        <p>Total Drivers</p>
+                        <h4>{{ today_total }}</h4>
+                        <p>Working Today</p>
+                        <small>{{ today.strftime('%m/%d') }} (6am crossover)</small>
                     </div>
                     <div class="align-self-center">
-                        <i class="fas fa-users fa-2x"></i>
+                        <i class="fas fa-calendar-day fa-2x"></i>
                     </div>
                 </div>
             </div>
@@ -32,28 +33,34 @@
             <div class="card-body">
                 <div class="d-flex justify-content-between">
                     <div>
-                        <h4>{{ recent_shifts|length }}</h4>
-                        <p>Recent Shifts</p>
+                        <h4>{{ tomorrow_total }}</h4>
+                        <p>Working Tomorrow</p>
+                        <small>{{ tomorrow.strftime('%m/%d') }}</small>
                     </div>
                     <div class="align-self-center">
-                        <i class="fas fa-calendar-week fa-2x"></i>
+                        <i class="fas fa-calendar-plus fa-2x"></i>
                     </div>
                 </div>
             </div>
         </div>
     </div>
     <div class="col-md-4">
-        <div class="card bg-info text-white">
+        <div class="card bg-warning text-dark">
             <div class="card-body">
                 <div class="d-flex justify-content-between">
                     <div>
-                        <a href="{{ url_for('new_shift') }}" class="btn btn-light btn-sm">
-                            <i class="fas fa-plus"></i> New Shift
-                        </a>
-                        <p class="mt-2 mb-0">Quick Actions</p>
+                        <h5 class="mb-3">Quick Actions</h5>
+                        <div class="d-flex flex-column gap-2">
+                            <a href="{{ url_for('daily_sheet_form') }}" class="btn btn-dark btn-sm">
+                                <i class="fas fa-calendar-day"></i> Daily Sheet
+                            </a>
+                            <a href="{{ url_for('add_driver') }}" class="btn btn-dark btn-sm">
+                                <i class="fas fa-user-plus"></i> Add Driver
+                            </a>
+                        </div>
                     </div>
                     <div class="align-self-center">
-                        <i class="fas fa-plus-circle fa-2x"></i>
+                        <i class="fas fa-bolt fa-2x"></i>
                     </div>
                 </div>
             </div>
@@ -66,72 +73,98 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">
-                    <i class="fas fa-history"></i> Recent Shift Sheets
+                    <i class="fas fa-chart-bar"></i> Today's Shift Distribution
                 </h5>
-                <a href="{{ url_for('new_shift') }}" class="btn btn-primary btn-sm">
-                    <i class="fas fa-plus"></i> New Shift
-                </a>
+                <small class="text-muted">{{ today.strftime('%A, %B %d, %Y') }}</small>
             </div>
             <div class="card-body">
-                {% if recent_shifts %}
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>Driver</th>
-                                    <th>Week</th>
-                                    <th>Hours</th>
-                                    <th>Miles</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for shift in recent_shifts %}
-                                <tr>
-                                    <td>
-                                        <strong>{{ shift.driver.driver_number }}</strong><br>
-                                        <small class="text-muted">{{ shift.driver.name }}</small>
-                                    </td>
-                                    <td>
-                                        {{ shift.week_starting.strftime('%m/%d') }} - 
-                                        {{ shift.week_ending.strftime('%m/%d/%Y') }}
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-info">
-                                            {{ "%.1f"|format(shift.total_hours) }}h
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <span class="badge bg-secondary">
-                                            {{ "%.0f"|format(shift.total_miles) }} mi
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <a href="{{ url_for('view_shift', shift_id=shift.id) }}" 
-                                           class="btn btn-sm btn-outline-primary">
-                                            <i class="fas fa-eye"></i>
-                                        </a>
-                                        <a href="{{ url_for('edit_shift', shift_id=shift.id) }}" 
-                                           class="btn btn-sm btn-outline-success">
-                                            <i class="fas fa-edit"></i>
-                                        </a>
-                                        <a href="{{ url_for('print_shift', shift_id=shift.id) }}" 
-                                           class="btn btn-sm btn-outline-info" target="_blank">
-                                            <i class="fas fa-print"></i>
-                                        </a>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                {% if today_total > 0 %}
+                    <div class="row text-center mb-4">
+                        <div class="col-md-3">
+                            <div class="p-3 border rounded bg-warning bg-opacity-10">
+                                <h4 class="text-warning mb-1">{{ today_shift_counts.earlies }}</h4>
+                                <p class="mb-0">Earlies</p>
+                                <small class="text-muted">🌅 Early Start</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="p-3 border rounded bg-success bg-opacity-10">
+                                <h4 class="text-success mb-1">{{ today_shift_counts.days }}</h4>
+                                <p class="mb-0">Days</p>
+                                <small class="text-muted">☀️ Day Shift</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="p-3 border rounded bg-info bg-opacity-10">
+                                <h4 class="text-info mb-1">{{ today_shift_counts.lates }}</h4>
+                                <p class="mb-0">Lates</p>
+                                <small class="text-muted">🌆 Late Shift</small>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="p-3 border rounded bg-dark bg-opacity-10">
+                                <h4 class="text-dark mb-1">{{ today_shift_counts.nights }}</h4>
+                                <p class="mb-0">Nights</p>
+                                <small class="text-muted">🌙 Night Shift</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Visual Progress Bars -->
+                    <div class="row">
+                        {% set max_count = [today_shift_counts.earlies, today_shift_counts.days, today_shift_counts.lates, today_shift_counts.nights] | max %}
+                        {% if max_count > 0 %}
+                            <div class="col-md-3">
+                                <div class="mb-2">
+                                    <small class="fw-bold text-warning">Earlies</small>
+                                    <div class="progress" style="height: 10px;">
+                                        <div class="progress-bar bg-warning" style="width: {{ (today_shift_counts.earlies / max_count * 100) | round(1) }}%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="mb-2">
+                                    <small class="fw-bold text-success">Days</small>
+                                    <div class="progress" style="height: 10px;">
+                                        <div class="progress-bar bg-success" style="width: {{ (today_shift_counts.days / max_count * 100) | round(1) }}%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="mb-2">
+                                    <small class="fw-bold text-info">Lates</small>
+                                    <div class="progress" style="height: 10px;">
+                                        <div class="progress-bar bg-info" style="width: {{ (today_shift_counts.lates / max_count * 100) | round(1) }}%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="mb-2">
+                                    <small class="fw-bold text-dark">Nights</small>
+                                    <div class="progress" style="height: 10px;">
+                                        <div class="progress-bar bg-dark" style="width: {{ (today_shift_counts.nights / max_count * 100) | round(1) }}%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <div class="text-center mt-3">
+                        <a href="{{ url_for('generate_daily_sheet') }}" class="btn btn-primary" method="POST" 
+                           onclick="event.preventDefault(); document.getElementById('todayForm').submit();">
+                            <i class="fas fa-list-alt"></i> View Today's Full Roster
+                        </a>
+                        <form id="todayForm" method="POST" action="{{ url_for('generate_daily_sheet') }}" style="display: none;">
+                            <input type="hidden" name="target_date" value="{{ today.strftime('%Y-%m-%d') }}">
+                        </form>
                     </div>
                 {% else %}
-                    <div class="text-center py-4">
-                        <i class="fas fa-clipboard-list fa-3x text-muted mb-3"></i>
-                        <h5 class="text-muted">No shift sheets yet</h5>
-                        <p class="text-muted">Create your first shift sheet to get started.</p>
-                        <a href="{{ url_for('new_shift') }}" class="btn btn-primary">
-                            <i class="fas fa-plus"></i> Create First Shift
+                    <div class="text-center py-5">
+                        <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">No Drivers Scheduled Today</h5>
+                        <p class="text-muted mb-3">All drivers may be on their rest day or cycle day off.</p>
+                        <a href="{{ url_for('daily_sheet_form') }}" class="btn btn-outline-primary">
+                            <i class="fas fa-calendar-search"></i> Check Other Days
                         </a>
                     </div>
                 {% endif %}
@@ -141,41 +174,55 @@
     
     <div class="col-md-4">
         <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header">
                 <h5 class="mb-0">
-                    <i class="fas fa-users"></i> Drivers
+                    <i class="fas fa-calendar-day"></i> Daily Sheet Generator
                 </h5>
-                <a href="{{ url_for('add_driver') }}" class="btn btn-primary btn-sm">
-                    <i class="fas fa-user-plus"></i> Add
-                </a>
             </div>
+            <div class="card-body text-center">
+                <p class="text-muted mb-3">Generate daily rosters showing all drivers working on any specific date.</p>
+                <a href="{{ url_for('daily_sheet_form') }}" class="btn btn-primary btn-lg">
+                    <i class="fas fa-calendar-day"></i> Generate Daily Sheet
+                </a>
+                <hr>
+                <p class="small text-muted mb-0">
+                    <i class="fas fa-info-circle"></i> 
+                    Shows drivers organized by shift type: Earlies, Days, Lates, Nights
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Workflow Guide -->
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card bg-light">
             <div class="card-body">
-                {% if drivers %}
-                    {% for driver in drivers %}
-                        <div class="d-flex justify-content-between align-items-center mb-2 p-2 border rounded">
-                            <div>
-                                <strong>{{ driver.driver_number }}</strong><br>
-                                <small class="text-muted">{{ driver.name }}</small>
-                            </div>
-                            <span class="badge bg-light text-dark">
-                                {{ driver.shifts|length }} shifts
-                            </span>
+                <h5><i class="fas fa-route"></i> Quick Start Guide</h5>
+                <div class="row">
+                    <div class="col-md-4 text-center">
+                        <div class="mb-2">
+                            <i class="fas fa-user-plus fa-2x text-primary"></i>
                         </div>
-                    {% endfor %}
-                    <div class="text-center mt-3">
-                        <a href="{{ url_for('drivers') }}" class="btn btn-sm btn-outline-primary">
-                            View All Drivers
-                        </a>
+                        <h6>1. Add Drivers</h6>
+                        <p class="small text-muted">Set up each driver with their vehicle type, shift pattern cycle, and working schedule.</p>
                     </div>
-                {% else %}
-                    <div class="text-center py-3">
-                        <i class="fas fa-user-plus fa-2x text-muted mb-2"></i>
-                        <p class="text-muted">No drivers registered</p>
-                        <a href="{{ url_for('add_driver') }}" class="btn btn-primary btn-sm">
-                            <i class="fas fa-plus"></i> Add First Driver
-                        </a>
+                    <div class="col-md-4 text-center">
+                        <div class="mb-2">
+                            <i class="fas fa-calendar-day fa-2x text-success"></i>
+                        </div>
+                        <h6>2. Generate Daily Sheets</h6>
+                        <p class="small text-muted">Pick any date to see which drivers are working, organized by shift type.</p>
                     </div>
-                {% endif %}
+                    <div class="col-md-4 text-center">
+                        <div class="mb-2">
+                            <i class="fas fa-print fa-2x text-info"></i>
+                        </div>
+                        <h6>3. Print & Use</h6>
+                        <p class="small text-muted">Print professional daily rosters with signature lines for attendance tracking.</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
