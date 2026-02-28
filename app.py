@@ -25,6 +25,7 @@ class Driver(db.Model):
     car_type = db.Column(db.String(100), nullable=False)  # Standard, Estate, XL Estate, Minibus
     school_badge = db.Column(db.Boolean, default=False)
     pet_friendly = db.Column(db.Boolean, default=False)
+    assistance_guide_dogs_exempt = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -304,7 +305,8 @@ def add_driver():
             name=request.form.get("name"),
             car_type=request.form.get("car_type"),
             school_badge=bool(request.form.get("school_badge")),
-            pet_friendly=bool(request.form.get("pet_friendly"))
+            pet_friendly=bool(request.form.get("pet_friendly")),
+            assistance_guide_dogs_exempt=bool(request.form.get("assistance_guide_dogs_exempt"))
         )
         
         try:

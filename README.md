@@ -1,28 +1,44 @@
 # Driver Shift Sheets 🚛
 
-A comprehensive web application for managing driver shift sheets with printable functionality, built with Flask and SQLite.
+A comprehensive web application for managing driver scheduling with shift patterns and daily roster generation, built with Flask and SQLite.
 
-## Features
+## ✨ Features
 
-- **Driver Management**: Add, edit, and manage driver information
-- **Shift Sheet Creation**: Create weekly shift sheets with daily entries
-- **Data Entry**: Track start/end times, breaks, mileage, routes, and notes
-- **Automatic Calculations**: Hours worked and miles driven calculated automatically
-- **Print-Friendly**: Professional printable shift sheets for physical documentation
+### 🧑‍💼 **Driver Management**
+- Add, edit, and manage basic driver information
+- Vehicle type assignment (Standard, Estate, XL Estate, Minibus)  
+- Driver attributes (School Badge, Pet Friendly)
+- Clean separation of driver data and scheduling
+
+### 🗓️ **Shift Pattern System**
+- Create reusable shift patterns (7, 14, 21, 28-day cycles)
+- Define daily shift types: Earlies, Days, Lates, Nights, Days Off  
+- Visual pattern preview and management
+- Assign patterns to drivers with date ranges
+
+### 📋 **Daily Roster Generation**
+- Generate who's working on any specific date
+- Automatic shift type organization (Earlies/Days/Lates/Nights)
+- Print-friendly daily sheets for dispatch/management
+- 6AM operational day crossover support
+
+### 🎨 **Modern Interface**
 - **Responsive Design**: Works on desktop, tablet, and mobile devices
-- **Docker Support**: Easy deployment with Docker containers
+- **Clean Navigation**: Separate sections for Drivers, Shift Patterns, Daily Sheets
+- **Professional UI**: Bootstrap 5 with intuitive workflow
+- **Docker Support**: Easy deployment with containerization
 
-## Quick Start
+## 🚀 Quick Start
 
 ### Option 1: Docker (Recommended)
 
 ```bash
 # Clone the repository
 git clone <your-repo-url>
-cd shift_app
+cd shift-sheets
 
 # Build and run with Docker Compose
-docker-compose up -d
+docker compose up -d
 
 # Access the application
 open http://localhost:5000
@@ -33,7 +49,7 @@ open http://localhost:5000
 ```bash
 # Clone the repository
 git clone <your-repo-url>
-cd shift_app
+cd shift-sheets
 
 # Create virtual environment
 python3 -m venv venv
@@ -42,10 +58,6 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Set up environment
-cp .env.example .env
-# Edit .env with your settings
-
 # Run the application
 python app.py
 
@@ -53,47 +65,39 @@ python app.py
 open http://localhost:5000
 ```
 
-## Screenshots
+## 📖 How It Works
 
-### Dashboard
-![Dashboard](docs/screenshots/dashboard.png)
+### 🎯 **3-Section Workflow**
 
-### Shift Sheet Entry
-![Shift Entry](docs/screenshots/shift-entry.png)
+#### 1️⃣ **Drivers** (`/drivers`)
+- Add drivers with basic info only (no shift data!)
+- Manage vehicle types and attributes
+- View current pattern assignments
+- Clean, focused driver management
 
-### Print View
-![Print View](docs/screenshots/print-view.png)
+#### 2️⃣ **Shift Patterns** (`/shifts`) 
+- Create reusable shift rotation patterns
+- Example: 7-day pattern [Earlies, Earlies, Days, Days, Lates, Off, Off]
+- Assign patterns to drivers with start/end dates
+- Visual pattern previews
 
-## Usage
+#### 3️⃣ **Daily Sheets** (`/daily-sheet`)
+- Pick any date to generate roster
+- See which drivers work based on their assigned patterns
+- Print professional daily sheets
+- Organized by shift type for easy dispatch
 
-### 1. Add Drivers
-1. Navigate to "Drivers" in the main menu
-2. Click "Add New Driver"
-3. Fill in driver information (number, name, phone, email)
-4. Save the driver
+### 🔄 **Example Workflow**
 
-### 2. Create Shift Sheet
-1. Click "New Shift" from the dashboard or menu
-2. Select a driver and week starting date
-3. The system creates a 7-day shift sheet (Monday-Sunday)
+```mermaid
+graph LR
+    A[Add Drivers] --> B[Create Shift Patterns]
+    B --> C[Assign Patterns to Drivers]
+    C --> D[Generate Daily Sheets]
+    D --> E[Print & Use]
+```
 
-### 3. Fill Out Daily Entries
-1. Click "Edit" on any shift sheet
-2. Enter daily information:
-   - Start/End times (24-hour format)
-   - Break time in minutes
-   - Starting/Ending mileage
-   - Route or location information
-   - Notes for the day
-3. Save changes (totals calculate automatically)
-
-### 4. Print Shift Sheets
-1. View any completed shift sheet
-2. Click the "Print" button
-3. The sheet opens in a print-optimized format
-4. Print or save as PDF
-
-## Configuration
+## ⚙️ Configuration
 
 ### Environment Variables
 
@@ -110,7 +114,7 @@ FLASK_DEBUG=false
 SECRET_KEY=your-super-secret-key-here
 
 # Database (optional, defaults to SQLite)
-DATABASE_URL=sqlite:///data/shifts.db
+DATABASE_URL=sqlite:///data/shift-sheets.db
 
 # Company Information
 COMPANY_NAME=Your Company Name
@@ -118,18 +122,18 @@ COMPANY_NAME=Your Company Name
 
 ### Database
 
-The application uses SQLite by default, storing the database in the `data/` directory. For production, you can configure PostgreSQL or other databases via the `DATABASE_URL` environment variable.
+The application uses SQLite by default, storing data in `data/shift-sheets.db`. For production, you can configure PostgreSQL or other databases via the `DATABASE_URL` environment variable.
 
-## Docker Deployment
+## 🐳 Docker Deployment
 
 ### Docker Compose (Production)
 
 ```yaml
 version: '3.8'
 services:
-  shift_app:
+  shift_web:
     build: .
-    container_name: shift_app
+    container_name: shift_web
     ports:
       - "5000:5000"
     volumes:
@@ -145,164 +149,130 @@ services:
 
 ```bash
 # Build image
-docker build -t shift-app .
+docker build -t shift-sheets .
 
 # Run container
 docker run -d \
-  --name shift-app \
+  --name shift-sheets \
   -p 5000:5000 \
   -v $(pwd)/data:/app/data \
   -e FLASK_CONFIG=production \
   -e SECRET_KEY=your-secret-key \
   -e COMPANY_NAME="Your Company" \
-  shift-app
+  shift-sheets
 ```
 
-## Development
+## 🛠️ Development
 
 ### Project Structure
 
 ```
-shift_app/
-├── app.py                 # Main Flask application
-├── config.py             # Configuration settings
-├── requirements.txt      # Python dependencies
-├── Dockerfile           # Docker container definition
-├── docker-compose.yml   # Docker Compose configuration
-├── .env.example         # Environment variables template
-├── data/               # Database storage (SQLite)
-│   └── .gitkeep
-├── static/             # Static assets (CSS, JS, images)
-│   └── css/
-│       └── style.css
-└── templates/          # HTML templates
-    ├── base.html       # Base template
-    ├── index.html      # Dashboard
-    ├── drivers.html    # Driver management
-    ├── add_driver.html # Add driver form
-    ├── new_shift.html  # New shift form
-    ├── view_shift.html # View shift sheet
-    ├── edit_shift.html # Edit shift sheet
-    └── print_shift.html # Print-friendly sheet
+shift-sheets/
+├── app.py                      # Main Flask application
+├── config.py                   # Configuration settings  
+├── requirements.txt            # Python dependencies
+├── Dockerfile                  # Docker container definition
+├── docker-compose.yml          # Docker Compose configuration
+├── .env.example               # Environment variables template
+├── data/                      # Database storage
+│   ├── .gitkeep
+│   └── shift-sheets.db        # SQLite database
+├── static/css/               # Styling
+│   └── style.css
+└── templates/                # HTML templates
+    ├── base.html             # Base template with navigation
+    ├── index.html            # Dashboard overview
+    ├── drivers.html          # Driver management
+    ├── add_driver.html       # Add driver form
+    ├── shifts.html           # Shift pattern management  
+    ├── add_shift_pattern.html # Create pattern form
+    ├── assign_pattern.html    # Assign pattern to driver
+    ├── daily_sheet_form.html  # Daily sheet generator
+    ├── daily_sheet.html       # Daily roster view
+    └── print_daily_sheet.html # Print-friendly sheets
 ```
 
 ### Database Schema
 
+The application uses a clean 3-model structure:
+
 ```python
-# Driver information
+# Driver information (basic info only)
 Driver:
   - id (Primary Key)
   - driver_number (Unique)
+  - name  
+  - car_type
+  - school_badge (Boolean)
+  - pet_friendly (Boolean)
+  - created_at
+
+# Reusable shift patterns  
+ShiftPattern:
+  - id (Primary Key)
   - name
-  - phone
-  - email
+  - description
+  - cycle_length (days)
+  - pattern_data (JSON: daily shift assignments)
   - created_at
 
-# Weekly shift sheet
-ShiftSheet:
+# Links drivers to patterns with date ranges
+DriverAssignment:
   - id (Primary Key)
-  - driver_id (Foreign Key)
-  - week_starting (Date)
-  - week_ending (Date)
-  - total_hours (Calculated)
-  - total_miles (Calculated)
-  - notes
+  - driver_id (Foreign Key → Driver)
+  - shift_pattern_id (Foreign Key → ShiftPattern)  
+  - start_date
+  - end_date (Optional)
   - created_at
-
-# Daily entries within a shift sheet
-DailyEntry:
-  - id (Primary Key)
-  - shift_sheet_id (Foreign Key)
-  - date
-  - start_time
-  - end_time
-  - break_time (minutes)
-  - hours_worked (Calculated)
-  - mileage_start
-  - mileage_end
-  - miles_driven (Calculated)
-  - route
-  - notes
 ```
 
-### Adding Features
+## 🗂️ API Overview
 
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature-name`
-3. **Make changes** and test thoroughly
-4. **Commit changes**: `git commit -m "Add feature description"`
-5. **Push to branch**: `git push origin feature-name`
-6. **Create Pull Request**
+### Main Routes
 
-## API Documentation
+- **`GET /`** - Dashboard with today/tomorrow driver counts
+- **`GET /drivers`** - Driver management 
+- **`POST /driver/add`** - Add new driver
+- **`GET /shifts`** - Shift pattern management
+- **`POST /shift-pattern/add`** - Create new pattern
+- **`GET /driver/<id>/assign-pattern`** - Assign pattern to driver
+- **`GET /daily-sheet`** - Daily sheet generator form
+- **`POST /daily-sheet/generate`** - Generate roster for specific date
 
-The application includes basic API endpoints:
+## 🎯 Key Concepts
 
-### Drivers
-- `GET /drivers` - List all drivers
-- `POST /driver/add` - Add new driver
-- `DELETE /driver/{id}/delete` - Delete driver
+### Shift Types
+- **Earlies** 🌅 - Early morning shifts
+- **Days** ☀️ - Standard day shifts  
+- **Lates** 🌆 - Late afternoon/evening shifts
+- **Nights** 🌙 - Overnight shifts
+- **Day Off** 💤 - Rest day
 
-### Shifts
-- `GET /` - Dashboard with recent shifts
-- `GET /shift/new` - New shift form
-- `POST /shift/create` - Create shift sheet
-- `GET /shift/{id}` - View shift sheet
-- `GET /shift/{id}/edit` - Edit shift form
-- `POST /shift/{id}/update` - Update shift sheet
-- `GET /shift/{id}/print` - Print view
-- `DELETE /shift/{id}/delete` - Delete shift sheet
+### Operational Day
+- Uses **6AM crossover** - shifts before 6AM belong to previous operational day
+- Ensures overnight shifts are properly categorized
 
-## Troubleshooting
+### Pattern Assignment
+- Multiple patterns can be assigned to the same driver over time
+- Date ranges prevent conflicts
+- New assignments automatically end previous ones
 
-### Common Issues
+## 🤝 Contributing
 
-1. **Database not creating**: Ensure the `data/` directory exists and has write permissions
-2. **Static files not loading**: Check that Flask can access the `static/` directory
-3. **Docker build fails**: Verify Docker is installed and you have internet connectivity
-4. **Print formatting issues**: Use the dedicated print view (`/shift/{id}/print`)
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-### Logs
+## 📄 License
 
-Check application logs:
-```bash
-# Docker
-docker logs shift-app
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-# Local development
-# Logs will appear in terminal
-```
+## 🆘 Support
 
-## Security Considerations
-
-- **Change the SECRET_KEY** in production
-- **Use HTTPS** in production environments
-- **Backup your database** regularly
-- **Restrict access** to the data directory
-- **Update dependencies** regularly
-
-## License
-
-[MIT License](LICENSE) - Feel free to use this project for personal or commercial purposes.
-
-## Support
-
-For issues, questions, or contributions:
-
-1. **GitHub Issues**: Create an issue for bugs or feature requests
-2. **Documentation**: Check this README and inline code comments
-3. **Email**: [your-email@example.com]
-
-## Changelog
-
-### Version 1.0.0 (Current)
-- Initial release
-- Driver management system
-- Weekly shift sheet creation and editing
-- Print-friendly output
-- Docker support
-- Responsive web interface
+For support, please open an issue on GitHub or contact your system administrator.
 
 ---
 
-**Made with ❤️ for drivers and fleet managers**
+**Built with ❤️ for efficient driver scheduling and dispatch operations** 🚛✨

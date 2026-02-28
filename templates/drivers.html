@@ -54,7 +54,12 @@
                                             <i class="fas fa-paw"></i> Pet Friendly
                                         </span>
                                     {% endif %}
-                                    {% if not driver.school_badge and not driver.pet_friendly %}
+                                    {% if driver.assistance_guide_dogs_exempt %}
+                                        <span class="badge bg-info mb-1">
+                                            <i class="fas fa-eye"></i> No Assistance Dogs
+                                        </span>
+                                    {% endif %}
+                                    {% if not driver.school_badge and not driver.pet_friendly and not driver.assistance_guide_dogs_exempt %}
                                         <span class="text-muted">-</span>
                                     {% endif %}
                                 </div>
