@@ -23,7 +23,6 @@
                             <th>Name</th>
                             <th>Phone</th>
                             <th>Email</th>
-                            <th>Shifts</th>
                             <th>Joined</th>
                             <th>Actions</th>
                         </tr>
@@ -52,9 +51,6 @@
                                 {% else %}
                                     <span class="text-muted">-</span>
                                 {% endif %}
-                            </td>
-                            <td>
-                                <span class="badge bg-info">{{ driver.shifts|length }} shifts</span>
                             </td>
                             <td>{{ driver.created_at.strftime('%m/%d/%Y') }}</td>
                             <td>
