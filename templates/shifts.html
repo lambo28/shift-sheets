@@ -272,7 +272,7 @@
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label for="editCycleLength" class="form-label">Cycle Length *</label>
-                                <select class="form-select" id="editCycleLength" name="cycle_length" required onchange="updateEditPatternDays()">
+                                <select class="form-select" id="editCycleLength" name="cycle_length" required>
                                     <option value="7">7 days</option>
                                     <option value="8">8 days</option>
                                     <option value="14">14 days</option>
@@ -301,7 +301,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="savePattern()">Save Changes</button>
+                <button type="button" class="btn btn-primary" id="savePatternBtn">Save Changes</button>
             </div>
         </div>
     </div>
@@ -317,13 +317,35 @@
             </div>
             <div class="modal-body">
                 <p>Are you sure you want to delete the shift pattern <strong><span id="patternName"></span></strong>?</p>
-                <p class="text-danger"><i class="fas fa-exclamation-triangle"></i> This will also remove all driver assignments using this pattern.</p>
+                <p class="text-danger"><i class="fas fa-exclamation-triangle"></i> This will also remove ended driver assignments using this pattern.</p>
+                <div id="deletePatternFeedback" class="alert d-none mt-3" role="alert"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <form id="deleteForm" method="POST" style="display: inline;">
                     <button type="submit" class="btn btn-danger">Delete Pattern</button>
                 </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Shift Type Delete Confirmation Modal -->
+<div class="modal fade" id="shiftTypeDeleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Deletion</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete the shift type <strong><span id="shiftTypeName"></span></strong>?</p>
+                <p class="text-danger"><i class="fas fa-exclamation-triangle"></i> This cannot be undone.</p>
+                <div id="shiftTypeDeleteFeedback" class="alert d-none mt-3" role="alert"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmShiftTypeDeleteBtn">Delete Shift Type</button>
             </div>
         </div>
     </div>
@@ -362,7 +384,7 @@
                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                     <h6 class="mb-0">{{ timing.shift_type.replace('_', ' ').title() }}</h6>
                                     {% if timing.shift_type not in ['earlies', 'days', 'lates', 'nights'] %}
-                                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteShiftType('{{ timing.shift_type }}')">
+                                    <button type="button" class="btn btn-sm btn-outline-danger js-delete-shift-type" data-shift-type="{{ timing.shift_type }}">
                                         <i class="fas fa-trash"></i>
                                     </button>
                                     {% endif %}
@@ -408,7 +430,7 @@
                             <input type="time" class="form-control" id="new_shift_end" name="end_time" required>
                         </div>
                         <div class="col-md-2 mb-2">
-                            <button type="button" class="btn btn-success w-100" onclick="addShiftType()">
+                            <button type="button" class="btn btn-success w-100" id="addShiftTypeBtn">
                                 <i class="fas fa-plus"></i> Add
                             </button>
                         </div>
@@ -416,8 +438,8 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="saveShiftTypes()">Save Changes</button>
+                <button type="button" class="btn btn-secondary" id="shiftTypesCancelBtn" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveShiftTypesBtn">Save Changes</button>
             </div>
         </div>
     </div>
@@ -446,7 +468,7 @@
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label for="copyCycleLength" class="form-label">Cycle Length (Days) *</label>
-                                <select class="form-select" id="copyCycleLength" name="cycle_length" required onchange="updateCopyPatternDays()">
+                                <select class="form-select" id="copyCycleLength" name="cycle_length" required>
                                     <option value="">Select</option>
                                     <option value="7">7 days (1 week)</option>
                                     <option value="8">8 days</option>
@@ -491,7 +513,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-success" id="copyPatternBtn" onclick="saveCopyPattern()">Create Copy</button>
+                <button type="button" class="btn btn-success" id="copyPatternBtn">Create Copy</button>
             </div>
         </div>
     </div>
@@ -519,7 +541,7 @@
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label for="createCycleLength" class="form-label">Cycle Length (Days) *</label>
-                                <select class="form-select" id="createCycleLength" name="cycle_length" required onchange="updateCreatePatternDays()">
+                                <select class="form-select" id="createCycleLength" name="cycle_length" required>
                                     <option value="">Select</option>
                                     <option value="7">7 days (1 week)</option>
                                     <option value="8">8 days</option>
@@ -564,7 +586,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="createPatternBtn" onclick="saveCreatePattern()" disabled>Create Pattern</button>
+                <button type="button" class="btn btn-primary" id="createPatternBtn" disabled>Create Pattern</button>
             </div>
         </div>
     </div>
@@ -572,839 +594,7 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script>
-function getCurrentShiftTypes() {
-    const form = document.getElementById('shiftTypesForm');
-    if (!form) return ['earlies', 'days', 'lates', 'nights'];
-
-    const types = [];
-    form.querySelectorAll('input[name$="_start"]').forEach((input) => {
-        types.push(input.name.replace(/_start$/, ''));
-    });
-
-    return types.length ? types : ['earlies', 'days', 'lates', 'nights'];
-}
-
-function buildShiftTypeOptions(selectedValue = '') {
-    const shiftTypes = getCurrentShiftTypes();
-    return shiftTypes.map((type) => {
-        const selected = selectedValue === type ? 'selected' : '';
-        const label = type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        return `<option value="${type}" ${selected}>${label}</option>`;
-    }).join('');
-}
-
-function getShiftIconClass(shiftType) {
-    if (shiftType === 'earlies') return 'fa-sun text-warning';
-    if (shiftType === 'days') return 'fa-sun text-success';
-    if (shiftType === 'lates') return 'fa-moon text-info';
-    if (shiftType === 'nights') return 'fa-moon text-dark';
-    return 'fa-clock text-primary';
-}
-
-function toTitleCase(value) {
-    return value.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
-}
-
-function syncCurrentShiftsCard(shiftType, startTime, endTime) {
-    const currentGrid = document.getElementById('currentShiftsGrid');
-    if (!currentGrid) return;
-
-    let card = currentGrid.querySelector(`.current-shift-card[data-shift-type="${shiftType}"]`);
-    if (!card) {
-        card = document.createElement('div');
-        card.className = 'col-md-3 current-shift-card';
-        card.setAttribute('data-shift-type', shiftType);
-        currentGrid.appendChild(card);
-    }
-
-    card.setAttribute('data-start-time', startTime);
-    const iconClass = getShiftIconClass(shiftType);
-    const label = toTitleCase(shiftType);
-    card.innerHTML = `
-        <div class="text-center p-3 border rounded">
-            <i class="fas ${iconClass} fa-2x mb-2"></i>
-            <h6>${label}</h6>
-            <p class="mb-0"><strong>${startTime} - ${endTime}</strong></p>
-        </div>
-    `;
-
-    const cards = Array.from(currentGrid.querySelectorAll('.current-shift-card'));
-    cards.sort((a, b) => (a.getAttribute('data-start-time') || '').localeCompare(b.getAttribute('data-start-time') || ''));
-    cards.forEach(sortedCard => currentGrid.appendChild(sortedCard));
-}
-
-function removeCurrentShiftsCard(shiftType) {
-    const currentGrid = document.getElementById('currentShiftsGrid');
-    if (!currentGrid) return;
-    const card = currentGrid.querySelector(`.current-shift-card[data-shift-type="${shiftType}"]`);
-    if (card) {
-        card.remove();
-    }
-}
-
-let shiftTimesBaseline = {};
-
-function captureShiftTimesBaseline() {
-    const form = document.getElementById('shiftTypesForm');
-    if (!form) return;
-
-    const baseline = {};
-    form.querySelectorAll('input[name$="_start"], input[name$="_end"]').forEach((input) => {
-        baseline[input.name] = input.value;
-    });
-    shiftTimesBaseline = baseline;
-}
-
-function restoreShiftTimesFromBaseline() {
-    const form = document.getElementById('shiftTypesForm');
-    if (!form) return;
-
-    form.querySelectorAll('input[name$="_start"], input[name$="_end"]').forEach((input) => {
-        if (Object.prototype.hasOwnProperty.call(shiftTimesBaseline, input.name)) {
-            input.value = shiftTimesBaseline[input.name];
-        }
-    });
-}
-
-let shiftTypesFeedbackTimer = null;
-
-function showShiftTypesFeedback(type, message) {
-    const feedback = document.getElementById('shiftTypesFeedback');
-    if (!feedback) return;
-
-    if (shiftTypesFeedbackTimer) {
-        clearTimeout(shiftTypesFeedbackTimer);
-        shiftTypesFeedbackTimer = null;
-    }
-
-    feedback.classList.remove('d-none', 'alert-success', 'alert-danger', 'alert-warning', 'alert-info');
-    feedback.classList.remove('fade', 'show');
-    feedback.classList.add(`alert-${type}`);
-    feedback.textContent = message;
-
-    feedback.classList.add('fade', 'show');
-
-    shiftTypesFeedbackTimer = setTimeout(() => {
-        feedback.classList.remove('show');
-        setTimeout(() => {
-            feedback.classList.add('d-none');
-            feedback.classList.remove('fade');
-            feedback.textContent = '';
-        }, 300);
-    }, 10000);
-}
-
-function showMainPageFeedback(type, message) {
-    const feedback = document.getElementById('mainPageFeedback');
-    if (!feedback) return;
-
-    feedback.classList.remove('d-none', 'alert-success', 'alert-danger', 'alert-warning', 'alert-info', 'fade', 'show');
-    feedback.classList.add(`alert-${type}`, 'fade', 'show');
-    feedback.textContent = message;
-
-    setTimeout(() => {
-        feedback.classList.remove('show');
-        setTimeout(() => {
-            feedback.classList.add('d-none');
-            feedback.classList.remove('fade');
-            feedback.textContent = '';
-        }, 300);
-    }, 10000);
-}
-
-function setPendingMainFeedback(type, message) {
-    try {
-        sessionStorage.setItem('pendingMainFeedback', JSON.stringify({ type, message }));
-    } catch (error) {
-        console.warn('Could not store pending feedback:', error);
-    }
-}
-
-function flushPendingMainFeedback() {
-    try {
-        const raw = sessionStorage.getItem('pendingMainFeedback');
-        if (!raw) return;
-
-        sessionStorage.removeItem('pendingMainFeedback');
-        const payload = JSON.parse(raw);
-        if (payload && payload.type && payload.message) {
-            showMainPageFeedback(payload.type, payload.message);
-        }
-    } catch (error) {
-        console.warn('Could not load pending feedback:', error);
-    }
-}
-
-// Create pattern management
-function updateCreatePatternDays() {
-    const cycleLength = parseInt(document.getElementById('createCycleLength').value);
-    const container = document.getElementById('createPatternDaysContainer');
-    const section = document.getElementById('createPatternDays');
-    const submitBtn = document.getElementById('createPatternBtn');
-    
-    if (!cycleLength) {
-        section.style.display = 'none';
-        submitBtn.disabled = true;
-        return;
-    }
-    
-    section.style.display = 'block';
-    submitBtn.disabled = false;
-    container.innerHTML = '';
-    
-    for (let i = 0; i < cycleLength; i++) {
-        const dayDiv = document.createElement('div');
-        dayDiv.className = 'col-md-3 mb-3';
-        
-        dayDiv.innerHTML = `
-            <label for="create_day_${i}_shift" class="form-label">${dayNames[i]}</label>
-            <select class="form-select" id="create_day_${i}_shift" name="day_${i}_shift" required>
-                <option value="day_off">Day Off</option>
-                ${buildShiftTypeOptions()}
-            </select>
-        `;
-        
-        container.appendChild(dayDiv);
-    }
-    
-    // Add text formatting to name field
-    const nameInput = document.getElementById('createName');
-    if (nameInput && !nameInput.hasFormattingListener) {
-        nameInput.addEventListener('input', function(e) {
-            const input = e.target;
-            const cursorPosition = input.selectionStart;
-            const value = input.value;
-            
-            const titleCase = value.toLowerCase().replace(/\\b\\w/g, function(char) {
-                return char.toUpperCase();
-            });
-            
-            input.value = titleCase;
-            input.setSelectionRange(cursorPosition, cursorPosition);
-        });
-        nameInput.hasFormattingListener = true;
-    }
-    
-    // Add text formatting to description field
-    const descInput = document.getElementById('createDescription');
-    if (descInput && !descInput.hasFormattingListener) {
-        descInput.addEventListener('input', function(e) {
-            const input = e.target;
-            const cursorPosition = input.selectionStart;
-            let value = input.value;
-            
-            value = value.toLowerCase().replace(/(^|\\. )(\\w)/g, function(match, p1, p2) {
-                return p1 + p2.toUpperCase();
-            });
-            
-            input.value = value;
-            input.setSelectionRange(cursorPosition, cursorPosition);
-        });
-        descInput.hasFormattingListener = true;
-    }
-}
-
-function saveCreatePattern() {
-    const form = document.getElementById('createPatternForm');
-    const formData = new FormData(form);
-    
-    // Add daily shift data
-    const cycleLength = parseInt(document.getElementById('createCycleLength').value);
-    for (let i = 0; i < cycleLength; i++) {
-        const select = document.getElementById(`create_day_${i}_shift`);
-        if (select) {
-            formData.append(`day_${i}_shift`, select.value);
-        }
-    }
-    
-    fetch('/shift-pattern/add', {
-        method: 'POST',
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: formData
-    })
-    .then(async response => {
-        let data;
-        try {
-            data = await response.json();
-        } catch {
-            data = { success: false, error: `HTTP ${response.status}` };
-        }
-        if (!response.ok) {
-            return { success: false, error: data.error || `HTTP ${response.status}` };
-        }
-        return data;
-    })
-    .then(data => {
-        if (data.success) {
-            var modal = bootstrap.Modal.getInstance(document.getElementById('createPatternModal'));
-            modal.hide();
-            setPendingMainFeedback('success', 'Shift pattern added successfully.');
-            location.reload(); // Refresh page to show updated data
-        } else {
-            showMainPageFeedback('danger', 'Error creating pattern: ' + (data.error || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        console.error('Error creating pattern:', error);
-        showMainPageFeedback('danger', 'Error creating pattern.');
-    });
-}
-
-// Shift types management
-function addShiftType() {
-    const form = document.getElementById('newShiftTypeForm');
-    const formData = new FormData(form);
-
-    const rawName = (formData.get('shift_type') || '').toString().trim().toLowerCase();
-    const shiftType = rawName.replace(/\s+/g, '_');
-    const startTime = formData.get('start_time');
-    const endTime = formData.get('end_time');
-
-    if (!shiftType || !startTime || !endTime) {
-        showShiftTypesFeedback('danger', 'Please fill in all new shift type fields.');
-        return;
-    }
-
-    if (!/^[a-z0-9_]+$/.test(shiftType)) {
-        showShiftTypesFeedback('danger', 'Shift type name can only contain letters, numbers, and underscores.');
-        return;
-    }
-
-    formData.set('shift_type', shiftType);
-
-    fetch('/shift-types/add', {
-        method: 'POST',
-        body: formData
-    })
-    .then(async response => {
-        let data;
-        try {
-            data = await response.json();
-        } catch {
-            data = { success: false, error: `HTTP ${response.status}` };
-        }
-        if (!response.ok) {
-            return { success: false, error: data.error || `HTTP ${response.status}` };
-        }
-        return data;
-    })
-    .then(data => {
-        if (!data.success) {
-            showShiftTypesFeedback('danger', 'Error adding shift type: ' + (data.error || 'Unknown error'));
-            return;
-        }
-
-        const existingCard = document.getElementById(`shift-card-${shiftType}`);
-        if (!existingCard) {
-            const grid = document.getElementById('shiftTypesGrid');
-            const card = document.createElement('div');
-            card.className = 'col-md-6 col-lg-4 mb-4';
-            card.id = `shift-card-${shiftType}`;
-            const label = toTitleCase(shiftType);
-
-            card.innerHTML = `
-                <div class="border rounded p-3 h-100">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h6 class="mb-0">${label}</h6>
-                        <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteShiftType('${shiftType}')">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                    <div class="row">
-                        <div class="col-6">
-                            <label for="${shiftType}_start" class="form-label">Start</label>
-                            <input type="time" class="form-control" id="${shiftType}_start" name="${shiftType}_start" value="${startTime}" required>
-                        </div>
-                        <div class="col-6">
-                            <label for="${shiftType}_end" class="form-label">End</label>
-                            <input type="time" class="form-control" id="${shiftType}_end" name="${shiftType}_end" value="${endTime}" required>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            grid.appendChild(card);
-        }
-
-        syncCurrentShiftsCard(shiftType, startTime, endTime);
-        captureShiftTimesBaseline();
-
-        form.reset();
-        showShiftTypesFeedback('success', 'Shift type added successfully.');
-    })
-    .catch(error => {
-        console.error('Error adding shift type:', error);
-        showShiftTypesFeedback('danger', 'Error adding shift type.');
-    });
-}
-
-function deleteShiftType(shiftType) {
-    if (!confirm(`Delete shift type "${shiftType}"?`)) {
-        return;
-    }
-
-    fetch(`/shift-types/delete/${shiftType}`, {
-        method: 'POST'
-    })
-    .then(async response => {
-        let data;
-        try {
-            data = await response.json();
-        } catch {
-            data = { success: false, error: `HTTP ${response.status}` };
-        }
-        if (!response.ok) {
-            return { success: false, error: data.error || `HTTP ${response.status}` };
-        }
-        return data;
-    })
-    .then(data => {
-        if (!data.success) {
-            showShiftTypesFeedback('danger', 'Error deleting shift type: ' + (data.error || 'Unknown error'));
-            return;
-        }
-
-        const card = document.getElementById(`shift-card-${shiftType}`);
-        if (card) {
-            card.remove();
-        }
-
-        removeCurrentShiftsCard(shiftType);
-        captureShiftTimesBaseline();
-        showShiftTypesFeedback('success', 'Shift type deleted successfully.');
-    })
-    .catch(error => {
-        console.error('Error deleting shift type:', error);
-        showShiftTypesFeedback('danger', 'Error deleting shift type.');
-    });
-}
-
-function saveShiftTypes() {
-    const form = document.getElementById('shiftTypesForm');
-    const formData = new FormData(form);
-    
-    fetch('/shift-types/update', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            const startInputs = form.querySelectorAll('input[name$="_start"]');
-            startInputs.forEach((startInput) => {
-                const shiftType = startInput.name.replace(/_start$/, '');
-                const endInput = form.querySelector(`input[name="${shiftType}_end"]`);
-                if (endInput) {
-                    syncCurrentShiftsCard(shiftType, startInput.value, endInput.value);
-                }
-            });
-            captureShiftTimesBaseline();
-
-            const modal = bootstrap.Modal.getInstance(document.getElementById('shiftTypesModal'));
-            if (modal) {
-                modal.hide();
-            }
-
-            showMainPageFeedback('success', 'Shift times saved successfully.');
-        } else {
-            showShiftTypesFeedback('danger', 'Error saving shift types: ' + (data.error || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        console.error('Error saving shift types:', error);
-        showShiftTypesFeedback('danger', 'Error saving shift types.');
-    });
-}
-
-const dayNames = ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5', 'Day 6', 'Day 7',
-                  'Day 8', 'Day 9', 'Day 10', 'Day 11', 'Day 12', 'Day 13', 'Day 14',
-                  'Day 15', 'Day 16', 'Day 17', 'Day 18', 'Day 19', 'Day 20', 'Day 21',
-                  'Day 22', 'Day 23', 'Day 24', 'Day 25', 'Day 26', 'Day 27', 'Day 28',
-                  'Day 29', 'Day 30', 'Day 31', 'Day 32'];
-
-function confirmDelete(patternId, patternName) {
-    document.getElementById('patternName').textContent = patternName;
-    document.getElementById('deleteForm').action = `/shift-pattern/${patternId}/delete`;
-    
-    var deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
-    deleteModal.show();
-}
-
-function editPattern(patternId) {
-    // Fetch pattern data and populate edit form
-    fetch(`/shift-pattern/${patternId}/edit-data`)
-        .then(response => response.json())
-        .then(data => {
-            document.getElementById('editPatternId').value = data.id;
-            document.getElementById('editName').value = data.name;
-            document.getElementById('editDescription').value = data.description || '';
-            document.getElementById('editCycleLength').value = data.cycle_length;
-            
-            // Store pattern data for use in updateEditPatternDays
-            window.currentEditPatternData = data.pattern_data;
-            updateEditPatternDays();
-            
-            var editModal = new bootstrap.Modal(document.getElementById('editPatternModal'));
-            editModal.show();
-        })
-        .catch(error => {
-            console.error('Error fetching pattern data:', error);
-            alert('Error loading pattern data');
-        });
-}
-
-function updateEditPatternDays() {
-    const cycleLength = parseInt(document.getElementById('editCycleLength').value);
-    const container = document.getElementById('editPatternDaysContainer');
-    
-    container.innerHTML = '';
-    
-    for (let i = 0; i < cycleLength; i++) {
-        const dayDiv = document.createElement('div');
-        dayDiv.className = 'col-md-3 mb-3';
-        
-        // Get existing value if available
-        const currentValue = (window.currentEditPatternData && window.currentEditPatternData[i]) ? window.currentEditPatternData[i] : 'day_off';
-        
-        dayDiv.innerHTML = `
-            <label for="edit_day_${i}_shift" class="form-label">${dayNames[i]}</label>
-            <select class="form-select" id="edit_day_${i}_shift" name="day_${i}_shift" required>
-                <option value="day_off" ${currentValue === 'day_off' ? 'selected' : ''}>Day Off</option>
-                ${buildShiftTypeOptions(currentValue)}
-            </select>
-        `;
-        
-        container.appendChild(dayDiv);
-    }
-    
-    // Add text formatting to name field
-    const nameInput = document.getElementById('editName');
-    if (nameInput && !nameInput.hasFormattingListener) {
-        nameInput.addEventListener('input', function(e) {
-            const input = e.target;
-            const cursorPosition = input.selectionStart;
-            const value = input.value;
-            
-            const titleCase = value.toLowerCase().replace(/\b\w/g, function(char) {
-                return char.toUpperCase();
-            });
-            
-            input.value = titleCase;
-            input.setSelectionRange(cursorPosition, cursorPosition);
-        });
-        nameInput.hasFormattingListener = true;
-    }
-    
-    // Add text formatting to description field
-    const descInput = document.getElementById('editDescription');
-    if (descInput && !descInput.hasFormattingListener) {
-        descInput.addEventListener('input', function(e) {
-            const input = e.target;
-            const cursorPosition = input.selectionStart;
-            let value = input.value;
-            
-            value = value.toLowerCase().replace(/(^|\. )(\w)/g, function(match, p1, p2) {
-                return p1 + p2.toUpperCase();
-            });
-            
-            input.value = value;
-            input.setSelectionRange(cursorPosition, cursorPosition);
-        });
-        descInput.hasFormattingListener = true;
-    }
-}
-
-function savePattern() {
-    const form = document.getElementById('editPatternForm');
-    const formData = new FormData(form);
-    
-    // Add daily shift data
-    const cycleLength = parseInt(document.getElementById('editCycleLength').value);
-    for (let i = 0; i < cycleLength; i++) {
-        const select = document.getElementById(`edit_day_${i}_shift`);
-        if (select) {
-            formData.append(`day_${i}_shift`, select.value);
-        }
-    }
-    
-    const patternId = document.getElementById('editPatternId').value;
-    
-    fetch(`/shift-pattern/${patternId}/edit`, {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            const editModal = bootstrap.Modal.getInstance(document.getElementById('editPatternModal'));
-            if (editModal) {
-                editModal.hide();
-            }
-            setPendingMainFeedback('success', 'Shift pattern updated successfully.');
-            location.reload(); // Refresh page to show updated data
-        } else {
-            showMainPageFeedback('danger', 'Error saving pattern: ' + (data.error || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        console.error('Error saving pattern:', error);
-        showMainPageFeedback('danger', 'Error saving pattern.');
-    });
-}
-
-function updateCopyPatternDays() {
-    const select = document.getElementById('copyCycleLength');
-    const container = document.getElementById('copyPatternDaysContainer');
-    const daysSection = document.getElementById('copyPatternDays');
-    
-    if (select.value && parseInt(select.value) > 0) {
-        const days = parseInt(select.value);
-        daysSection.style.display = 'block';
-        container.innerHTML = '';
-        
-        for (let i = 0; i < days; i++) {
-            const dayDiv = document.createElement('div');
-            dayDiv.className = 'col-md-3 mb-3';
-            dayDiv.innerHTML = `
-                <label for="copyDay${i}" class="form-label">${dayNames[i]}</label>
-                <select class="form-select" id="copyDay${i}" name="day_${i}_shift">
-                    <option value="day_off">Day Off</option>
-                    ${buildShiftTypeOptions()}
-                </select>
-            `;
-            container.appendChild(dayDiv);
-        }
-    } else {
-        daysSection.style.display = 'none';
-    }
-}
-
-function copyPattern(patternId) {
-    // Fetch pattern data
-    fetch(`/shift-pattern/${patternId}/edit-data`)
-        .then(async response => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (!data || !Array.isArray(data.pattern_data)) {
-                alert('Error loading pattern data: invalid response');
-                return;
-            }
-            
-            try {
-                // Pre-fill form with pattern data
-                document.getElementById('copyName').value = `${data.name} (Copy)`;
-                document.getElementById('copyDescription').value = data.description || '';
-                document.getElementById('copyCycleLength').value = data.cycle_length;
-                
-                // Store pattern data for setting day values
-                window.currentCopyPatternData = data.pattern_data;
-                updateCopyPatternDays();
-                
-                // Wait for DOM update then set day values
-                setTimeout(() => {
-                    if (window.currentCopyPatternData) {
-                        for (let i = 0; i < data.cycle_length; i++) {
-                            const select = document.getElementById(`copyDay${i}`);
-                            if (select && window.currentCopyPatternData[i]) {
-                                select.value = window.currentCopyPatternData[i];
-                            }
-                        }
-                    }
-                }, 100);
-                
-                // Show modal
-                new bootstrap.Modal(document.getElementById('copyPatternModal')).show();
-            } catch (uiError) {
-                console.error('UI error while preparing copy modal:', uiError);
-                alert('Error loading pattern data: failed to prepare copy form');
-            }
-        })
-        .catch(error => {
-            console.error('Error fetching pattern:', error);
-            alert('Error loading pattern data: request failed');
-        });
-}
-
-function saveCopyPattern() {
-    const form = document.getElementById('copyPatternForm');
-    const formData = new FormData(form);
-    
-    if (!formData.get('name') || !formData.get('cycle_length')) {
-        alert('Please fill in all required fields');
-        return;
-    }
-    
-    // Add daily shift data
-    const cycleLength = parseInt(formData.get('cycle_length'));
-    for (let i = 0; i < cycleLength; i++) {
-        const select = document.getElementById(`copyDay${i}`);
-        if (select) {
-            formData.append(`day_${i}_shift`, select.value);
-        }
-    }
-    
-    document.getElementById('copyPatternBtn').disabled = true;
-    document.getElementById('copyPatternBtn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
-    
-    fetch('/shift-pattern/add', {
-        method: 'POST',
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: formData
-    })
-    .then(async response => {
-        let data;
-        try {
-            data = await response.json();
-        } catch {
-            data = { success: false, error: `HTTP ${response.status}` };
-        }
-        if (!response.ok) {
-            return { success: false, error: data.error || `HTTP ${response.status}` };
-        }
-        return data;
-    })
-    .then(data => {
-        if (data.success) {
-            var modal = bootstrap.Modal.getInstance(document.getElementById('copyPatternModal'));
-            modal.hide();
-            form.reset();
-            document.getElementById('copyPatternDays').style.display = 'none';
-            setPendingMainFeedback('success', 'Shift pattern copied successfully.');
-            location.reload(); // Reload to show new pattern
-        } else {
-            showMainPageFeedback('danger', 'Error creating pattern copy: ' + (data.error || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showMainPageFeedback('danger', 'Error creating pattern copy.');
-    })
-    .finally(() => {
-        document.getElementById('copyPatternBtn').disabled = false;
-        document.getElementById('copyPatternBtn').innerHTML = 'Create Copy';
-    });
-}
-
-function viewPattern(patternId) {
-    // This would fetch pattern details via AJAX in a real implementation
-    document.getElementById('patternDetails').innerHTML = `
-        <p class="text-muted">Pattern details would be loaded here...</p>
-    `;
-    
-    var patternModal = new bootstrap.Modal(document.getElementById('patternModal'));
-    patternModal.show();
-}
-
-function resetNewShiftTypeForm() {
-    restoreShiftTimesFromBaseline();
-
-    const form = document.getElementById('newShiftTypeForm');
-    if (form) {
-        form.reset();
-    }
-
-    const feedback = document.getElementById('shiftTypesFeedback');
-    if (feedback) {
-        feedback.classList.add('d-none');
-        feedback.textContent = '';
-        feedback.classList.remove('alert-success', 'alert-danger', 'alert-warning', 'alert-info', 'fade', 'show');
-    }
-
-    if (shiftTypesFeedbackTimer) {
-        clearTimeout(shiftTypesFeedbackTimer);
-        shiftTypesFeedbackTimer = null;
-    }
-}
-
-const shiftTypesModalEl = document.getElementById('shiftTypesModal');
-if (shiftTypesModalEl) {
-    shiftTypesModalEl.addEventListener('show.bs.modal', captureShiftTimesBaseline);
-    shiftTypesModalEl.addEventListener('hidden.bs.modal', resetNewShiftTypeForm);
-}
-
-document.querySelectorAll('.drivers-tooltip[data-bs-toggle="tooltip"]').forEach((element) => {
-    new bootstrap.Tooltip(element);
-});
-
-document.querySelectorAll('.js-edit-pattern').forEach((button) => {
-    button.addEventListener('click', () => {
-        const patternId = parseInt(button.dataset.patternId, 10);
-        if (!Number.isNaN(patternId)) {
-            editPattern(patternId);
-        }
-    });
-});
-
-document.querySelectorAll('.js-copy-pattern').forEach((button) => {
-    button.addEventListener('click', () => {
-        const patternId = parseInt(button.dataset.patternId, 10);
-        if (!Number.isNaN(patternId)) {
-            copyPattern(patternId);
-        }
-    });
-});
-
-document.querySelectorAll('.js-delete-pattern').forEach((button) => {
-    button.addEventListener('click', () => {
-        const patternId = parseInt(button.dataset.patternId, 10);
-        const patternName = button.dataset.patternName || '';
-        if (!Number.isNaN(patternId)) {
-            confirmDelete(patternId, patternName);
-        }
-    });
-});
-
-const deleteForm = document.getElementById('deleteForm');
-if (deleteForm) {
-    deleteForm.addEventListener('submit', function(event) {
-        event.preventDefault();
-
-        fetch(deleteForm.action, {
-            method: 'POST',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        })
-        .then(async response => {
-            let data;
-            try {
-                data = await response.json();
-            } catch {
-                data = { success: false, error: `HTTP ${response.status}` };
-            }
-            if (!response.ok) {
-                return { success: false, error: data.error || `HTTP ${response.status}` };
-            }
-            return data;
-        })
-        .then(data => {
-            if (data.success) {
-                const deleteModal = bootstrap.Modal.getInstance(document.getElementById('deleteModal'));
-                if (deleteModal) {
-                    deleteModal.hide();
-                }
-                setPendingMainFeedback('success', 'Shift pattern deleted successfully.');
-                location.reload();
-            } else {
-                showMainPageFeedback('danger', 'Error deleting pattern: ' + (data.error || 'Unknown error'));
-            }
-        })
-        .catch(error => {
-            console.error('Error deleting pattern:', error);
-            showMainPageFeedback('danger', 'Error deleting pattern.');
-        });
-    });
-}
-
-flushPendingMainFeedback();
-</script>
+<script src="{{ url_for('static', filename='js/shifts.core.js') }}"></script>
+<script src="{{ url_for('static', filename='js/shifts.features.js') }}"></script>
+<script src="{{ url_for('static', filename='js/shifts.bindings.js') }}"></script>
 {% endblock %}
