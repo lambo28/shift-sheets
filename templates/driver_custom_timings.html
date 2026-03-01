@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+
+{% block title %}Custom Timings - {{ driver.formatted_name() }} - Driver Shift Sheets{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-10 mx-auto">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h3 class="mb-0">
+                        <i class="fas fa-clock"></i> Custom Shift Timings
+                    </h3>
+                    <p class="mb-0 text-muted">Driver: <strong>{{ driver.formatted_name() }}</strong> (#{{ driver.formatted_driver_number() }})</p>
+                </div>
+                <div class="btn-group">
+                    <a href="{{ url_for('add_custom_timing', driver_id=driver.id) }}" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Add Custom Timing
+                    </a>
+                    <a href="{{ url_for('drivers') }}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left"></i> Back to Drivers
+                    </a>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if timings %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Priority</th>
+                                    <th>Scope</th>
+                                    <th>Criteria</th>
+                                    <th>Start Time</th>
+                                    <th>End Time</th>
+                                    <th>Notes</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for timing in timings %}
+                                <tr>
+                                    <td>
+                                        <span class="badge bg-dark">{{ timing.priority }}</span>
+                                    </td>
+                                    <td>
+                                        {% if timing.assignment %}
+                                            <span class="badge bg-warning">
+                                                <i class="fas fa-calendar"></i> Assignment: {{ timing.assignment.shift_pattern.name }}
+                                            </span>
+                                        {% else %}
+                                            <span class="badge bg-info">
+                                                <i class="fas fa-user"></i> All Assignments
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-column gap-1">
+                                            {% if timing.shift_type %}
+                                                <small class="badge bg-primary">{{ timing.shift_type|title }}</small>
+                                            {% endif %}
+                                            {% if timing.day_of_cycle is not none %}
+                                                <small class="badge bg-secondary">Day {{ timing.day_of_cycle + 1 }} of cycle</small>
+                                            {% endif %}
+                                            {% if timing.day_of_week is not none %}
+                                                <small class="badge bg-secondary">{{ ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][timing.day_of_week] }}</small>
+                                            {% endif %}
+                                            {% if not timing.shift_type and timing.day_of_cycle is none and timing.day_of_week is none %}
+                                                <small class="text-muted">Any shift/day</small>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <strong>{{ timing.start_time.strftime('%H:%M') }}</strong>
+                                    </td>
+                                    <td>
+                                        <strong>{{ timing.end_time.strftime('%H:%M') }}</strong>
+                                        {% if timing.end_time < timing.start_time %}
+                                            <small class="text-muted">(next day)</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if timing.notes %}
+                                            <small class="text-muted">{{ timing.notes }}</small>
+                                        {% else %}
+                                            -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <button type="button" class="btn btn-sm btn-danger delete-timing-btn"
+                                                data-timing-id="{{ timing.id }}"
+                                                data-timing-desc="{{ timing.shift_type or 'Any shift' }} {% if timing.day_of_cycle is not none %}Day {{ timing.day_of_cycle + 1 }}{% endif %} {% if timing.day_of_week is not none %}{{ ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][timing.day_of_week] }}{% endif %}"
+                                                title="Delete Custom Timing">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-clock fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">No Custom Timings Set</h5>
+                        <p class="text-muted">This driver uses default shift times for all assignments.</p>
+                        <a href="{{ url_for('add_custom_timing', driver_id=driver.id) }}" class="btn btn-primary">
+                            <i class="fas fa-plus"></i> Add First Custom Timing
+                        </a>
+                    </div>
+                {% endif %}
+                
+                <hr>
+                <div class="mt-4">
+                    <h6><i class="fas fa-info-circle"></i> How Custom Timings Work</h6>
+                    <ul class="small text-muted">
+                        <li><strong>Priority:</strong> Lower numbers = higher priority. Most specific match wins.</li>
+                        <li><strong>Assignment Scope:</strong> Rules can apply to specific assignments or all assignments for this driver.</li>
+                        <li><strong>Criteria:</strong> Empty criteria means "any". The more specific, the higher the effective priority.</li>
+                        <li><strong>Fallback:</strong> If no custom timing matches, default shift times are used.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Delete Custom Timing</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete this custom timing?</p>
+                <p><strong><span id="timingDesc"></span></strong></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="deleteForm" method="POST" style="display: inline;">
+                    <button type="submit" class="btn btn-danger">Delete Timing</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Add event listener for delete button clicks
+document.addEventListener('click', function(event) {
+    if (event.target.closest('.delete-timing-btn')) {
+        const button = event.target.closest('.delete-timing-btn');
+        const timingId = button.getAttribute('data-timing-id');
+        const timingDesc = button.getAttribute('data-timing-desc');
+        
+        document.getElementById('timingDesc').textContent = timingDesc;
+        document.getElementById('deleteForm').action = `/custom-timing/${timingId}/delete`;
+        
+        var deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+        deleteModal.show();
+    }
+});
+</script>
+{% endblock %}

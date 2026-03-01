@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Driver Shift Sheets{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="mb-0">
+                    <i class="fas fa-cog"></i> Shift Time Settings
+                </h3>
+                <p class="mb-0 text-muted">Configure default times for each shift type</p>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-4">
+                                <h5><i class="fas fa-sun text-warning"></i> Earlies</h5>
+                                <div class="row">
+                                    <div class="col-6">
+                                        <label for="earlies_start" class="form-label">Start Time</label>
+                                        <input type="time" class="form-control" id="earlies_start" 
+                                               name="earlies_start" 
+                                               value="{{ timings.earlies.start_time.strftime('%H:%M') }}" required>
+                                    </div>
+                                    <div class="col-6">
+                                        <label for="earlies_end" class="form-label">End Time</label>
+                                        <input type="time" class="form-control" id="earlies_end" 
+                                               name="earlies_end" 
+                                               value="{{ timings.earlies.end_time.strftime('%H:%M') }}" required>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <h5><i class="fas fa-sun text-primary"></i> Days</h5>
+                                <div class="row">
+                                    <div class="col-6">
+                                        <label for="days_start" class="form-label">Start Time</label>
+                                        <input type="time" class="form-control" id="days_start" 
+                                               name="days_start" 
+                                               value="{{ timings.days.start_time.strftime('%H:%M') }}" required>
+                                    </div>
+                                    <div class="col-6">
+                                        <label for="days_end" class="form-label">End Time</label>
+                                        <input type="time" class="form-control" id="days_end" 
+                                               name="days_end" 
+                                               value="{{ timings.days.end_time.strftime('%H:%M') }}" required>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="mb-4">
+                                <h5><i class="fas fa-moon text-info"></i> Lates</h5>
+                                <div class="row">
+                                    <div class="col-6">
+                                        <label for="lates_start" class="form-label">Start Time</label>
+                                        <input type="time" class="form-control" id="lates_start" 
+                                               name="lates_start" 
+                                               value="{{ timings.lates.start_time.strftime('%H:%M') }}" required>
+                                    </div>
+                                    <div class="col-6">
+                                        <label for="lates_end" class="form-label">End Time</label>
+                                        <input type="time" class="form-control" id="lates_end" 
+                                               name="lates_end" 
+                                               value="{{ timings.lates.end_time.strftime('%H:%M') }}" required>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-4">
+                                <h5><i class="fas fa-moon text-dark"></i> Nights</h5>
+                                <div class="row">
+                                    <div class="col-6">
+                                        <label for="nights_start" class="form-label">Start Time</label>
+                                        <input type="time" class="form-control" id="nights_start" 
+                                               name="nights_start" 
+                                               value="{{ timings.nights.start_time.strftime('%H:%M') }}" required>
+                                    </div>
+                                    <div class="col-6">
+                                        <label for="nights_end" class="form-label">End Time</label>
+                                        <input type="time" class="form-control" id="nights_end" 
+                                               name="nights_end" 
+                                               value="{{ timings.nights.end_time.strftime('%H:%M') }}" required>
+                                        <div class="form-text">
+                                            <small class="text-muted">Note: Night end time is next day if before start time</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <hr>
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Note:</strong> These times will be used to calculate how many cars are working at any given time of day.
+                        For insights and reporting purposes.
+                    </div>
+                    
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{{ url_for('index') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Back to Dashboard
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Save Settings
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -2,6 +2,42 @@
 
 {% block title %}Drivers - Driver Shift Sheets{% endblock %}
 
+{% block extra_head %}
+<style>
+.btn-group .btn {
+    transition: all 0.3s ease !important;
+    transform: scale(1) !important;
+}
+
+.btn-group .btn:hover {
+    transform: scale(1.1) !important;
+    box-shadow: 0 6px 12px rgba(0,0,0,0.3) !important;
+    z-index: 10 !important;
+    position: relative !important;
+}
+
+.btn-primary:hover {
+    background-color: #0056b3 !important;
+    border-color: #0056b3 !important;
+}
+
+.btn-info:hover {
+    background-color: #138496 !important;
+    border-color: #138496 !important;
+}
+
+.btn-danger:hover {
+    background-color: #c82333 !important;
+    border-color: #c82333 !important;
+}
+
+.btn-warning:hover {
+    background-color: #e0a800 !important;
+    border-color: #e0a800 !important;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>
@@ -89,11 +125,6 @@
                                 {% else %}
                                     <div class="text-muted text-center">
                                         <small>No pattern assigned</small>
-                                        <br>
-                                        <a href="{{ url_for('assign_pattern_to_driver', driver_id=driver.id) }}" 
-                                           class="btn btn-sm btn-outline-primary mt-1">
-                                            <i class="fas fa-plus"></i> Assign Pattern
-                                        </a>
                                     </div>
                                 {% endif %}
                             </td>
@@ -101,16 +132,18 @@
                             <td>
                                 <div class="btn-group" role="group">
                                     <a href="{{ url_for('edit_driver', driver_id=driver.id) }}" 
-                                       class="btn btn-sm btn-outline-primary" title="Edit Driver">
+                                       class="btn btn-sm btn-primary" title="Edit Driver">
                                         <i class="fas fa-edit"></i>
                                     </a>
-                                    {% if current_assignment %}
-                                        <a href="{{ url_for('assign_pattern_to_driver', driver_id=driver.id) }}" 
-                                           class="btn btn-sm btn-outline-info" title="Change Pattern">
-                                            <i class="fas fa-calendar"></i>
-                                        </a>
-                                    {% endif %}
-                                    <button type="button" class="btn btn-sm btn-outline-danger delete-driver-btn" 
+                                    <a href="{{ url_for('assign_pattern_to_driver', driver_id=driver.id) }}" 
+                                       class="btn btn-sm btn-info" title="Assign Pattern">
+                                        <i class="fas fa-calendar"></i>
+                                    </a>
+                                    <a href="{{ url_for('driver_custom_timings', driver_id=driver.id) }}" 
+                                       class="btn btn-sm btn-warning" title="Custom Timings">
+                                        <i class="fas fa-clock"></i>
+                                    </a>
+                                    <button type="button" class="btn btn-sm btn-danger delete-driver-btn" 
                                             data-driver-id="{{ driver.id }}"
                                             data-driver-name="{{ driver.formatted_name() }}"
                                             title="Delete Driver">

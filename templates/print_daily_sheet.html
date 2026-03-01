@@ -49,18 +49,23 @@
                                             <th style="width: 80px;">Driver #</th>
                                             <th>Name</th>
                                             <th style="width: 100px;">Vehicle</th>
+                                            <th style="width: 90px;">Times</th>
                                             <th style="width: 60px;">Badges</th>
                                             <th style="width: 120px;">Signature</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {% for driver in drivers %}
+                                        {% for driver_info in drivers %}
                                         <tr>
-                                            <td class="text-center"><strong>{{ driver.formatted_driver_number() }}</strong></td>
-                                            <td><strong>{{ driver.formatted_name() }}</strong></td>
-                                            <td class="text-center">{{ driver.car_type }}</td>
+                                            <td class="text-center"><strong>{{ driver_info.driver.formatted_driver_number() }}</strong></td>
+                                            <td><strong>{{ driver_info.driver.formatted_name() }}</strong></td>
+                                            <td class="text-center">{{ driver_info.driver.car_type }}</td>
                                             <td class="text-center">
-                                                {% if driver.school_badge %}S{% endif %}{% if driver.pet_friendly %}P{% endif %}
+                                                <strong>{{ driver_info.start_time.strftime('%H:%M') }}-{{ driver_info.end_time.strftime('%H:%M') }}</strong>
+                                                {% if driver_info.is_custom %}<br><small style="color: orange;">*Custom</small>{% endif %}
+                                            </td>
+                                            <td class="text-center">
+                                                {% if driver_info.driver.school_badge %}S{% endif %}{% if driver_info.driver.pet_friendly %}P{% endif %}
                                             </td>
                                             <td style="height: 30px;"></td>
                                         </tr>
@@ -72,8 +77,10 @@
                                             <td></td>
                                             <td></td>
                                             <td></td>
+                                            <td></td>
                                         </tr>
                                         <tr style="height: 30px;">
+                                            <td></td>
                                             <td></td>
                                             <td></td>
                                             <td></td>
@@ -92,6 +99,7 @@
                                                 <th style="width: 80px;">Driver #</th>
                                                 <th>Name</th>
                                                 <th style="width: 100px;">Vehicle</th>
+                                                <th style="width: 90px;">Times</th>
                                                 <th style="width: 60px;">Badges</th>
                                                 <th style="width: 120px;">Signature</th>
                                             </tr>
@@ -99,6 +107,7 @@
                                         <tbody>
                                             {% for i in range(3) %}
                                             <tr style="height: 30px;">
+                                                <td></td>
                                                 <td></td>
                                                 <td></td>
                                                 <td></td>

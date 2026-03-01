@@ -2,7 +2,7 @@
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date, time
 import os
 from config import config
 
@@ -89,11 +89,125 @@ class ShiftPattern(db.Model):
         import json
         self.pattern_data = json.dumps(pattern_list)
     
+    # Get count of unique drivers assigned to this pattern
+    def get_unique_driver_count(self):
+        unique_driver_ids = set()
+        for assignment in self.assignments:
+            unique_driver_ids.add(assignment.driver_id)
+        return len(unique_driver_ids)
+
+    # Get unique assigned drivers sorted by numeric driver number
+    def get_unique_assigned_drivers_sorted(self):
+        unique_drivers = {}
+        for assignment in self.assignments:
+            if assignment.driver:
+                unique_drivers[assignment.driver.id] = assignment.driver
+
+        def sort_key(driver):
+            try:
+                numeric_driver_number = int(driver.driver_number)
+                return (0, numeric_driver_number, driver.driver_number)
+            except Exception:
+                return (1, 0, driver.driver_number)
+
+        return sorted(unique_drivers.values(), key=sort_key)
+
     # Get what shift type for a specific day in the cycle
     def get_shift_for_day(self, cycle_day):
         pattern = self.get_pattern_data()
         if 0 <= cycle_day < len(pattern):
             return pattern[cycle_day]
+        return None
+
+# Add Shift Timing Configuration Model
+class ShiftTiming(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    shift_type = db.Column(db.String(20), unique=True, nullable=False)  # 'earlies', 'days', 'lates', 'nights'
+    start_time = db.Column(db.Time, nullable=False)
+    end_time = db.Column(db.Time, nullable=False)
+    
+    @staticmethod
+    def get_default_timings():
+        """Get or create default shift timings"""
+        default_timings = [
+            ('earlies', time(6, 0), time(14, 0)),   # 6 AM - 2 PM
+            ('days', time(8, 0), time(16, 0)),      # 8 AM - 4 PM
+            ('lates', time(14, 0), time(22, 0)),    # 2 PM - 10 PM
+            ('nights', time(22, 0), time(6, 0)),    # 10 PM - 6 AM (next day)
+        ]
+        
+        timings = {}
+        for shift_type, start, end in default_timings:
+            timing = ShiftTiming.query.filter_by(shift_type=shift_type).first()
+            if not timing:
+                timing = ShiftTiming(shift_type=shift_type, start_time=start, end_time=end)
+                db.session.add(timing)
+                db.session.commit()
+            timings[shift_type] = timing
+        return timings
+
+# Driver Custom Timing Configuration Model
+class DriverCustomTiming(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    driver_id = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=False)
+    assignment_id = db.Column(db.Integer, db.ForeignKey('driver_assignment.id'), nullable=True)  # NULL = applies to all assignments
+    
+    # Override criteria (NULL means "any")
+    shift_type = db.Column(db.String(20), nullable=True)  # 'earlies', 'days', 'lates', 'nights', NULL for any
+    day_of_cycle = db.Column(db.Integer, nullable=True)   # 0-based day in cycle, NULL for any
+    day_of_week = db.Column(db.Integer, nullable=True)    # 0=Monday, 6=Sunday, NULL for any
+    
+    # Times
+    start_time = db.Column(db.Time, nullable=False)
+    end_time = db.Column(db.Time, nullable=False)
+    
+    # Priority (lower number = higher priority)
+    priority = db.Column(db.Integer, default=100)
+    
+    # Metadata
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    driver = db.relationship('Driver', backref='custom_timings')
+    assignment = db.relationship('DriverAssignment', backref='custom_timings')
+    
+    @staticmethod
+    def get_custom_timing(driver_id, assignment_id, shift_type, cycle_day, weekday):
+        """Get the highest priority custom timing for given criteria"""
+        # Build query conditions
+        query = DriverCustomTiming.query.filter(DriverCustomTiming.driver_id == driver_id)
+        
+        # Find all matching timings with priority order
+        candidates = []
+        
+        # Check assignment-specific first (highest priority)
+        if assignment_id:
+            assignment_specific = query.filter(
+                DriverCustomTiming.assignment_id == assignment_id
+            ).order_by(DriverCustomTiming.priority).all()
+            candidates.extend(assignment_specific)
+        
+        # Then driver-wide rules
+        driver_wide = query.filter(
+            DriverCustomTiming.assignment_id.is_(None)
+        ).order_by(DriverCustomTiming.priority).all()
+        candidates.extend(driver_wide)
+        
+        # Find best match based on criteria specificity
+        for timing in candidates:
+            # Check if this timing matches all criteria
+            if timing.shift_type is not None and timing.shift_type != shift_type:
+                continue
+            if timing.day_of_cycle is not None and timing.day_of_cycle != cycle_day:
+                continue
+            if timing.day_of_week is not None and timing.day_of_week != weekday:
+                continue
+            
+            # This timing matches - return it
+            return timing
+        
+        return None
         return 'day_off'
 
 class DriverAssignment(db.Model):
@@ -180,8 +294,11 @@ def get_drivers_count_by_shift(target_date):
     }
 
 def get_drivers_for_date(target_date):
-    """Get all drivers working on a specific date with their shift assignments"""
+    """Get all drivers working on a specific date with their shift assignments and timing info"""
     drivers_working = {'earlies': [], 'days': [], 'lates': [], 'nights': []}
+    
+    # Get default timings
+    default_timings = ShiftTiming.get_default_timings()
     
     # Get all active driver assignments for the target date
     assignments = DriverAssignment.query.filter(
@@ -195,7 +312,43 @@ def get_drivers_for_date(target_date):
     for assignment in assignments:
         shift_type = assignment.get_shift_for_date(target_date)
         if shift_type and shift_type != 'day_off' and shift_type in drivers_working:
-            drivers_working[shift_type].append(assignment.driver)
+            # Calculate cycle day and weekday for custom timing lookup
+            days_since_start = (target_date - assignment.start_date).days
+            cycle_day = days_since_start % assignment.shift_pattern.cycle_length
+            weekday = target_date.weekday()  # 0=Monday, 6=Sunday
+            
+            # Check for custom timing
+            custom_timing = DriverCustomTiming.get_custom_timing(
+                assignment.driver_id, 
+                assignment.id, 
+                shift_type, 
+                cycle_day, 
+                weekday
+            )
+            
+            # Get start and end times
+            if custom_timing:
+                start_time = custom_timing.start_time
+                end_time = custom_timing.end_time
+                timing_note = custom_timing.notes or "Custom timing"
+                is_custom = True
+            else:
+                timing = default_timings[shift_type]
+                start_time = timing.start_time
+                end_time = timing.end_time
+                timing_note = None
+                is_custom = False
+            
+            # Create driver info object with timing data
+            driver_info = {
+                'driver': assignment.driver,
+                'start_time': start_time,
+                'end_time': end_time,
+                'is_custom': is_custom,
+                'timing_note': timing_note
+            }
+            
+            drivers_working[shift_type].append(driver_info)
     
     return drivers_working
 
@@ -240,14 +393,148 @@ def index():
 @app.route("/drivers")
 def drivers():
     """Manage drivers"""
-    all_drivers = Driver.query.order_by(Driver.driver_number).all()
+    from sqlalchemy import cast, Integer
+    all_drivers = Driver.query.order_by(cast(Driver.driver_number, Integer)).all()
     return render_template("drivers.html", drivers=all_drivers)
 
 @app.route("/shifts")
 def shifts():
-    """List all shift patterns"""
+    """List all shift patterns and shift type management"""
     all_patterns = ShiftPattern.query.order_by(ShiftPattern.name).all()
-    return render_template("shifts.html", patterns=all_patterns)
+    ShiftTiming.get_default_timings()
+    all_timings = ShiftTiming.query.order_by(ShiftTiming.start_time, ShiftTiming.shift_type).all()
+    timings = {timing.shift_type: timing for timing in all_timings}
+    return render_template("shifts.html", patterns=all_patterns, timings=timings, all_timings=all_timings)
+
+@app.route("/shift-types/update", methods=["POST"])
+def update_shift_types():
+    """Update shift type timings"""
+    try:
+        processed_shift_types = set()
+        for key in request.form.keys():
+            if not key.endswith("_start"):
+                continue
+
+            shift_type = key[:-6]
+            if shift_type in processed_shift_types:
+                continue
+
+            start_time_str = request.form.get(f"{shift_type}_start")
+            end_time_str = request.form.get(f"{shift_type}_end")
+
+            if not start_time_str or not end_time_str:
+                continue
+
+            start_time = datetime.strptime(start_time_str, '%H:%M').time()
+            end_time = datetime.strptime(end_time_str, '%H:%M').time()
+
+            timing = ShiftTiming.query.filter_by(shift_type=shift_type).first()
+            if timing:
+                timing.start_time = start_time
+                timing.end_time = end_time
+            else:
+                timing = ShiftTiming(shift_type=shift_type, start_time=start_time, end_time=end_time)
+                db.session.add(timing)
+
+            processed_shift_types.add(shift_type)
+        
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route("/shift-types/add", methods=["POST"])
+def add_shift_type():
+    """Add a new shift type"""
+    try:
+        shift_type = request.form.get("shift_type", "").strip().lower().replace(" ", "_")
+        start_time_str = request.form.get("start_time")
+        end_time_str = request.form.get("end_time")
+
+        if not shift_type or not start_time_str or not end_time_str:
+            return jsonify({'success': False, 'error': 'All fields are required'})
+
+        if not shift_type.replace("_", "").isalnum():
+            return jsonify({'success': False, 'error': 'Shift type can only use letters, numbers, and underscores'})
+
+        existing = ShiftTiming.query.filter_by(shift_type=shift_type).first()
+        if existing:
+            return jsonify({'success': False, 'error': 'Shift type already exists'})
+
+        start_time = datetime.strptime(start_time_str, '%H:%M').time()
+        end_time = datetime.strptime(end_time_str, '%H:%M').time()
+
+        timing = ShiftTiming(shift_type=shift_type, start_time=start_time, end_time=end_time)
+        db.session.add(timing)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route("/shift-types/delete/<shift_type>", methods=["POST"])
+def delete_shift_type(shift_type):
+    """Delete a custom shift type if not in use"""
+    try:
+        protected_types = {"earlies", "days", "lates", "nights"}
+        if shift_type in protected_types:
+            return jsonify({'success': False, 'error': 'Default shift types cannot be deleted'})
+
+        patterns = ShiftPattern.query.all()
+        for pattern in patterns:
+            if shift_type in pattern.get_pattern_data():
+                return jsonify({'success': False, 'error': f'Shift type is used in pattern: {pattern.name}'})
+
+        custom_timing = DriverCustomTiming.query.filter_by(shift_type=shift_type).first()
+        if custom_timing:
+            return jsonify({'success': False, 'error': 'Shift type is used in custom driver timings'})
+
+        timing = ShiftTiming.query.filter_by(shift_type=shift_type).first()
+        if not timing:
+            return jsonify({'success': False, 'error': 'Shift type not found'})
+
+        db.session.delete(timing)
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route("/settings")
+def settings():
+    """Settings page for shift timings"""
+    timings = ShiftTiming.get_default_timings()
+    return render_template("settings.html", timings=timings)
+
+@app.route("/settings", methods=["POST"])
+def update_settings():
+    """Update shift timing settings"""
+    try:
+        shift_types = ['earlies', 'days', 'lates', 'nights']
+        for shift_type in shift_types:
+            start_time_str = request.form.get(f"{shift_type}_start")
+            end_time_str = request.form.get(f"{shift_type}_end")
+            
+            if start_time_str and end_time_str:
+                start_time = datetime.strptime(start_time_str, '%H:%M').time()
+                end_time = datetime.strptime(end_time_str, '%H:%M').time()
+                
+                timing = ShiftTiming.query.filter_by(shift_type=shift_type).first()
+                if timing:
+                    timing.start_time = start_time
+                    timing.end_time = end_time
+                else:
+                    timing = ShiftTiming(shift_type=shift_type, start_time=start_time, end_time=end_time)
+                    db.session.add(timing)
+        
+        db.session.commit()
+        flash("Shift timings updated successfully!", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error updating settings: {str(e)}", "error")
+    
+    return redirect(url_for("settings"))
 
 @app.route("/shift-pattern/add", methods=["GET", "POST"])
 def add_shift_pattern():
@@ -270,24 +557,78 @@ def add_shift_pattern():
         try:
             db.session.add(pattern)
             db.session.commit()
+
+            is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+            if is_ajax:
+                return jsonify({"success": True})
+
             flash("Shift pattern added successfully!", "success")
             return redirect(url_for("shifts"))
         except Exception as e:
             db.session.rollback()
+            is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+            if is_ajax:
+                return jsonify({"success": False, "error": str(e)}), 400
+
             flash(f"Error adding shift pattern: {str(e)}", "error")
     
-    return render_template("add_shift_pattern.html")
+    return render_template("shifts.html")
+
+@app.route("/shift-pattern/<int:pattern_id>/edit-data")
+def get_shift_pattern_edit_data(pattern_id):
+    """Get shift pattern data for editing"""
+    pattern = ShiftPattern.query.get_or_404(pattern_id)
+    return jsonify({
+        'id': pattern.id,
+        'name': pattern.name,
+        'description': pattern.description,
+        'cycle_length': pattern.cycle_length,
+        'pattern_data': pattern.get_pattern_data()
+    })
+
+@app.route("/shift-pattern/<int:pattern_id>/edit", methods=["POST"])
+def edit_shift_pattern(pattern_id):
+    """Edit existing shift pattern"""
+    pattern = ShiftPattern.query.get_or_404(pattern_id)
+    
+    try:
+        # Update basic info
+        pattern.name = request.form.get("name")
+        pattern.description = request.form.get("description")
+        pattern.cycle_length = int(request.form.get("cycle_length", 7))
+        
+        # Update pattern data
+        pattern_data = []
+        for day in range(pattern.cycle_length):
+            shift = request.form.get(f"day_{day}_shift", "day_off")
+            pattern_data.append(shift)
+        pattern.set_pattern_data(pattern_data)
+        
+        db.session.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route("/shift-pattern/<int:pattern_id>/delete", methods=["POST"])
 def delete_shift_pattern(pattern_id):
     """Delete shift pattern"""
     pattern = ShiftPattern.query.get_or_404(pattern_id)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     try:
         db.session.delete(pattern)
         db.session.commit()
+
+        if is_ajax:
+            return jsonify({"success": True})
+
         flash("Shift pattern deleted successfully!", "success")
     except Exception as e:
         db.session.rollback()
+
+        if is_ajax:
+            return jsonify({"success": False, "error": str(e)}), 400
+
         flash(f"Error deleting shift pattern: {str(e)}", "error")
     
     return redirect(url_for("shifts"))
@@ -328,12 +669,12 @@ def assign_pattern_to_driver(driver_id):
             db.session.add(assignment)
             db.session.commit()
             flash("Shift pattern assigned successfully!", "success")
-            return redirect(url_for("drivers"))
+            return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
         except Exception as e:
             db.session.rollback()
             flash(f"Error assigning pattern: {str(e)}", "error")
     
-    return render_template("assign_pattern.html", driver=driver, patterns=patterns)
+    return render_template("assign_pattern.html", driver=driver, patterns=patterns, today=date.today())
 
 @app.route("/driver/<int:driver_id>/assignment/<int:assignment_id>/end", methods=["POST"])
 def end_assignment(driver_id, assignment_id):
@@ -516,6 +857,162 @@ def print_daily_sheet():
     return render_template("print_daily_sheet.html", 
                          target_date=target_date, 
                          drivers_by_shift=drivers_by_shift)
+
+def get_cars_working_at_time(target_date, target_time):
+    """Get count of cars working at a specific date and time"""
+    from datetime import datetime, timedelta
+    
+    # Get all active assignments for the target date
+    assignments = DriverAssignment.query.filter(
+        DriverAssignment.start_date <= target_date,
+        db.or_(
+            DriverAssignment.end_date.is_(None),
+            DriverAssignment.end_date >= target_date
+        )
+    ).all()
+    
+    # Get default shift timings
+    default_timings = ShiftTiming.get_default_timings()
+    
+    cars_working = 0
+    for assignment in assignments:
+        # Get the shift type for this date
+        shift_type = assignment.get_shift_for_date(target_date)
+        
+        if shift_type and shift_type != 'day_off' and shift_type in default_timings:
+            # Calculate cycle day and weekday for custom timing lookup
+            days_since_start = (target_date - assignment.start_date).days
+            cycle_day = days_since_start % assignment.shift_pattern.cycle_length
+            weekday = target_date.weekday()  # 0=Monday, 6=Sunday
+            
+            # Check for custom timing first
+            custom_timing = DriverCustomTiming.get_custom_timing(
+                assignment.driver_id, 
+                assignment.id, 
+                shift_type, 
+                cycle_day, 
+                weekday
+            )
+            
+            if custom_timing:
+                # Use custom timing
+                start_time = custom_timing.start_time
+                end_time = custom_timing.end_time
+            else:
+                # Use default timing
+                timing = default_timings[shift_type]
+                start_time = timing.start_time
+                end_time = timing.end_time
+            
+            # Handle overnight shifts (when end time is before start time)
+            if end_time < start_time:  # Night shift case
+                # Check if target time is after start OR before end (next day)
+                if target_time >= start_time or target_time < end_time:
+                    cars_working += 1
+            else:  # Regular day shift
+                # Check if target time is between start and end
+                if start_time <= target_time < end_time:
+                    cars_working += 1
+    
+    return cars_working
+
+@app.route("/cars-working", methods=["GET", "POST"])
+def cars_working():
+    """Page to check how many cars are working at a specific time"""
+    if request.method == "POST":
+        try:
+            date_str = request.form.get("date")
+            time_str = request.form.get("time")
+            
+            target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            target_time = datetime.strptime(time_str, '%H:%M').time()
+            
+            car_count = get_cars_working_at_time(target_date, target_time)
+            
+            return render_template("cars_working.html", 
+                                 date=target_date, 
+                                 time=target_time, 
+                                 car_count=car_count,
+                                 timings=ShiftTiming.get_default_timings())
+        except Exception as e:
+            flash(f"Error calculating cars working: {str(e)}", "error")
+    
+    return render_template("cars_working.html", timings=ShiftTiming.get_default_timings())
+
+@app.route("/driver/<int:driver_id>/custom-timings")
+def driver_custom_timings(driver_id):
+    """Manage custom timings for a specific driver"""
+    driver = Driver.query.get_or_404(driver_id)
+    timings = DriverCustomTiming.query.filter_by(driver_id=driver_id).order_by(DriverCustomTiming.priority).all()
+    return render_template("driver_custom_timings.html", driver=driver, timings=timings)
+
+@app.route("/driver/<int:driver_id>/custom-timings/add", methods=["GET", "POST"])
+def add_custom_timing(driver_id):
+    """Add a new custom timing for a driver"""
+    driver = Driver.query.get_or_404(driver_id)
+    
+    if request.method == "POST":
+        try:
+            # Parse form data
+            assignment_id = request.form.get("assignment_id") or None
+            shift_type = request.form.get("shift_type") or None
+            day_of_cycle = request.form.get("day_of_cycle")
+            day_of_week = request.form.get("day_of_week") or None
+            start_time_str = request.form.get("start_time")
+            end_time_str = request.form.get("end_time")
+            priority = int(request.form.get("priority", 100))
+            notes = request.form.get("notes")
+            
+            # Convert times
+            start_time = datetime.strptime(start_time_str, '%H:%M').time()
+            end_time = datetime.strptime(end_time_str, '%H:%M').time()
+            
+            # Convert day_of_cycle to int or None
+            day_of_cycle = int(day_of_cycle) if day_of_cycle else None
+            day_of_week = int(day_of_week) if day_of_week else None
+            assignment_id = int(assignment_id) if assignment_id else None
+            
+            # Create timing
+            timing = DriverCustomTiming(
+                driver_id=driver_id,
+                assignment_id=assignment_id,
+                shift_type=shift_type,
+                day_of_cycle=day_of_cycle,
+                day_of_week=day_of_week,
+                start_time=start_time,
+                end_time=end_time,
+                priority=priority,
+                notes=notes
+            )
+            
+            db.session.add(timing)
+            db.session.commit()
+            flash("Custom timing added successfully!", "success")
+            return redirect(url_for("driver_custom_timings", driver_id=driver_id))
+            
+        except Exception as e:
+            db.session.rollback()
+            flash(f"Error adding custom timing: {str(e)}", "error")
+    
+    # Get driver assignments for dropdown
+    assignments = DriverAssignment.query.filter_by(driver_id=driver_id).all()
+    return render_template("add_custom_timing.html", driver=driver, assignments=assignments)
+
+@app.route("/custom-timing/<int:timing_id>/delete", methods=["POST"])
+def delete_custom_timing(timing_id):
+    """Delete a custom timing"""
+    timing = DriverCustomTiming.query.get_or_404(timing_id)
+    driver_id = timing.driver_id
+    
+    try:
+        db.session.delete(timing)
+        db.session.commit()
+        flash("Custom timing deleted successfully!", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error deleting timing: {str(e)}", "error")
+    
+    return redirect(url_for("driver_custom_timings", driver_id=driver_id))
 
 if __name__ == "__main__":
     app.run(

@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+
+{% block title %}Add Custom Timing - {{ driver.formatted_name() }} - Driver Shift Sheets{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-8 mx-auto">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h3 class="mb-0">
+                        <i class="fas fa-clock"></i> Add Custom Timing
+                    </h3>
+                    <p class="mb-0 text-muted">Driver: <strong>{{ driver.formatted_name() }}</strong> (#{{ driver.formatted_driver_number() }})</p>
+                </div>
+                <a href="{{ url_for('driver_custom_timings', driver_id=driver.id) }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Custom Timings
+                </a>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <!-- Scope Section -->
+                    <div class="mb-4">
+                        <h5><i class="fas fa-bullseye"></i> Scope</h5>
+                        <div class="mb-3">
+                            <label for="assignment_id" class="form-label">Assignment Scope</label>
+                            <select class="form-select" id="assignment_id" name="assignment_id">
+                                <option value="">All assignments for this driver</option>
+                                {% for assignment in assignments %}
+                                    <option value="{{ assignment.id }}">
+                                        {{ assignment.shift_pattern.name }} 
+                                        ({{ assignment.start_date.strftime('%d/%m/%Y') }}
+                                        {% if assignment.end_date %} - {{ assignment.end_date.strftime('%d/%m/%Y') }}{% else %} - ongoing{% endif %})
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <div class="form-text">Leave empty to apply to all assignments, or select a specific one</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Criteria Section -->
+                    <div class="mb-4">
+                        <h5><i class="fas fa-filter"></i> Criteria</h5>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="shift_type" class="form-label">Shift Type</label>
+                                    <select class="form-select" id="shift_type" name="shift_type">
+                                        <option value="">Any shift type</option>
+                                        <option value="earlies">Earlies</option>
+                                        <option value="days">Days</option>
+                                        <option value="lates">Lates</option>
+                                        <option value="nights">Nights</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="day_of_cycle" class="form-label">Day of Cycle</label>
+                                    <select class="form-select" id="day_of_cycle" name="day_of_cycle">
+                                        <option value="">Any day in cycle</option>
+                                        {% for i in range(32) %}
+                                            <option value="{{ i }}">Day {{ i + 1 }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="mb-3">
+                                    <label for="day_of_week" class="form-label">Day of Week</label>
+                                    <select class="form-select" id="day_of_week" name="day_of_week">
+                                        <option value="">Any day of week</option>
+                                        <option value="0">Monday</option>
+                                        <option value="1">Tuesday</option>
+                                        <option value="2">Wednesday</option>
+                                        <option value="3">Thursday</option>
+                                        <option value="4">Friday</option>
+                                        <option value="5">Saturday</option>
+                                        <option value="6">Sunday</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="alert alert-info">
+                            <i class="fas fa-lightbulb"></i>
+                            <strong>Tip:</strong> Leave criteria empty for broader rules. More specific criteria have higher priority.
+                        </div>
+                    </div>
+                    
+                    <!-- Times Section -->
+                    <div class="mb-4">
+                        <h5><i class="fas fa-clock"></i> Custom Times</h5>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="start_time" class="form-label">Start Time *</label>
+                                    <input type="time" class="form-control" id="start_time" name="start_time" required>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="end_time" class="form-label">End Time *</label>
+                                    <input type="time" class="form-control" id="end_time" name="end_time" required>
+                                    <div class="form-text">End time before start time indicates next-day finish (night shifts)</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Priority Section -->
+                    <div class="mb-4">
+                        <h5><i class="fas fa-sort-numeric-down"></i> Priority</h5>
+                        <div class="mb-3">
+                            <label for="priority" class="form-label">Priority Number</label>
+                            <input type="number" class="form-control" id="priority" name="priority" value="100" min="1" max="999">
+                            <div class="form-text">Lower number = higher priority. Rules with more specific criteria naturally take precedence.</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Notes Section -->
+                    <div class="mb-4">
+                        <div class="mb-3">
+                            <label for="notes" class="form-label">Notes (Optional)</label>
+                            <textarea class="form-control" id="notes" name="notes" rows="2" 
+                                      placeholder="e.g., Doctor's appointment, school run, etc."></textarea>
+                        </div>
+                    </div>
+                    
+                    <div class="d-flex gap-2 justify-content-end">
+                        <a href="{{ url_for('driver_custom_timings', driver_id=driver.id) }}" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Cancel
+                        </a>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Save Custom Timing
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Auto-format notes to sentence case
+document.addEventListener('DOMContentLoaded', function() {
+    const notesInput = document.getElementById('notes');
+    if (notesInput) {
+        notesInput.addEventListener('input', function(e) {
+            const input = e.target;
+            const cursorPosition = input.selectionStart;
+            let value = input.value;
+            
+            // Convert to sentence case (first letter of each sentence)
+            value = value.toLowerCase().replace(/(^|\. )(\w)/g, function(match, p1, p2) {
+                return p1 + p2.toUpperCase();
+            });
+            
+            input.value = value;
+            input.setSelectionRange(cursorPosition, cursorPosition);
+        });
+    }
+});
+</script>
+{% endblock %}

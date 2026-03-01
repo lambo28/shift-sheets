@@ -6,11 +6,16 @@
 <div class="row">
     <div class="col-md-8 mx-auto">
         <div class="card">
-            <div class="card-header">
-                <h3 class="mb-0">
-                    <i class="fas fa-calendar-plus"></i> Assign Shift Pattern
-                </h3>
-                <p class="mb-0 text-muted">Driver: <strong>{{ driver.formatted_name() }}</strong> (#{{ driver.formatted_driver_number() }})</p>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <h3 class="mb-0">
+                        <i class="fas fa-calendar-plus"></i> Assign Shift Pattern
+                    </h3>
+                    <p class="mb-0 text-muted">Driver: <strong>{{ driver.formatted_name() }}</strong> (#{{ driver.formatted_driver_number() }})</p>
+                </div>
+                <a href="{{ url_for('drivers') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Drivers
+                </a>
             </div>
             <div class="card-body">
                 {% if patterns %}
@@ -45,8 +50,8 @@
                                 <div class="mb-3">
                                     <label for="start_date" class="form-label">Assignment Start Date *</label>
                                     <input type="date" class="form-control" id="start_date" 
-                                           name="start_date" required value="{{ today().strftime('%Y-%m-%d') if today else '' }}">
-                                    <div class="form-text">When this pattern assignment begins</div>
+                                           name="start_date" value="{{ today.strftime('%Y-%m-%d') if today else '' }}">
+                                    <div class="form-text">When this pattern assignment begins (defaults to today)</div>
                                 </div>
                             </div>
                             <div class="col-md-6">
@@ -54,6 +59,9 @@
                                     <label for="end_date" class="form-label">Assignment End Date</label>
                                     <input type="date" class="form-control" id="end_date" name="end_date">
                                     <div class="form-text">Leave empty for ongoing assignment</div>
+                                    <div class="invalid-feedback" id="end-date-error">
+                                        End date must be after start date
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -72,9 +80,9 @@
                         {% endif %}
 
                         <div class="d-flex gap-2 justify-content-end">
-                            <a href="{{ url_for('drivers') }}" class="btn btn-secondary">
-                                <i class="fas fa-times"></i> Cancel
-                            </a>
+                            <button type="button" class="btn btn-secondary" onclick="clearForm()">
+                                <i class="fas fa-eraser"></i> Clear Form
+                            </button>
                             <button type="submit" class="btn btn-primary">
                                 <i class="fas fa-calendar-plus"></i> Assign Pattern
                             </button>
@@ -269,6 +277,70 @@ document.addEventListener('DOMContentLoaded', function() {
     startDateInput.addEventListener('change', updateWarningVisibilityOnDateChange);
     patternSelect.addEventListener('change', updateWarningVisibility);
     
+    // Add date validation
+    const endDateInput = document.getElementById('end_date');
+    
+    function validateDates() {
+        const startDate = startDateInput.value;
+        const endDate = endDateInput.value;
+        
+        if (startDate) {
+            // Set minimum end date to start date
+            endDateInput.min = startDate;
+            
+            // Validate if end date is set and is before start date
+            if (endDate && endDate < startDate) {
+                endDateInput.setCustomValidity('End date must be after start date');
+                endDateInput.classList.add('is-invalid');
+                document.getElementById('end-date-error').style.display = 'block';
+                return false;
+            } else {
+                endDateInput.setCustomValidity('');
+                endDateInput.classList.remove('is-invalid');
+                document.getElementById('end-date-error').style.display = 'none';
+                return true;
+            }
+        }
+        return true;
+    }
+    
+    startDateInput.addEventListener('change', validateDates);
+    endDateInput.addEventListener('change', validateDates);
+    
+    // Auto-set today's date if start date is empty when field loses focus
+    startDateInput.addEventListener('blur', function() {
+        if (!this.value) {
+            const today = new Date();
+            const todayString = today.getFullYear() + '-' + 
+                               String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+                               String(today.getDate()).padStart(2, '0');
+            this.value = todayString;
+            validateDates();
+            updateWarningVisibility();
+        }
+    });
+    
+    // Validate on form submit
+    document.querySelector('form').addEventListener('submit', function(e) {
+        // Ensure start date is set before validation
+        if (!startDateInput.value) {
+            const today = new Date();
+            const todayString = today.getFullYear() + '-' + 
+                               String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+                               String(today.getDate()).padStart(2, '0');
+            startDateInput.value = todayString;
+            validateDates();
+        }
+        
+        if (!validateDates()) {
+            e.preventDefault();
+            return false;
+        }
+    });
+    
+    // Initial validation
+    validateDates();
+    
     // Add event listeners for assignment action buttons
     document.addEventListener('click', function(event) {
         if (event.target.closest('.delete-assignment-btn')) {
@@ -287,6 +359,29 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initial check
     updateWarningVisibility();
 });
+
+function clearForm() {
+    // Clear all form fields
+    document.getElementById('pattern_id').value = '';
+    document.getElementById('start_date').value = '';
+    document.getElementById('end_date').value = '';
+    
+    // Reset date validation
+    const endDateInput = document.getElementById('end_date');
+    endDateInput.min = '';
+    endDateInput.setCustomValidity('');
+    endDateInput.classList.remove('is-invalid');
+    document.getElementById('end-date-error').style.display = 'none';
+    
+    // Hide previews and warnings
+    const preview = document.getElementById('patternPreview');
+    const warning = document.getElementById('assignment-warning');
+    if (preview) preview.style.display = 'none';
+    if (warning) warning.style.display = 'none';
+    
+    // Reset focus to pattern select
+    document.getElementById('pattern_id').focus();
+}
 
 function confirmEndAssignment(assignmentId, patternName) {
     if (confirm(`Are you sure you want to end the assignment for "${patternName}"?\n\nThis will stop the shift pattern from today onwards.`)) {
