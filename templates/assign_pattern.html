@@ -139,22 +139,25 @@
                                         <div class="btn-group" role="group">
                                             {% if assignment.start_date > today %}
                                                 <!-- Future assignment - can delete -->
-                                                <button type="button" class="btn btn-sm btn-outline-danger" 
-                                                        onclick="confirmDeleteAssignment({{ assignment.id }}, '{{ assignment.shift_pattern.name }}')"
+                                                <button type="button" class="btn btn-sm btn-outline-danger delete-assignment-btn" 
+                                                        data-assignment-id="{{ assignment.id }}"
+                                                        data-pattern-name="{{ assignment.shift_pattern.name }}"
                                                         title="Delete Assignment">
                                                     <i class="fas fa-trash"></i>
                                                 </button>
                                             {% elif not assignment.end_date %}
                                                 <!-- Active assignment - can end -->
-                                                <button type="button" class="btn btn-sm btn-outline-warning" 
-                                                        onclick="confirmEndAssignment({{ assignment.id }}, '{{ assignment.shift_pattern.name }}')"
+                                                <button type="button" class="btn btn-sm btn-outline-warning end-assignment-btn" 
+                                                        data-assignment-id="{{ assignment.id }}"
+                                                        data-pattern-name="{{ assignment.shift_pattern.name }}"
                                                         title="End Assignment">
                                                     <i class="fas fa-stop"></i> End
                                                 </button>
                                             {% else %}
                                                 <!-- Ended assignment - can delete -->
-                                                <button type="button" class="btn btn-sm btn-outline-danger" 
-                                                        onclick="confirmDeleteAssignment({{ assignment.id }}, '{{ assignment.shift_pattern.name }}')"
+                                                <button type="button" class="btn btn-sm btn-outline-danger delete-assignment-btn" 
+                                                        data-assignment-id="{{ assignment.id }}"
+                                                        data-pattern-name="{{ assignment.shift_pattern.name }}"
                                                         title="Delete Assignment">
                                                     <i class="fas fa-trash"></i>
                                                 </button>
@@ -265,6 +268,21 @@ document.addEventListener('DOMContentLoaded', function() {
     
     startDateInput.addEventListener('change', updateWarningVisibilityOnDateChange);
     patternSelect.addEventListener('change', updateWarningVisibility);
+    
+    // Add event listeners for assignment action buttons
+    document.addEventListener('click', function(event) {
+        if (event.target.closest('.delete-assignment-btn')) {
+            const button = event.target.closest('.delete-assignment-btn');
+            const assignmentId = button.getAttribute('data-assignment-id');
+            const patternName = button.getAttribute('data-pattern-name');
+            confirmDeleteAssignment(assignmentId, patternName);
+        } else if (event.target.closest('.end-assignment-btn')) {
+            const button = event.target.closest('.end-assignment-btn');
+            const assignmentId = button.getAttribute('data-assignment-id');
+            const patternName = button.getAttribute('data-pattern-name');
+            confirmEndAssignment(assignmentId, patternName);
+        }
+    });
     
     // Initial check
     updateWarningVisibility();

@@ -110,8 +110,9 @@
                                             <i class="fas fa-calendar"></i>
                                         </a>
                                     {% endif %}
-                                    <button type="button" class="btn btn-sm btn-outline-danger" 
-                                            onclick="confirmDelete({{ driver.id }}, '{{ driver.formatted_name() }}')"
+                                    <button type="button" class="btn btn-sm btn-outline-danger delete-driver-btn" 
+                                            data-driver-id="{{ driver.id }}"
+                                            data-driver-name="{{ driver.formatted_name() }}"
                                             title="Delete Driver">
                                         <i class="fas fa-trash"></i>
                                     </button>
@@ -221,6 +222,16 @@
 
 {% block extra_scripts %}
 <script>
+// Add event listener for delete button clicks
+document.addEventListener('click', function(event) {
+    if (event.target.closest('.delete-driver-btn')) {
+        const button = event.target.closest('.delete-driver-btn');
+        const driverId = button.getAttribute('data-driver-id');
+        const driverName = button.getAttribute('data-driver-name');
+        confirmDelete(driverId, driverName);
+    }
+});
+
 function confirmDelete(driverId, driverName) {
     document.getElementById('driverName').textContent = driverName;
     document.getElementById('deleteForm').action = `/driver/${driverId}/delete`;
