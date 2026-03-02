@@ -1,9 +1,12 @@
 # app.py
 
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta, date, time
 import os
+import secrets
 from config import config
 
 # -----------------------------------------------------------------------------
@@ -21,9 +24,30 @@ os.makedirs(app.config.get('BASE_DIR') / 'data', exist_ok=True)
 
 db = SQLAlchemy(app)
 
+login_manager = LoginManager(app)
+login_manager.login_view = 'login'
+login_manager.login_message = 'Please log in to access this page.'
+login_manager.login_message_category = 'warning'
+
 # -----------------------------------------------------------------------------
 # Database Models
 # -----------------------------------------------------------------------------
+
+class User(db.Model, UserMixin):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 class Driver(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -397,6 +421,7 @@ def get_week_dates(date_str):
 # -----------------------------------------------------------------------------
 
 @app.route("/")
+@login_required
 def index():
     """Main dashboard"""
     drivers = Driver.query.all()
@@ -424,6 +449,7 @@ def index():
                          today_shift_counts=today_shift_counts)
 
 @app.route("/drivers")
+@login_required
 def drivers():
     """Manage drivers"""
     from sqlalchemy import cast, Integer
@@ -431,6 +457,7 @@ def drivers():
     return render_template("drivers.html", drivers=all_drivers)
 
 @app.route("/shifts")
+@login_required
 def shifts():
     """List all shift patterns and shift type management"""
     all_patterns = ShiftPattern.query.order_by(ShiftPattern.name).all()
@@ -440,12 +467,14 @@ def shifts():
     return render_template("shifts.html", patterns=all_patterns, timings=timings, all_timings=all_timings)
 
 @app.route("/settings")
+@login_required
 def settings():
     """Settings page for shift timings"""
     timings = ShiftTiming.get_default_timings()
     return render_template("settings.html", timings=timings)
 
 @app.route("/settings", methods=["POST"])
+@login_required
 def update_settings():
     """Update shift timing settings"""
     try:
@@ -479,6 +508,7 @@ def update_settings():
 # -----------------------------------------------------------------------------
 
 @app.route("/shift-types/update", methods=["POST"])
+@login_required
 def update_shift_types():
     """Update shift type timings"""
     try:
@@ -517,6 +547,7 @@ def update_shift_types():
         return json_error(str(e))
 
 @app.route("/shift-types/add", methods=["POST"])
+@login_required
 def add_shift_type():
     """Add a new shift type"""
     try:
@@ -546,6 +577,7 @@ def add_shift_type():
         return json_error(str(e))
 
 @app.route("/shift-types/delete/<shift_type>", methods=["POST"])
+@login_required
 def delete_shift_type(shift_type):
     """Delete a custom shift type if not in use"""
     try:
@@ -574,6 +606,7 @@ def delete_shift_type(shift_type):
         return json_error(str(e))
 
 @app.route("/shift-pattern/add", methods=["GET", "POST"])
+@login_required
 def add_shift_pattern():
     """Add new shift pattern"""
     if request.method == "POST":
@@ -610,6 +643,7 @@ def add_shift_pattern():
     return render_template("shifts.html")
 
 @app.route("/shift-pattern/<int:pattern_id>/edit-data")
+@login_required
 def get_shift_pattern_edit_data(pattern_id):
     """Get shift pattern data for editing"""
     pattern = ShiftPattern.query.get_or_404(pattern_id)
@@ -622,6 +656,7 @@ def get_shift_pattern_edit_data(pattern_id):
     })
 
 @app.route("/shift-pattern/<int:pattern_id>/edit", methods=["POST"])
+@login_required
 def edit_shift_pattern(pattern_id):
     """Edit existing shift pattern"""
     pattern = ShiftPattern.query.get_or_404(pattern_id)
@@ -646,6 +681,7 @@ def edit_shift_pattern(pattern_id):
         return json_error(str(e))
 
 @app.route("/shift-pattern/<int:pattern_id>/delete", methods=["POST"])
+@login_required
 def delete_shift_pattern(pattern_id):
     """Delete shift pattern"""
     pattern = ShiftPattern.query.get_or_404(pattern_id)
@@ -691,6 +727,7 @@ def delete_shift_pattern(pattern_id):
     # -----------------------------------------------------------------------------
 
 @app.route("/driver/<int:driver_id>/assign-pattern", methods=["GET", "POST"])
+@login_required
 def assign_pattern_to_driver(driver_id):
     """Assign a shift pattern to a driver"""
     driver = Driver.query.get_or_404(driver_id)
@@ -734,6 +771,7 @@ def assign_pattern_to_driver(driver_id):
     return render_template("assign_pattern.html", driver=driver, patterns=patterns, today=date.today())
 
 @app.route("/driver/<int:driver_id>/assignment/<int:assignment_id>/end", methods=["POST"])
+@login_required
 def end_assignment(driver_id, assignment_id):
     """End an active driver assignment"""
     driver = Driver.query.get_or_404(driver_id)
@@ -776,6 +814,7 @@ def end_assignment(driver_id, assignment_id):
     return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
 
 @app.route("/driver/<int:driver_id>/assignment/<int:assignment_id>/delete", methods=["POST"])
+@login_required
 def delete_assignment(driver_id, assignment_id):
     """Delete a driver assignment completely"""
     driver = Driver.query.get_or_404(driver_id)
@@ -818,6 +857,7 @@ def delete_assignment(driver_id, assignment_id):
 # -----------------------------------------------------------------------------
 
 @app.route("/driver/add", methods=["GET", "POST"])
+@login_required
 def add_driver():
     """Add new driver"""
     if request.method == "POST":
@@ -843,6 +883,7 @@ def add_driver():
     return render_template("add_driver.html")
 
 @app.route("/driver/<int:driver_id>/edit", methods=["GET", "POST"])
+@login_required
 def edit_driver(driver_id):
     """Edit existing driver"""
     driver = Driver.query.get_or_404(driver_id)
@@ -867,6 +908,7 @@ def edit_driver(driver_id):
     return render_template("edit_driver.html", driver=driver)
 
 @app.route("/driver/<int:driver_id>/delete", methods=["POST"])
+@login_required
 def delete_driver(driver_id):
     """Delete driver"""
     driver = Driver.query.get_or_404(driver_id)
@@ -885,11 +927,13 @@ def delete_driver(driver_id):
 # -----------------------------------------------------------------------------
 
 @app.route("/daily-sheet")
+@login_required
 def daily_sheet_form():
     """Show form to generate daily shift sheet"""
     return render_template("daily_sheet_form.html")
 
 @app.route("/daily-sheet/generate", methods=["POST"])
+@login_required
 def generate_daily_sheet():
     """Generate daily shift sheet for a specific date"""
     target_date_str = request.form.get("target_date")
@@ -907,6 +951,7 @@ def generate_daily_sheet():
                          drivers_by_shift=drivers_by_shift)
 
 @app.route("/daily-sheet/print")
+@login_required
 def print_daily_sheet():
     """Print-friendly daily shift sheet"""
     target_date_str = request.args.get("date")
@@ -986,6 +1031,7 @@ def get_cars_working_at_time(target_date, target_time):
     return cars_working
 
 @app.route("/cars-working", methods=["GET", "POST"])
+@login_required
 def cars_working():
     """Page to check how many cars are working at a specific time"""
     if request.method == "POST":
@@ -1013,6 +1059,7 @@ def cars_working():
     # -----------------------------------------------------------------------------
 
 @app.route("/driver/<int:driver_id>/custom-timings")
+@login_required
 def driver_custom_timings(driver_id):
     """Manage custom timings for a specific driver"""
     driver = Driver.query.get_or_404(driver_id)
@@ -1020,6 +1067,7 @@ def driver_custom_timings(driver_id):
     return render_template("driver_custom_timings.html", driver=driver, timings=timings)
 
 @app.route("/driver/<int:driver_id>/custom-timings/add", methods=["GET", "POST"])
+@login_required
 def add_custom_timing(driver_id):
     """Add a new custom timing for a driver"""
     driver = Driver.query.get_or_404(driver_id)
@@ -1072,6 +1120,7 @@ def add_custom_timing(driver_id):
     return render_template("add_custom_timing.html", driver=driver, assignments=assignments)
 
 @app.route("/custom-timing/<int:timing_id>/delete", methods=["POST"])
+@login_required
 def delete_custom_timing(timing_id):
     """Delete a custom timing"""
     timing = DriverCustomTiming.query.get_or_404(timing_id)
@@ -1086,6 +1135,83 @@ def delete_custom_timing(timing_id):
         flash(f"Error deleting timing: {str(e)}", "error")
     
     return redirect(url_for("driver_custom_timings", driver_id=driver_id))
+
+# -----------------------------------------------------------------------------
+# Routes: Authentication
+# -----------------------------------------------------------------------------
+
+def _get_csrf_token():
+    """Return (and lazily create) the per-session CSRF token."""
+    if 'csrf_token' not in session:
+        session['csrf_token'] = secrets.token_hex(32)
+    return session['csrf_token']
+
+def _verify_csrf():
+    """Return True if the submitted csrf_token matches the session token."""
+    token = request.form.get('csrf_token', '')
+    return token and token == session.get('csrf_token')
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """Login page"""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+    if request.method == "POST":
+        if not _verify_csrf():
+            flash("Invalid request. Please try again.", "error")
+            return redirect(url_for('login'))
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        user = User.query.filter_by(username=username).first()
+        if user and user.check_password(password):
+            login_user(user)
+            # Rotate CSRF token after login to prevent token fixation
+            session.pop('csrf_token', None)
+            next_page = request.args.get('next')
+            # Validate next_page to prevent open redirect
+            if next_page:
+                from urllib.parse import urlparse
+                parsed = urlparse(next_page)
+                if parsed.netloc:
+                    next_page = None
+            return redirect(next_page or url_for('index'))
+        flash("Invalid username or password.", "error")
+    csrf_token = _get_csrf_token()
+    return render_template("login.html", csrf_token=csrf_token)
+
+@app.route("/logout")
+@login_required
+def logout():
+    """Logout the current user"""
+    logout_user()
+    flash("You have been logged out.", "success")
+    return redirect(url_for('login'))
+
+@app.route("/admin/add-user", methods=["GET", "POST"])
+def admin_add_user():
+    """Admin panel to add new users. Accessible without login only when no users exist."""
+    if User.query.count() > 0 and not current_user.is_authenticated:
+        return redirect(url_for('login'))
+    if request.method == "POST":
+        if not _verify_csrf():
+            flash("Invalid request. Please try again.", "error")
+            return redirect(url_for('admin_add_user'))
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        if not username or not password:
+            flash("Username and password are required.", "error")
+        elif User.query.filter_by(username=username).first():
+            flash("A user with that username already exists.", "error")
+        else:
+            user = User(username=username)
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            flash(f"User '{username}' created successfully.", "success")
+            return redirect(url_for('admin_add_user'))
+    csrf_token = _get_csrf_token()
+    users = User.query.order_by(User.username).all()
+    return render_template("admin_add_user.html", csrf_token=csrf_token, users=users)
 
     # -----------------------------------------------------------------------------
     # Entrypoint
