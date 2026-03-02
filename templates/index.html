@@ -79,75 +79,37 @@
             </div>
             <div class="card-body">
                 {% if today_total > 0 %}
+                    {% if all_shift_types %}
                     <div class="row text-center mb-4">
-                        <div class="col-md-3">
-                            <div class="p-3 border rounded bg-warning bg-opacity-10">
-                                <h4 class="text-warning mb-1">{{ today_shift_counts.earlies }}</h4>
-                                <p class="mb-0">Earlies</p>
-                                <small class="text-muted">🌅 Early Start</small>
+                        {% for st in all_shift_types %}
+                        <div class="col">
+                            <div class="p-3 border rounded bg-primary bg-opacity-10">
+                                <h4 class="text-primary mb-1">{{ today_shift_counts[st.shift_type] }}</h4>
+                                <p class="mb-0">{{ st.shift_type.replace('_', ' ').title() }}</p>
+                                <small class="text-muted">{{ st.start_time.strftime('%H:%M') }}–{{ st.end_time.strftime('%H:%M') }}</small>
                             </div>
                         </div>
-                        <div class="col-md-3">
-                            <div class="p-3 border rounded bg-success bg-opacity-10">
-                                <h4 class="text-success mb-1">{{ today_shift_counts.days }}</h4>
-                                <p class="mb-0">Days</p>
-                                <small class="text-muted">☀️ Day Shift</small>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="p-3 border rounded bg-info bg-opacity-10">
-                                <h4 class="text-info mb-1">{{ today_shift_counts.lates }}</h4>
-                                <p class="mb-0">Lates</p>
-                                <small class="text-muted">🌆 Late Shift</small>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="p-3 border rounded bg-dark bg-opacity-10">
-                                <h4 class="text-dark mb-1">{{ today_shift_counts.nights }}</h4>
-                                <p class="mb-0">Nights</p>
-                                <small class="text-muted">🌙 Night Shift</small>
-                            </div>
-                        </div>
+                        {% endfor %}
                     </div>
                     
                     <!-- Visual Progress Bars -->
+                    {% set max_count = namespace(val=1) %}
+                    {% for st in all_shift_types %}
+                        {% if today_shift_counts[st.shift_type] > max_count.val %}{% set max_count.val = today_shift_counts[st.shift_type] %}{% endif %}
+                    {% endfor %}
                     <div class="row">
-                        {% set max_count = [today_shift_counts.earlies, today_shift_counts.days, today_shift_counts.lates, today_shift_counts.nights] | max %}
-                        {% if max_count > 0 %}
-                            <div class="col-md-3">
-                                <div class="mb-2">
-                                    <small class="fw-bold text-warning">Earlies</small>
-                                    <div class="progress" style="height: 10px;">
-                                        <div class="progress-bar bg-warning" style="width: {{ (today_shift_counts.earlies / max_count * 100) | round(1) }}%"></div>
-                                    </div>
+                        {% for st in all_shift_types %}
+                        <div class="col">
+                            <div class="mb-2">
+                                <small class="fw-bold text-primary">{{ st.shift_type.replace('_', ' ').title() }}</small>
+                                <div class="progress" style="height: 10px;">
+                                    <div class="progress-bar bg-primary" style="width: {{ (today_shift_counts[st.shift_type] / max_count.val * 100) | round(1) }}%"></div>
                                 </div>
                             </div>
-                            <div class="col-md-3">
-                                <div class="mb-2">
-                                    <small class="fw-bold text-success">Days</small>
-                                    <div class="progress" style="height: 10px;">
-                                        <div class="progress-bar bg-success" style="width: {{ (today_shift_counts.days / max_count * 100) | round(1) }}%"></div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="mb-2">
-                                    <small class="fw-bold text-info">Lates</small>
-                                    <div class="progress" style="height: 10px;">
-                                        <div class="progress-bar bg-info" style="width: {{ (today_shift_counts.lates / max_count * 100) | round(1) }}%"></div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-md-3">
-                                <div class="mb-2">
-                                    <small class="fw-bold text-dark">Nights</small>
-                                    <div class="progress" style="height: 10px;">
-                                        <div class="progress-bar bg-dark" style="width: {{ (today_shift_counts.nights / max_count * 100) | round(1) }}%"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        {% endif %}
+                        </div>
+                        {% endfor %}
                     </div>
+                    {% endif %}
                     
                     <div class="text-center mt-3">
                         <a href="{{ url_for('generate_daily_sheet') }}" class="btn btn-primary" method="POST" 
@@ -187,7 +149,7 @@
                 <hr>
                 <p class="small text-muted mb-0">
                     <i class="fas fa-info-circle"></i> 
-                    Shows drivers organized by shift type: Earlies, Days, Lates, Nights
+                    Shows drivers organized by their assigned shift types
                 </p>
             </div>
         </div>

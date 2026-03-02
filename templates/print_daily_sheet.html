@@ -27,18 +27,16 @@
             <p class="mb-0">Generated: {{ target_date.strftime('%d/%m/%Y') }}</p>
         </div>
 
-        {% set shift_order = ['earlies', 'days', 'lates', 'nights'] %}
-        {% set shift_icons = {'earlies': 'fa-sun', 'days': 'fa-sun', 'lates': 'fa-moon', 'nights': 'fa-star'} %}
+        {% set shift_order = drivers_by_shift.keys() | list %}
         
         <div class="row">
-            {% for shift_type in shift_order %}
-                {% set drivers = drivers_by_shift[shift_type] %}
+            {% for shift_type, drivers in drivers_by_shift.items() %}
                 <div class="col-md-6 mb-3">
                     <div class="card">
                         <div class="card-header bg-dark text-white">
                             <h4 class="mb-0">
-                                <i class="fas {{ shift_icons[shift_type] }}"></i>
-                                {{ shift_type.title().upper() }} SHIFT ({{ drivers|length }})
+                                <i class="fas fa-clock"></i>
+                                {{ shift_type.replace('_', ' ').upper() }} SHIFT ({{ drivers|length }})
                             </h4>
                         </div>
                         <div class="card-body p-2">
@@ -91,7 +89,7 @@
                                 </table>
                             {% else %}
                                 <div class="text-center text-muted p-3">
-                                    <p class="mb-0">No drivers scheduled for {{ shift_type }} shift</p>
+                                    <p class="mb-0">No drivers scheduled for {{ shift_type.replace('_', ' ') }} shift</p>
                                     <!-- Empty table for manual entries -->
                                     <table class="table table-sm table-bordered mt-2">
                                         <thead class="table-light">
@@ -134,14 +132,16 @@
                     </div>
                     <div class="card-body">
                         <table class="table table-sm table-bordered">
+                            {% set total_ns = namespace(count=0) %}
+                            {% for d in drivers_by_shift.values() %}{% set total_ns.count = total_ns.count + (d | length) %}{% endfor %}
                             <tr>
                                 <th>Total Drivers:</th>
-                                <td class="text-center"><strong>{{ drivers_by_shift['earlies']|length + drivers_by_shift['days']|length + drivers_by_shift['lates']|length + drivers_by_shift['nights']|length }}</strong></td>
+                                <td class="text-center"><strong>{{ total_ns.count }}</strong></td>
                             </tr>
-                            {% for shift_type in shift_order %}
+                            {% for shift_type, drivers in drivers_by_shift.items() %}
                             <tr>
-                                <th>{{ shift_type.title() }}:</th>
-                                <td class="text-center">{{ drivers_by_shift[shift_type]|length }}</td>
+                                <th>{{ shift_type.replace('_', ' ').title() }}:</th>
+                                <td class="text-center">{{ drivers|length }}</td>
                             </tr>
                             {% endfor %}
                         </table>

@@ -44,6 +44,14 @@ function updateCreatePatternDays() {
         return;
     }
     
+    const shiftTypes = getCurrentShiftTypes();
+    if (shiftTypes.length === 0) {
+        section.style.display = 'block';
+        submitBtn.disabled = true;
+        container.innerHTML = '<div class="col-12"><div class="alert alert-warning"><i class="fas fa-exclamation-triangle"></i> No shift types are defined. Please add shift types via <strong>Manage Shifts</strong> before creating patterns.</div></div>';
+        return;
+    }
+    
     section.style.display = 'block';
     submitBtn.disabled = false;
     container.innerHTML = '';

@@ -98,11 +98,23 @@
         <div class="card-header">
             <div class="d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-calendar-week"></i> Shift Patterns</h5>
+                {% if all_timings %}
                 <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createPatternModal">
                     <i class="fas fa-plus"></i> Create Pattern
                 </button>
+                {% else %}
+                <button type="button" class="btn btn-sm btn-secondary" disabled title="Add shift types first">
+                    <i class="fas fa-plus"></i> Create Pattern
+                </button>
+                {% endif %}
             </div>
         </div>
+        {% if not all_timings %}
+        <div class="alert alert-warning m-3">
+            <i class="fas fa-exclamation-triangle"></i>
+            <strong>No shift types defined.</strong> Use <strong>Manage Shifts</strong> to add shift types before creating new patterns.
+        </div>
+        {% endif %}
         <div class="card-body">
             <div class="table-responsive">
                 <table class="table table-hover">
@@ -140,14 +152,6 @@
                                     {% for shift in pattern_data[:show_count] %}
                                         {% if shift == 'day_off' %}
                                             <span class="badge bg-secondary">OFF</span>
-                                        {% elif shift == 'earlies' %}
-                                            <span class="badge bg-warning">E</span>
-                                        {% elif shift == 'days' %}
-                                            <span class="badge bg-success">D</span>
-                                        {% elif shift == 'lates' %}
-                                            <span class="badge bg-info">L</span>
-                                        {% elif shift == 'nights' %}
-                                            <span class="badge bg-dark">N</span>
                                         {% else %}
                                             <span class="badge bg-primary" title="{{ shift.replace('_', ' ').title() }}">
                                                 {{ shift.replace('_', ' ')[:2].upper() }}
@@ -159,7 +163,7 @@
                                     {% endif %}
                                 </div>
                                 <small class="text-muted d-block mt-1">
-                                    E=Earlies, D=Days, L=Lates, N=Nights, OFF=Rest Day, Custom=2 letters
+                                    Abbreviation shown, OFF=Rest Day
                                 </small>
                             </td>
                             <td>
@@ -209,18 +213,31 @@
         <div class="card-header">
             <div class="d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-calendar-week"></i> Shift Patterns</h5>
+                {% if all_timings %}
                 <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createPatternModal">
                     <i class="fas fa-plus"></i> Create Pattern
                 </button>
+                {% else %}
+                <button type="button" class="btn btn-sm btn-secondary" disabled title="Add shift types first">
+                    <i class="fas fa-plus"></i> Create Pattern
+                </button>
+                {% endif %}
             </div>
         </div>
         <div class="card-body text-center py-5">
-            <i class="fas fa-calendar-plus fa-4x text-muted mb-3"></i>
-            <h3 class="text-muted">No Shift Patterns Created</h3>
-            <p class="text-muted mb-4">Create reusable shift patterns that can be assigned to drivers.</p>
-            <button type="button" class="btn btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#createPatternModal">
-                <i class="fas fa-plus"></i> Create First Pattern
-            </button>
+            {% if not all_timings %}
+                <i class="fas fa-clock fa-4x text-muted mb-3"></i>
+                <h3 class="text-muted">No Shift Types Defined</h3>
+                <p class="text-muted mb-4">You need to define at least one shift type before creating patterns.<br>
+                    Use the <strong>Manage Shifts</strong> button above to add your shift types.</p>
+            {% else %}
+                <i class="fas fa-calendar-plus fa-4x text-muted mb-3"></i>
+                <h3 class="text-muted">No Shift Patterns Created</h3>
+                <p class="text-muted mb-4">Create reusable shift patterns that can be assigned to drivers.</p>
+                <button type="button" class="btn btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#createPatternModal">
+                    <i class="fas fa-plus"></i> Create First Pattern
+                </button>
+            {% endif %}
         </div>
     </div>
 {% endif %}
@@ -383,11 +400,9 @@
                             <div class="border rounded p-3 h-100">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                     <h6 class="mb-0">{{ timing.shift_type.replace('_', ' ').title() }}</h6>
-                                    {% if timing.shift_type not in ['earlies', 'days', 'lates', 'nights'] %}
                                     <button type="button" class="btn btn-sm btn-outline-danger js-delete-shift-type" data-shift-type="{{ timing.shift_type }}">
                                         <i class="fas fa-trash"></i>
                                     </button>
-                                    {% endif %}
                                 </div>
                                 <div class="row">
                                     <div class="col-6">
@@ -499,14 +514,7 @@
                         </div>
                         
                         <div class="mt-3">
-                            <h6 class="small">Shift Types:</h6>
-                            <div class="d-flex flex-wrap gap-2">
-                                <span class="badge bg-warning"><i class="fas fa-sun"></i> Earlies</span>
-                                <span class="badge bg-success"><i class="fas fa-sun"></i> Days</span>
-                                <span class="badge bg-info"><i class="fas fa-moon"></i> Lates</span>
-                                <span class="badge bg-dark"><i class="fas fa-moon"></i> Nights</span>
-                                <span class="badge bg-secondary"><i class="fas fa-bed"></i> Day Off</span>
-                            </div>
+                            <p class="text-muted small"><i class="fas fa-info-circle"></i> Select from your defined shift types or choose Day Off.</p>
                         </div>
                     </div>
                 </form>
@@ -572,14 +580,7 @@
                         </div>
                         
                         <div class="mt-3">
-                            <h6 class="small">Shift Types:</h6>
-                            <div class="d-flex flex-wrap gap-2">
-                                <span class="badge bg-warning"><i class="fas fa-sun"></i> Earlies</span>
-                                <span class="badge bg-success"><i class="fas fa-sun"></i> Days</span>
-                                <span class="badge bg-info"><i class="fas fa-moon"></i> Lates</span>
-                                <span class="badge bg-dark"><i class="fas fa-moon"></i> Nights</span>
-                                <span class="badge bg-secondary"><i class="fas fa-bed"></i> Day Off</span>
-                            </div>
+                            <p class="text-muted small"><i class="fas fa-info-circle"></i> Select from your defined shift types or choose Day Off.</p>
                         </div>
                     </div>
                 </form>

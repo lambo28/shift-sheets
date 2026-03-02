@@ -1,13 +1,13 @@
 function getCurrentShiftTypes() {
     const form = document.getElementById('shiftTypesForm');
-    if (!form) return ['earlies', 'days', 'lates', 'nights'];
+    if (!form) return [];
 
     const types = [];
     form.querySelectorAll('input[name$="_start"]').forEach((input) => {
         types.push(input.name.replace(/_start$/, ''));
     });
 
-    return types.length ? types : ['earlies', 'days', 'lates', 'nights'];
+    return types;
 }
 
 function buildShiftTypeOptions(selectedValue = '') {
@@ -20,10 +20,6 @@ function buildShiftTypeOptions(selectedValue = '') {
 }
 
 function getShiftIconClass(shiftType) {
-    if (shiftType === 'earlies') return 'fa-sun text-warning';
-    if (shiftType === 'days') return 'fa-sun text-success';
-    if (shiftType === 'lates') return 'fa-moon text-info';
-    if (shiftType === 'nights') return 'fa-moon text-dark';
     return 'fa-clock text-primary';
 }
 

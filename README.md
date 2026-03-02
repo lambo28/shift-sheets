@@ -11,14 +11,15 @@ A comprehensive web application for managing driver scheduling with shift patter
 - Clean separation of driver data and scheduling
 
 ### 🗓️ **Shift Pattern System**
+- **User-defined shift types**: Add any shift types you need (e.g., Mornings, Afternoons, Nights) with custom time ranges — no defaults are created
 - Create reusable shift patterns (7, 14, 21, 28-day cycles)
-- Define daily shift types: Earlies, Days, Lates, Nights, Days Off  
+- Assign shift types or Days Off to each day of the pattern cycle
 - Visual pattern preview and management
 - Assign patterns to drivers with date ranges
 
 ### 📋 **Daily Roster Generation**
 - Generate who's working on any specific date
-- Automatic shift type organization (Earlies/Days/Lates/Nights)
+- Automatic shift type organisation based on your user-defined types
 - Print-friendly daily sheets for dispatch/management
 - 6AM operational day crossover support
 
@@ -76,8 +77,9 @@ open http://localhost:5000
 - Clean, focused driver management
 
 #### 2️⃣ **Shift Patterns** (`/shifts`) 
-- Create reusable shift rotation patterns
-- Example: 7-day pattern [Earlies, Earlies, Days, Days, Lates, Off, Off]
+- First, define your shift types via **Manage Shifts** (e.g., Mornings 06:00–14:00, Afternoons 14:00–22:00)
+- Create reusable shift rotation patterns using your defined types
+- Example: 7-day pattern [Mornings, Mornings, Afternoons, Afternoons, Nights, Off, Off]
 - Assign patterns to drivers with start/end dates
 - Visual pattern previews
 
