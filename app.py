@@ -2,6 +2,7 @@
 
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import text
 from datetime import datetime, timedelta, date
 import os
 import json
@@ -131,8 +132,19 @@ class ShiftPattern(db.Model):
 class ShiftTiming(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     shift_type = db.Column(db.String(50), unique=True, nullable=False)  # user-defined name, up to 50 chars
+    display_name = db.Column(db.String(100), nullable=True)  # user-facing name (can keep spaces/case)
     start_time = db.Column(db.Time, nullable=False)
     end_time = db.Column(db.Time, nullable=False)
+    badge_color = db.Column(db.String(50), default='bg-primary')  # Bootstrap badge color class
+    icon = db.Column(db.String(100), default='fas fa-clock')  # Font Awesome icon class
+    parent_shift_type = db.Column(db.String(50), nullable=True)  # If set, this is a sub-shift grouped under parent
+
+    @property
+    def display_label(self):
+        if self.display_name and self.display_name.strip():
+            return self.display_name.strip()
+        parts = self.shift_type.replace('_', ' ').split()
+        return ' '.join(p.upper() if p.lower() in {'am', 'pm'} else p.capitalize() for p in parts)
 
 # Driver Custom Timing Configuration Model
 class DriverCustomTiming(db.Model):
@@ -246,6 +258,34 @@ class DriverAssignment(db.Model):
 with app.app_context():
     db.create_all()
 
+    existing_columns = {
+        row[1]
+        for row in db.session.execute(text("PRAGMA table_info(shift_timing)")).fetchall()
+    }
+
+    if 'display_name' not in existing_columns:
+        db.session.execute(text("ALTER TABLE shift_timing ADD COLUMN display_name VARCHAR(100)"))
+
+    if 'badge_color' not in existing_columns:
+        db.session.execute(text("ALTER TABLE shift_timing ADD COLUMN badge_color VARCHAR(50) DEFAULT 'bg-primary'"))
+
+    if 'icon' not in existing_columns:
+        db.session.execute(text("ALTER TABLE shift_timing ADD COLUMN icon VARCHAR(100) DEFAULT 'fas fa-clock'"))
+
+    if 'parent_shift_type' not in existing_columns:
+        db.session.execute(text("ALTER TABLE shift_timing ADD COLUMN parent_shift_type VARCHAR(50)"))
+
+    db.session.execute(
+        text(
+            """
+            UPDATE shift_timing
+            SET display_name = REPLACE(shift_type, '_', ' ')
+            WHERE display_name IS NULL OR TRIM(display_name) = ''
+            """
+        )
+    )
+    db.session.commit()
+
 # -----------------------------------------------------------------------------
 # Template Helpers and Response Utilities
 # -----------------------------------------------------------------------------
@@ -265,6 +305,43 @@ def ordinal_date(date_obj, format_str='%A, %B %d, %Y'):
         format_str = format_str.replace('%d', str(day) + suffix)
     
     return date_obj.strftime(format_str)
+
+
+@app.template_filter('shift_label')
+def shift_label(shift_type):
+    if not shift_type:
+        return ''
+    parts = str(shift_type).replace('_', ' ').split()
+    return ' '.join(p.upper() if p.lower() in {'am', 'pm'} else p.capitalize() for p in parts)
+
+
+@app.template_filter('shift_abbrev')
+def shift_abbrev(shift_type, all_shifts_str=''):
+    """
+    Generate intelligent abbreviation for a shift.
+    - If unique (no conflicts), use 1 letter
+    - If multi-word, use first letter of each word
+    Receives shift_type and pipe-separated list of all shifts in the pattern
+    """
+    if not shift_type or shift_type == 'day_off':
+        return 'OFF'
+    
+    all_shifts = [s.strip() for s in all_shifts_str.split('|') if s.strip() and s.strip() != 'day_off']
+    
+    # Multi-word: first letter of each word
+    words = str(shift_type).replace('_', ' ').split()
+    if len(words) > 1:
+        return ''.join(w[0].upper() for w in words)
+    
+    # Single word: check if initial is unique
+    initial = shift_type[0].upper()
+    conflicts = [s for s in all_shifts if s[0].upper() == initial and s != shift_type]
+    
+    if not conflicts:
+        return initial
+    
+    # Has conflicts: use full first char
+    return initial
 
 # Add datetime to template context
 @app.context_processor
@@ -323,8 +400,12 @@ def get_drivers_for_date(target_date):
     all_timings = ShiftTiming.query.all()
     timings_dict = {t.shift_type: t for t in all_timings}
 
-    # Build an empty list for every known shift type
-    drivers_working = {t.shift_type: [] for t in all_timings}
+    # Build an empty list for every main shift type (those without parent)
+    # Sub-shifts will be grouped under their parent
+    drivers_working = {}
+    for t in all_timings:
+        if not t.parent_shift_type:
+            drivers_working[t.shift_type] = []
     
     # Get all active driver assignments for the target date
     assignments = get_active_assignments_for_date(target_date)
@@ -367,10 +448,23 @@ def get_drivers_for_date(target_date):
             'start_time': start_time,
             'end_time': end_time,
             'is_custom': is_custom,
-            'timing_note': timing_note
+            'timing_note': timing_note,
+            'shift_type': shift_type  # Keep track of actual shift type
         }
         
-        drivers_working[shift_type].append(driver_info)
+        # Determine where to group this driver
+        current_timing = timings_dict.get(shift_type)
+        if current_timing and current_timing.parent_shift_type:
+            # This is a sub-shift, group under parent
+            parent = current_timing.parent_shift_type
+            if parent not in drivers_working:
+                drivers_working[parent] = []
+            drivers_working[parent].append(driver_info)
+        else:
+            # This is a main shift or has no parent
+            if shift_type not in drivers_working:
+                drivers_working[shift_type] = []
+            drivers_working[shift_type].append(driver_info)
     
     return drivers_working
 
@@ -503,33 +597,109 @@ def update_settings():
 def update_shift_types():
     """Update shift type timings"""
     try:
-        processed_shift_types = set()
+        submitted_shift_types = []
         for key in request.form.keys():
-            if not key.endswith("_start"):
+            if key.endswith("_start"):
+                submitted_shift_types.append(key[:-6])
+
+        rename_map = {}
+        normalized_new_names = set()
+
+        for old_shift_type in submitted_shift_types:
+            requested_name = request.form.get(f"{old_shift_type}_name", old_shift_type)
+            display_name = requested_name.strip()
+            new_shift_type = requested_name.strip().lower().replace(" ", "_")
+
+            if not new_shift_type:
+                return json_error('Shift type name cannot be empty')
+
+            if not display_name:
+                return json_error('Shift display name cannot be empty')
+
+            if not new_shift_type.replace("_", "").isalnum():
+                return json_error('Shift type can only use letters, numbers, and underscores')
+
+            if new_shift_type in normalized_new_names:
+                return json_error('Two shift types cannot have the same name')
+
+            normalized_new_names.add(new_shift_type)
+            rename_map[old_shift_type] = new_shift_type
+
+        existing_db_names = {timing.shift_type for timing in ShiftTiming.query.all()}
+        submitted_set = set(submitted_shift_types)
+        for old_shift_type, new_shift_type in rename_map.items():
+            if new_shift_type != old_shift_type and new_shift_type in existing_db_names and new_shift_type not in submitted_set:
+                return json_error(f'Shift type name already exists: {new_shift_type}')
+
+        processed_shift_types = set()
+        for old_shift_type in submitted_shift_types:
+            if old_shift_type in processed_shift_types:
                 continue
 
-            shift_type = key[:-6]
-            if shift_type in processed_shift_types:
-                continue
-
-            start_time_str = request.form.get(f"{shift_type}_start")
-            end_time_str = request.form.get(f"{shift_type}_end")
+            new_shift_type = rename_map[old_shift_type]
+            display_name = request.form.get(f"{old_shift_type}_name", old_shift_type).strip()
+            start_time_str = request.form.get(f"{old_shift_type}_start")
+            end_time_str = request.form.get(f"{old_shift_type}_end")
+            badge_color = request.form.get(f"{old_shift_type}_color", "bg-primary")
+            icon = request.form.get(f"{old_shift_type}_icon", "fas fa-clock")
+            parent_shift_type = request.form.get(f"{old_shift_type}_parent", "").strip() or None
 
             if not start_time_str or not end_time_str:
                 continue
 
+            if parent_shift_type == '_none':
+                parent_shift_type = None
+            elif parent_shift_type in rename_map:
+                parent_shift_type = rename_map[parent_shift_type]
+
+            if parent_shift_type and parent_shift_type not in normalized_new_names and parent_shift_type not in existing_db_names:
+                return json_error(f'Selected parent shift does not exist: {parent_shift_type}')
+
+            if parent_shift_type == new_shift_type:
+                return json_error('A shift cannot be grouped under itself')
+
             start_time = datetime.strptime(start_time_str, '%H:%M').time()
             end_time = datetime.strptime(end_time_str, '%H:%M').time()
 
-            timing = ShiftTiming.query.filter_by(shift_type=shift_type).first()
+            timing = ShiftTiming.query.filter_by(shift_type=old_shift_type).first()
             if timing:
+                timing.shift_type = new_shift_type
+                timing.display_name = display_name
                 timing.start_time = start_time
                 timing.end_time = end_time
+                timing.badge_color = badge_color
+                timing.icon = icon
+                timing.parent_shift_type = parent_shift_type
             else:
-                timing = ShiftTiming(shift_type=shift_type, start_time=start_time, end_time=end_time)
+                timing = ShiftTiming(
+                    shift_type=new_shift_type,
+                    display_name=display_name,
+                    start_time=start_time,
+                    end_time=end_time,
+                    badge_color=badge_color,
+                    icon=icon,
+                    parent_shift_type=parent_shift_type
+                )
                 db.session.add(timing)
 
-            processed_shift_types.add(shift_type)
+            processed_shift_types.add(old_shift_type)
+
+        changed_names = {old: new for old, new in rename_map.items() if old != new}
+        if changed_names:
+            patterns = ShiftPattern.query.all()
+            for pattern in patterns:
+                pattern_data = pattern.get_pattern_data()
+                updated_data = [changed_names.get(shift, shift) for shift in pattern_data]
+                if updated_data != pattern_data:
+                    pattern.set_pattern_data(updated_data)
+
+            for old_shift_type, new_shift_type in changed_names.items():
+                DriverCustomTiming.query.filter_by(shift_type=old_shift_type).update(
+                    {'shift_type': new_shift_type}, synchronize_session=False
+                )
+                ShiftTiming.query.filter_by(parent_shift_type=old_shift_type).update(
+                    {'parent_shift_type': new_shift_type}, synchronize_session=False
+                )
         
         db.session.commit()
         return json_success()
@@ -541,9 +711,17 @@ def update_shift_types():
 def add_shift_type():
     """Add a new shift type"""
     try:
-        shift_type = request.form.get("shift_type", "").strip().lower().replace(" ", "_")
+        raw_shift_name = request.form.get("shift_type", "").strip()
+        shift_type = raw_shift_name.lower().replace(" ", "_")
+        display_name = request.form.get("display_name", "").strip() or raw_shift_name
         start_time_str = request.form.get("start_time")
         end_time_str = request.form.get("end_time")
+        badge_color = request.form.get("badge_color", "bg-primary")
+        icon = request.form.get("icon", "fas fa-clock")
+        parent_shift_type = request.form.get("parent_shift_type", "").strip() or None
+
+        if parent_shift_type == '_none':
+            parent_shift_type = None
 
         if not shift_type or not start_time_str or not end_time_str:
             return json_error('All fields are required')
@@ -554,11 +732,18 @@ def add_shift_type():
         existing = ShiftTiming.query.filter_by(shift_type=shift_type).first()
         if existing:
             return json_error('Shift type already exists')
+        
+        # Validate parent exists if specified
+        if parent_shift_type:
+            parent = ShiftTiming.query.filter_by(shift_type=parent_shift_type).first()
+            if not parent:
+                return json_error('Selected parent shift does not exist')
 
         start_time = datetime.strptime(start_time_str, '%H:%M').time()
         end_time = datetime.strptime(end_time_str, '%H:%M').time()
 
-        timing = ShiftTiming(shift_type=shift_type, start_time=start_time, end_time=end_time)
+        timing = ShiftTiming(shift_type=shift_type, display_name=display_name, start_time=start_time, end_time=end_time,
+                           badge_color=badge_color, icon=icon, parent_shift_type=parent_shift_type)
         db.session.add(timing)
         db.session.commit()
         return json_success()
@@ -963,10 +1148,13 @@ def generate_daily_sheet():
         return redirect(url_for("daily_sheet_form"))
     
     drivers_by_shift = get_drivers_for_date(target_date)
+    all_timings = ShiftTiming.query.order_by(ShiftTiming.start_time, ShiftTiming.shift_type).all()
+    timings = {timing.shift_type: timing for timing in all_timings}
     
     return render_template("daily_sheet.html", 
                          target_date=target_date, 
-                         drivers_by_shift=drivers_by_shift)
+                         drivers_by_shift=drivers_by_shift,
+                         timings=timings)
 
 @app.route("/daily-sheet/print")
 def print_daily_sheet():
@@ -980,10 +1168,13 @@ def print_daily_sheet():
         return redirect(url_for("daily_sheet_form"))
     
     drivers_by_shift = get_drivers_for_date(target_date)
+    all_timings = ShiftTiming.query.order_by(ShiftTiming.start_time, ShiftTiming.shift_type).all()
+    timings = {timing.shift_type: timing for timing in all_timings}
     
     return render_template("print_daily_sheet.html", 
                          target_date=target_date, 
-                         drivers_by_shift=drivers_by_shift)
+                         drivers_by_shift=drivers_by_shift,
+                         timings=timings)
 
 # -----------------------------------------------------------------------------
 # Cars Working Helpers and Routes

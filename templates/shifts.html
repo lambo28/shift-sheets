@@ -69,20 +69,19 @@
         <div class="row" id="currentShiftsGrid">
             {% for timing in all_timings %}
             {% set shift_type = timing.shift_type %}
+            {% set color_map = {
+                'bg-primary': 'text-primary',
+                'bg-success': 'text-success',
+                'bg-danger': 'text-danger',
+                'bg-warning': 'text-warning',
+                'bg-info': 'text-info',
+                'bg-secondary': 'text-secondary',
+                'bg-dark': 'text-dark'
+            } %}
             <div class="col-md-3 current-shift-card" data-shift-type="{{ shift_type }}" data-start-time="{{ timing.start_time.strftime('%H:%M') }}">
                 <div class="text-center p-3 border rounded">
-                    {% if shift_type == 'earlies' %}
-                    <i class="fas fa-sun text-warning fa-2x mb-2"></i>
-                    {% elif shift_type == 'days' %}
-                    <i class="fas fa-sun text-success fa-2x mb-2"></i>
-                    {% elif shift_type == 'lates' %}
-                    <i class="fas fa-moon text-info fa-2x mb-2"></i>
-                    {% elif shift_type == 'nights' %}
-                    <i class="fas fa-moon text-dark fa-2x mb-2"></i>
-                    {% else %}
-                    <i class="fas fa-clock text-primary fa-2x mb-2"></i>
-                    {% endif %}
-                    <h6>{{ shift_type.replace('_', ' ').title() }}</h6>
+                    <i class="{{ timing.icon }} {{ color_map.get(timing.badge_color, 'text-primary') }} fa-2x mb-2"></i>
+                    <h6>{{ timing.display_label }}</h6>
                     <p class="mb-0">
                         <strong>{{ timing.start_time.strftime('%H:%M') }} - {{ timing.end_time.strftime('%H:%M') }}</strong>
                     </p>
@@ -149,13 +148,23 @@
                                 <div class="d-flex flex-wrap gap-1">
                                     {% set pattern_data = pattern.get_pattern_data() %}
                                     {% set show_count = 14 if pattern.cycle_length > 14 else pattern.cycle_length %}
+                                    {% set all_shifts_str = pattern_data|reject('equalto', 'day_off')|join('|') %}
                                     {% for shift in pattern_data[:show_count] %}
                                         {% if shift == 'day_off' %}
-                                            <span class="badge bg-secondary">OFF</span>
+                                            <span class="badge bg-secondary" title="Rest Day">OFF</span>
                                         {% else %}
-                                            <span class="badge bg-primary" title="{{ shift.replace('_', ' ').title() }}">
-                                                {{ shift.replace('_', ' ')[:2].upper() }}
-                                            </span>
+                                            {% set shift_timing = timings.get(shift) %}
+                                            {% set abbrev = shift|shift_abbrev(all_shifts_str) %}
+                                            {% set display_name = shift_timing.display_label if shift_timing else (shift|shift_label) %}
+                                            {% if shift_timing %}
+                                                <span class="badge {{ shift_timing.badge_color }}" title="{{ display_name }}" style="cursor: default;">
+                                                    {{ abbrev }}
+                                                </span>
+                                            {% else %}
+                                                <span class="badge bg-primary" title="{{ display_name }}" style="cursor: default;">
+                                                    {{ abbrev }}
+                                                </span>
+                                            {% endif %}
                                         {% endif %}
                                     {% endfor %}
                                     {% if pattern.cycle_length > 14 %}
@@ -396,15 +405,32 @@
                 <form id="shiftTypesForm">
                     <div class="row" id="shiftTypesGrid">
                         {% for timing in all_timings %}
+                        {% set color_map = {
+                            'bg-primary': 'text-primary',
+                            'bg-success': 'text-success',
+                            'bg-danger': 'text-danger',
+                            'bg-warning': 'text-warning',
+                            'bg-info': 'text-info',
+                            'bg-secondary': 'text-secondary',
+                            'bg-dark': 'text-dark'
+                        } %}
                         <div class="col-md-6 col-lg-4 mb-4" id="shift-card-{{ timing.shift_type }}">
                             <div class="border rounded p-3 h-100">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <h6 class="mb-0">{{ timing.shift_type.replace('_', ' ').title() }}</h6>
+                                    <h6 class="mb-0">
+                                        <i class="{{ timing.icon }} {{ color_map.get(timing.badge_color, 'text-primary') }}"></i>
+                                        {{ timing.display_label }}
+                                    </h6>
                                     <button type="button" class="btn btn-sm btn-outline-danger js-delete-shift-type" data-shift-type="{{ timing.shift_type }}">
                                         <i class="fas fa-trash"></i>
                                     </button>
                                 </div>
                                 <div class="row">
+                                    <div class="col-12 mb-2">
+                                        <label for="{{ timing.shift_type }}_name" class="form-label">Name</label>
+                                        <input type="text" class="form-control" id="{{ timing.shift_type }}_name"
+                                               name="{{ timing.shift_type }}_name" value="{{ timing.display_label }}" required>
+                                    </div>
                                     <div class="col-6">
                                         <label for="{{ timing.shift_type }}_start" class="form-label">Start</label>
                                         <input type="time" class="form-control" id="{{ timing.shift_type }}_start"
@@ -414,6 +440,53 @@
                                         <label for="{{ timing.shift_type }}_end" class="form-label">End</label>
                                         <input type="time" class="form-control" id="{{ timing.shift_type }}_end"
                                                name="{{ timing.shift_type }}_end" value="{{ timing.end_time.strftime('%H:%M') }}" required>
+                                    </div>
+                                </div>
+                                <div class="row mt-2">
+                                    <div class="col-6">
+                                        <label for="{{ timing.shift_type }}_color" class="form-label">Badge Color</label>
+                                        <select class="form-select form-select-sm" id="{{ timing.shift_type }}_color"
+                                                name="{{ timing.shift_type }}_color">
+                                            <option value="bg-primary" {% if timing.badge_color == 'bg-primary' %}selected{% endif %}>Blue</option>
+                                            <option value="bg-success" {% if timing.badge_color == 'bg-success' %}selected{% endif %}>Green</option>
+                                            <option value="bg-danger" {% if timing.badge_color == 'bg-danger' %}selected{% endif %}>Red</option>
+                                            <option value="bg-warning" {% if timing.badge_color == 'bg-warning' %}selected{% endif %}>Yellow</option>
+                                            <option value="bg-info" {% if timing.badge_color == 'bg-info' %}selected{% endif %}>Cyan</option>
+                                            <option value="bg-secondary" {% if timing.badge_color == 'bg-secondary' %}selected{% endif %}>Gray</option>
+                                            <option value="bg-dark" {% if timing.badge_color == 'bg-dark' %}selected{% endif %}>Dark</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-6">
+                                        <label for="{{ timing.shift_type }}_icon" class="form-label">Icon</label>
+                                        <select class="form-select form-select-sm" id="{{ timing.shift_type }}_icon"
+                                                name="{{ timing.shift_type }}_icon">
+                                            <option value="fas fa-sun" {% if timing.icon == 'fas fa-sun' %}selected{% endif %}>☀️ Sun</option>
+                                            <option value="fas fa-moon" {% if timing.icon == 'fas fa-moon' %}selected{% endif %}>🌙 Moon</option>
+                                            <option value="fas fa-clock" {% if timing.icon == 'fas fa-clock' %}selected{% endif %}>🕐 Clock</option>
+                                            <option value="fas fa-briefcase" {% if timing.icon == 'fas fa-briefcase' %}selected{% endif %}>💼 Briefcase</option>
+                                            <option value="fas fa-star" {% if timing.icon == 'fas fa-star' %}selected{% endif %}>⭐ Star</option>
+                                            <option value="fas fa-heart" {% if timing.icon == 'fas fa-heart' %}selected{% endif %}>❤️ Heart</option>
+                                            <option value="fas fa-bolt" {% if timing.icon == 'fas fa-bolt' %}selected{% endif %}>⚡ Lightning</option>
+                                            <option value="fas fa-fire" {% if timing.icon == 'fas fa-fire' %}selected{% endif %}>🔥 Fire</option>
+                                            <option value="fas fa-tree" {% if timing.icon == 'fas fa-tree' %}selected{% endif %}>🌳 Tree</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="row mt-2">
+                                    <div class="col-12">
+                                        <label for="{{ timing.shift_type }}_parent" class="form-label">Group Under (Optional)</label>
+                                        <select class="form-select form-select-sm" id="{{ timing.shift_type }}_parent"
+                                                name="{{ timing.shift_type }}_parent">
+                                            <option value="_none" {% if not timing.parent_shift_type %}selected{% endif %}>Main Shift (Standalone)</option>
+                                            {% for other_timing in all_timings %}
+                                                {% if other_timing.shift_type != timing.shift_type %}
+                                                <option value="{{ other_timing.shift_type }}" {% if timing.parent_shift_type == other_timing.shift_type %}selected{% endif %}>
+                                                    {{ other_timing.display_label }}
+                                                </option>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </select>
+                                        <small class="text-muted">Sub-shifts are grouped under their parent on daily sheets</small>
                                     </div>
                                 </div>
                             </div>
@@ -431,23 +504,61 @@
 
                 <form id="newShiftTypeForm">
                     <h6><i class="fas fa-plus"></i> Add New Shift Type</h6>
-                    <div class="row align-items-end">
-                        <div class="col-md-4 mb-2">
+                    <div class="row align-items-end mb-2">
+                        <div class="col-md-2 mb-2">
                             <label for="new_shift_type" class="form-label">Name</label>
                             <input type="text" class="form-control" id="new_shift_type" name="shift_type" placeholder="e.g. afternoons" required>
                         </div>
-                        <div class="col-md-3 mb-2">
+                        <div class="col-md-2 mb-2">
                             <label for="new_shift_start" class="form-label">Start</label>
                             <input type="time" class="form-control" id="new_shift_start" name="start_time" required>
                         </div>
-                        <div class="col-md-3 mb-2">
+                        <div class="col-md-2 mb-2">
                             <label for="new_shift_end" class="form-label">End</label>
                             <input type="time" class="form-control" id="new_shift_end" name="end_time" required>
+                        </div>
+                        <div class="col-md-2 mb-2">
+                            <label for="new_shift_color" class="form-label">Color</label>
+                            <select class="form-select" id="new_shift_color" name="badge_color">
+                                <option value="bg-primary">Blue</option>
+                                <option value="bg-success">Green</option>
+                                <option value="bg-danger">Red</option>
+                                <option value="bg-warning">Yellow</option>
+                                <option value="bg-info">Cyan</option>
+                                <option value="bg-secondary">Gray</option>
+                                <option value="bg-dark">Dark</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2 mb-2">
+                            <label for="new_shift_icon" class="form-label">Icon</label>
+                            <select class="form-select" id="new_shift_icon" name="icon">
+                                <option value="fas fa-sun">☀️ Sun</option>
+                                <option value="fas fa-moon">🌙 Moon</option>
+                                <option value="fas fa-clock" selected>🕐 Clock</option>
+                                <option value="fas fa-briefcase">💼 Briefcase</option>
+                                <option value="fas fa-star">⭐ Star</option>
+                                <option value="fas fa-heart">❤️ Heart</option>
+                                <option value="fas fa-bolt">⚡ Lightning</option>
+                                <option value="fas fa-fire">🔥 Fire</option>
+                                <option value="fas fa-tree">🌳 Tree</option>
+                            </select>
                         </div>
                         <div class="col-md-2 mb-2">
                             <button type="button" class="btn btn-success w-100" id="addShiftTypeBtn">
                                 <i class="fas fa-plus"></i> Add
                             </button>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <label for="new_shift_parent" class="form-label">Group Under (Optional)</label>
+                            <select class="form-select" id="new_shift_parent" name="parent_shift_type">
+                                <option value="_none" selected>Main Shift (Standalone)</option>
+                                {% for timing in all_timings %}
+                                <option value="{{ timing.shift_type }}">{{ timing.display_label }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="text-muted">Sub-shifts appear grouped under their parent on daily sheets</small>
                         </div>
                     </div>
                 </form>

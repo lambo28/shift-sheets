@@ -48,7 +48,7 @@
                                     <select class="form-select" id="shift_type" name="shift_type">
                                         <option value="">Any shift type</option>
                                         {% for st in shift_types %}
-                                            <option value="{{ st.shift_type }}">{{ st.shift_type.replace('_', ' ').title() }}</option>
+                                            <option value="{{ st.shift_type }}">{{ st.display_label }}</option>
                                         {% endfor %}
                                     </select>
                                 </div>

@@ -82,10 +82,20 @@
                     {% if all_shift_types %}
                     <div class="row text-center mb-4">
                         {% for st in all_shift_types %}
+                        {% set bp_to_text = {
+                            'bg-primary': 'text-primary',
+                            'bg-success': 'text-success',
+                            'bg-danger': 'text-danger',
+                            'bg-warning': 'text-warning',
+                            'bg-info': 'text-info',
+                            'bg-secondary': 'text-secondary',
+                            'bg-dark': 'text-dark'
+                        } %}
                         <div class="col">
-                            <div class="p-3 border rounded bg-primary bg-opacity-10">
-                                <h4 class="text-primary mb-1">{{ today_shift_counts[st.shift_type] }}</h4>
-                                <p class="mb-0">{{ st.shift_type.replace('_', ' ').title() }}</p>
+                            <div class="p-3 border rounded {{ st.badge_color }} bg-opacity-10">
+                                <i class="{{ st.icon }} {{ bp_to_text.get(st.badge_color, 'text-primary') }} fa-lg mb-2"></i>
+                                <h4 class="{{ bp_to_text.get(st.badge_color, 'text-primary') }} mb-1">{{ today_shift_counts[st.shift_type] }}</h4>
+                                <p class="mb-0">{{ st.display_label }}</p>
                                 <small class="text-muted">{{ st.start_time.strftime('%H:%M') }}–{{ st.end_time.strftime('%H:%M') }}</small>
                             </div>
                         </div>
@@ -102,9 +112,9 @@
                         {% for st in all_shift_types %}
                         <div class="col">
                             <div class="mb-2">
-                                <small class="fw-bold text-primary">{{ st.shift_type.replace('_', ' ').title() }}</small>
+                                <small class="fw-bold {{ bp_to_text.get(st.badge_color, 'text-primary') }}">{{ st.display_label }}</small>
                                 <div class="progress" style="height: 10px;">
-                                    <div class="progress-bar bg-primary" style="width: {{ (today_shift_counts[st.shift_type] / max_count.val * 100) | round(1) }}%"></div>
+                                    <div class="progress-bar {{ st.badge_color }}" style="width: {{ (today_shift_counts[st.shift_type] / max_count.val * 100) | round(1) }}%"></div>
                                 </div>
                             </div>
                         </div>

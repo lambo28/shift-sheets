@@ -22,12 +22,26 @@
 
 <div class="row">
     {% for shift_type, drivers in drivers_by_shift.items() %}
+        {% set shift_timing = timings.get(shift_type) if timings else None %}
+        {% set color_map = {
+            'bg-primary': 'text-primary',
+            'bg-success': 'text-success',
+            'bg-danger': 'text-danger',
+            'bg-warning': 'text-warning',
+            'bg-info': 'text-info',
+            'bg-secondary': 'text-secondary',
+            'bg-dark': 'text-dark'
+        } %}
         <div class="col-md-6 mb-4">
             <div class="card">
-                <div class="card-header bg-primary text-white">
+                <div class="card-header {{ shift_timing.badge_color if shift_timing else 'bg-primary' }} text-white">
                     <h5 class="mb-0">
-                        <i class="fas fa-clock"></i>
-                        {{ shift_type.replace('_', ' ').title() }} Shift
+                        {% if shift_timing %}
+                            <i class="{{ shift_timing.icon }}"></i>
+                        {% else %}
+                            <i class="fas fa-clock"></i>
+                        {% endif %}
+                        {{ shift_timing.display_label if shift_timing else (shift_type|shift_label) }} Shift
                         <span class="badge bg-light text-dark ms-2">{{ drivers|length }} drivers</span>
                     </h5>
                 </div>
@@ -66,6 +80,9 @@
                                                         <small class="text-muted">+1</small>
                                                     {% endif %}
                                                 </div>
+                                                {% if driver_info.shift_type and driver_info.shift_type != shift_type %}
+                                                    <small class="badge bg-secondary mt-1">{{ timings[driver_info.shift_type].display_label if timings and timings.get(driver_info.shift_type) else (driver_info.shift_type|shift_label) }}</small>
+                                                {% endif %}
                                                 {% if driver_info.is_custom %}
                                                     <small class="text-warning">
                                                         <i class="fas fa-clock"></i> Custom
@@ -140,7 +157,7 @@
                         <div class="col">
                             <div class="border-end">
                                 <h4 class="text-primary">{{ drivers|length }}</h4>
-                                <p class="text-muted">{{ shift_type.replace('_', ' ').title() }}</p>
+                                <p class="text-muted">{{ timings[shift_type].display_label if timings and timings.get(shift_type) else (shift_type|shift_label) }}</p>
                             </div>
                         </div>
                     {% endfor %}

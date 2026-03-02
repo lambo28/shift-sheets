@@ -10,24 +10,73 @@ function getCurrentShiftTypes() {
     return types;
 }
 
+function formatShiftLabel(value) {
+    const normalized = String(value || '').replace(/_/g, ' ').trim();
+    if (!normalized) return '';
+
+    return normalized
+        .split(/\s+/)
+        .map((part) => {
+            const lower = part.toLowerCase();
+            if (lower === 'am' || lower === 'pm') {
+                return lower.toUpperCase();
+            }
+            return lower.charAt(0).toUpperCase() + lower.slice(1);
+        })
+        .join(' ');
+}
+
+function getShiftAbbreviation(shiftName, allShifts = []) {
+    // Get formatted version of the shift name
+    const formatted = formatShiftLabel(shiftName);
+    const words = formatted.split(/\s+/);
+    
+    // Single word: check if initial is unique in all shifts
+    if (words.length === 1) {
+        const initial = shiftName.charAt(0).toUpperCase();
+        const conflicts = allShifts.filter(s => s.charAt(0).toUpperCase() === initial && s !== shiftName);
+        if (conflicts.length === 0) {
+            return initial;
+        }
+    }
+    
+    // Multiple words: first letter of each word
+    if (words.length > 1) {
+        return words.map(w => w.charAt(0).toUpperCase()).join('');
+    }
+    
+    // Fallback: first letter
+    return shiftName.charAt(0).toUpperCase();
+}
+
 function buildShiftTypeOptions(selectedValue = '') {
     const shiftTypes = getCurrentShiftTypes();
     return shiftTypes.map((type) => {
         const selected = selectedValue === type ? 'selected' : '';
-        const label = type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+        const displayInput = document.querySelector(`#shiftTypesForm input[name="${type}_name"]`);
+        const label = formatShiftLabel(displayInput ? displayInput.value : type);
         return `<option value="${type}" ${selected}>${label}</option>`;
     }).join('');
 }
 
-function getShiftIconClass(shiftType) {
-    return 'fa-clock text-primary';
+function getBadgeTextColor(badgeColor) {
+    const colorMap = {
+        'bg-primary': 'text-primary',
+        'bg-success': 'text-success',
+        'bg-danger': 'text-danger',
+        'bg-warning': 'text-warning',
+        'bg-info': 'text-info',
+        'bg-secondary': 'text-secondary',
+        'bg-dark': 'text-dark'
+    };
+    return colorMap[badgeColor] || 'text-primary';
 }
 
 function toTitleCase(value) {
-    return value.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+    return formatShiftLabel(value);
 }
 
-function syncCurrentShiftsCard(shiftType, startTime, endTime) {
+function syncCurrentShiftsCard(shiftType, startTime, endTime, icon = 'fas fa-clock', badgeColor = 'bg-primary') {
     const currentGrid = document.getElementById('currentShiftsGrid');
     if (!currentGrid) return;
 
@@ -40,11 +89,11 @@ function syncCurrentShiftsCard(shiftType, startTime, endTime) {
     }
 
     card.setAttribute('data-start-time', startTime);
-    const iconClass = getShiftIconClass(shiftType);
+    const textColor = getBadgeTextColor(badgeColor);
     const label = toTitleCase(shiftType);
     card.innerHTML = `
         <div class="text-center p-3 border rounded">
-            <i class="fas ${iconClass} fa-2x mb-2"></i>
+            <i class="${icon} ${textColor} fa-2x mb-2"></i>
             <h6>${label}</h6>
             <p class="mb-0"><strong>${startTime} - ${endTime}</strong></p>
         </div>

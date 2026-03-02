@@ -199,35 +199,53 @@ function showPatternPreview() {
     const option = select.selectedOptions[0];
     const pattern = option.dataset.pattern.split(',');
     
+    // Get list of non-OFF shifts for duplicate checking
+    const nonOffShifts = pattern.filter(s => s !== 'day_off');
+    
     display.innerHTML = '';
     pattern.forEach(shift => {
         const badge = document.createElement('span');
         badge.className = 'badge ';
         
-        switch(shift) {
-            case 'day_off':
-                badge.className += 'bg-secondary';
-                badge.textContent = 'OFF';
-                break;
-            case 'earlies':
-                badge.className += 'bg-warning';
-                badge.textContent = 'E';
-                break;
-            case 'days':
-                badge.className += 'bg-success';
-                badge.textContent = 'D';
-                break;
-            case 'lates':
-                badge.className += 'bg-info';
-                badge.textContent = 'L';
-                break;
-            case 'nights':
-                badge.className += 'bg-dark';
-                badge.textContent = 'N';
-                break;
-            default:
-                badge.className += 'bg-light text-dark';
-                badge.textContent = '?';
+        // Define color mapping
+        const shiftColorMap = {
+            'day_off': { color: 'bg-secondary', text: 'OFF', label: 'Rest Day' },
+            'earlies': { color: 'bg-warning', label: 'Earlies' },
+            'days': { color: 'bg-success', label: 'Days' },
+            'lates': { color: 'bg-info', label: 'Lates' },
+            'nights': { color: 'bg-dark', label: 'Nights' }
+        };
+        
+        if (shift === 'day_off') {
+            badge.className += shiftColorMap[shift].color;
+            badge.textContent = shiftColorMap[shift].text;
+            badge.title = shiftColorMap[shift].label;
+        } else {
+            const shiftInfo = shiftColorMap[shift];
+            const formatted = typeof formatShiftLabel === 'function' ? formatShiftLabel(shift) : shift.replace(/_/g, ' ').replace(/\\b\\w/g, c => c.toUpperCase());
+            
+            if (shiftInfo) {
+                badge.className += shiftInfo.color;
+                badge.title = formatted;
+                badge.textContent = shiftInfo.label[0].toUpperCase();
+            } else {
+                // Custom shift: use intelligent abbreviation
+                badge.className += 'bg-primary';
+                badge.title = formatted;
+                
+                // Check if this shift is unique (only one starting with this letter)
+                const myInitial = shift.charAt(0).toUpperCase();
+                const conflicts = nonOffShifts.filter(s => s.charAt(0).toUpperCase() === myInitial && s !== shift);
+                
+                if (conflicts.length === 0) {
+                    // Unique: show 1 letter
+                    badge.textContent = myInitial;
+                } else {
+                    // Multi-word: show first letter of each word
+                    const words = formatted.split(/\\s+/);
+                    badge.textContent = words.length > 1 ? words.map(w => w[0]).join('') : myInitial;
+                }
+            }
         }
         
         display.appendChild(badge);

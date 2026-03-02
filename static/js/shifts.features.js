@@ -21,9 +21,13 @@ function attachFormattedInputListener(inputId, formatter) {
 }
 
 function toTitleCaseWords(value) {
-    return value.toLowerCase().replace(/\b\w/g, function(char) {
-        return char.toUpperCase();
-    });
+    return value
+        .toLowerCase()
+        .replace(/\b\w/g, function(char) {
+            return char.toUpperCase();
+        })
+        .replace(/\bAm\b/g, 'AM')
+        .replace(/\bPm\b/g, 'PM');
 }
 
 function toSentenceCase(value) {
@@ -115,8 +119,8 @@ function addShiftType() {
     const form = document.getElementById('newShiftTypeForm');
     const formData = new FormData(form);
 
-    const rawName = (formData.get('shift_type') || '').toString().trim().toLowerCase();
-    const shiftType = rawName.replace(/\s+/g, '_');
+    const rawName = (formData.get('shift_type') || '').toString().trim();
+    const shiftType = rawName.toLowerCase().replace(/\s+/g, '_');
     const startTime = formData.get('start_time');
     const endTime = formData.get('end_time');
 
@@ -131,6 +135,7 @@ function addShiftType() {
     }
 
     formData.set('shift_type', shiftType);
+    formData.set('display_name', rawName);
 
     requestJson('/shift-types/add', {
         method: 'POST',
@@ -142,23 +147,46 @@ function addShiftType() {
             return;
         }
 
+        const badgeColor = formData.get('badge_color') || 'bg-primary';
+        const icon = formData.get('icon') || 'fas fa-clock';
+        const parentShift = formData.get('parent_shift_type') || '_none';
+        const iconColor = getBadgeTextColor(badgeColor);
+        
         const existingCard = document.getElementById(`shift-card-${shiftType}`);
         if (!existingCard) {
             const grid = document.getElementById('shiftTypesGrid');
             const card = document.createElement('div');
             card.className = 'col-md-6 col-lg-4 mb-4';
             card.id = `shift-card-${shiftType}`;
-            const label = toTitleCase(shiftType);
+            const label = rawName;
+            
+            // Build parent options
+            const allShiftCards = grid.querySelectorAll('[id^="shift-card-"]');
+            let parentOptions = '<option value="_none">Main Shift (Standalone)</option>';
+            allShiftCards.forEach(c => {
+                const cardShiftType = c.id.replace('shift-card-', '');
+                if (cardShiftType !== shiftType) {
+                    const selected = parentShift === cardShiftType ? 'selected' : '';
+                    parentOptions += `<option value="${cardShiftType}" ${selected}>${toTitleCase(cardShiftType)}</option>`;
+                }
+            });
 
             card.innerHTML = `
                 <div class="border rounded p-3 h-100">
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h6 class="mb-0">${label}</h6>
+                        <h6 class="mb-0">
+                            <i class="${icon} ${iconColor}"></i>
+                            ${label}
+                        </h6>
                         <button type="button" class="btn btn-sm btn-outline-danger js-delete-shift-type" data-shift-type="${shiftType}">
                             <i class="fas fa-trash"></i>
                         </button>
                     </div>
                     <div class="row">
+                        <div class="col-12 mb-2">
+                            <label for="${shiftType}_name" class="form-label">Name</label>
+                            <input type="text" class="form-control" id="${shiftType}_name" name="${shiftType}_name" value="${label}" required>
+                        </div>
                         <div class="col-6">
                             <label for="${shiftType}_start" class="form-label">Start</label>
                             <input type="time" class="form-control" id="${shiftType}_start" name="${shiftType}_start" value="${startTime}" required>
@@ -168,13 +196,59 @@ function addShiftType() {
                             <input type="time" class="form-control" id="${shiftType}_end" name="${shiftType}_end" value="${endTime}" required>
                         </div>
                     </div>
+                    <div class="row mt-2">
+                        <div class="col-6">
+                            <label for="${shiftType}_color" class="form-label">Badge Color</label>
+                            <select class="form-select form-select-sm" id="${shiftType}_color" name="${shiftType}_color">
+                                <option value="bg-primary" ${badgeColor === 'bg-primary' ? 'selected' : ''}>Blue</option>
+                                <option value="bg-success" ${badgeColor === 'bg-success' ? 'selected' : ''}>Green</option>
+                                <option value="bg-danger" ${badgeColor === 'bg-danger' ? 'selected' : ''}>Red</option>
+                                <option value="bg-warning" ${badgeColor === 'bg-warning' ? 'selected' : ''}>Yellow</option>
+                                <option value="bg-info" ${badgeColor === 'bg-info' ? 'selected' : ''}>Cyan</option>
+                                <option value="bg-secondary" ${badgeColor === 'bg-secondary' ? 'selected' : ''}>Gray</option>
+                                <option value="bg-dark" ${badgeColor === 'bg-dark' ? 'selected' : ''}>Dark</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label for="${shiftType}_icon" class="form-label">Icon</label>
+                            <select class="form-select form-select-sm" id="${shiftType}_icon" name="${shiftType}_icon">
+                                <option value="fas fa-sun" ${icon === 'fas fa-sun' ? 'selected' : ''}>☀️ Sun</option>
+                                <option value="fas fa-moon" ${icon === 'fas fa-moon' ? 'selected' : ''}>🌙 Moon</option>
+                                <option value="fas fa-clock" ${icon === 'fas fa-clock' ? 'selected' : ''}>🕐 Clock</option>
+                                <option value="fas fa-briefcase" ${icon === 'fas fa-briefcase' ? 'selected' : ''}>💼 Briefcase</option>
+                                <option value="fas fa-star" ${icon === 'fas fa-star' ? 'selected' : ''}>⭐ Star</option>
+                                <option value="fas fa-heart" ${icon === 'fas fa-heart' ? 'selected' : ''}>❤️ Heart</option>
+                                <option value="fas fa-bolt" ${icon === 'fas fa-bolt' ? 'selected' : ''}>⚡ Lightning</option>
+                                <option value="fas fa-fire" ${icon === 'fas fa-fire' ? 'selected' : ''}>🔥 Fire</option>
+                                <option value="fas fa-tree" ${icon === 'fas fa-tree' ? 'selected' : ''}>🌳 Tree</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-12">
+                            <label for="${shiftType}_parent" class="form-label">Group Under (Optional)</label>
+                            <select class="form-select form-select-sm" id="${shiftType}_parent" name="${shiftType}_parent">
+                                ${parentOptions}
+                            </select>
+                            <small class="text-muted">Sub-shifts are grouped under their parent on daily sheets</small>
+                        </div>
+                    </div>
                 </div>
             `;
 
             grid.appendChild(card);
+            
+            // Update the new shift form's parent dropdown to include this new shift
+            const newShiftParentSelect = document.getElementById('new_shift_parent');
+            if (newShiftParentSelect) {
+                const newOption = document.createElement('option');
+                newOption.value = shiftType;
+                newOption.textContent = label;
+                newShiftParentSelect.appendChild(newOption);
+            }
         }
 
-        syncCurrentShiftsCard(shiftType, startTime, endTime);
+        syncCurrentShiftsCard(shiftType, startTime, endTime, icon, badgeColor);
         captureShiftTimesBaseline();
 
         form.reset();
@@ -262,19 +336,9 @@ function saveShiftTypes() {
     })
     .then(data => {
         if (data.success) {
-            const startInputs = form.querySelectorAll('input[name$="_start"]');
-            startInputs.forEach((startInput) => {
-                const shiftType = startInput.name.replace(/_start$/, '');
-                const endInput = form.querySelector(`input[name="${shiftType}_end"]`);
-                if (endInput) {
-                    syncCurrentShiftsCard(shiftType, startInput.value, endInput.value);
-                }
-            });
             captureShiftTimesBaseline();
-
-            hideModalById('shiftTypesModal');
-
-            showMainPageFeedback('success', 'Shift times saved successfully.');
+            setPendingMainFeedback('success', 'Shift types saved successfully.');
+            location.reload();
         } else {
             showShiftTypesFeedback('danger', 'Error saving shift types: ' + (data.error || 'Unknown error'));
         }

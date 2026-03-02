@@ -31,12 +31,17 @@
         
         <div class="row">
             {% for shift_type, drivers in drivers_by_shift.items() %}
+                {% set shift_timing = timings.get(shift_type) if timings else None %}
                 <div class="col-md-6 mb-3">
                     <div class="card">
-                        <div class="card-header bg-dark text-white">
+                        <div class="card-header {{ shift_timing.badge_color if shift_timing else 'bg-dark' }} text-white">
                             <h4 class="mb-0">
-                                <i class="fas fa-clock"></i>
-                                {{ shift_type.replace('_', ' ').upper() }} SHIFT ({{ drivers|length }})
+                                {% if shift_timing %}
+                                    <i class="{{ shift_timing.icon }}"></i>
+                                {% else %}
+                                    <i class="fas fa-clock"></i>
+                                {% endif %}
+                                {{ (shift_timing.display_label if shift_timing else (shift_type|shift_label)).upper() }} SHIFT ({{ drivers|length }})
                             </h4>
                         </div>
                         <div class="card-body p-2">
@@ -140,7 +145,7 @@
                             </tr>
                             {% for shift_type, drivers in drivers_by_shift.items() %}
                             <tr>
-                                <th>{{ shift_type.replace('_', ' ').title() }}:</th>
+                                <th>{{ timings[shift_type].display_label if timings and timings.get(shift_type) else (shift_type|shift_label) }}:</th>
                                 <td class="text-center">{{ drivers|length }}</td>
                             </tr>
                             {% endfor %}
