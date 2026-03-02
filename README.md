@@ -28,6 +28,12 @@ A comprehensive web application for managing driver scheduling with shift patter
 - **Professional UI**: Bootstrap 5 with intuitive workflow
 - **Docker Support**: Easy deployment with containerization
 
+### 🔒 **User Authentication**
+- Session-based login with Flask-Login
+- Secure password hashing (Werkzeug PBKDF2-SHA256)
+- All application routes protected — unauthenticated users are redirected to login
+- Admin panel (`/admin/add-user`) to manually create users (no public registration)
+
 ## 🚀 Quick Start
 
 ### Option 1: Docker (Recommended)
@@ -123,6 +129,30 @@ COMPANY_NAME=Your Company Name
 ### Database
 
 The application uses SQLite by default, storing data in `data/shift-sheets.db`. For production, you can configure PostgreSQL or other databases via the `DATABASE_URL` environment variable.
+
+## 🔐 Authentication
+
+All routes require a valid login session. There is **no public registration** — users are created by an administrator via the `/admin/add-user` panel.
+
+### First-time Setup
+
+When the application starts with an empty database (no users exist), the `/admin/add-user` page is accessible without authentication so you can create the first admin account:
+
+1. Navigate to `http://your-host:5000/admin/add-user`
+2. Enter a username and strong password and click **Create User**
+3. Log in at `/login` with those credentials
+
+Once at least one user exists, the `/admin/add-user` page requires an active login session.
+
+### Logging In / Out
+
+| Route | Description |
+|---|---|
+| `/login` | Sign-in form |
+| `/logout` | Ends the current session and redirects to `/login` |
+| `/admin/add-user` | Create additional users (login required after first user) |
+
+> **Security note:** Always set a strong, unique `SECRET_KEY` environment variable in production. Sessions are protected server-side; passwords are stored as PBKDF2-SHA256 hashes via Werkzeug.
 
 ## 🐳 Docker Deployment
 

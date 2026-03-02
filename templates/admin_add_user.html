@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Add User – Driver Shift Sheets{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-4">
+    <div class="col-sm-10 col-md-7 col-lg-5">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-user-plus"></i> Add New User</h5>
+            </div>
+            <div class="card-body p-4">
+                <form method="POST" action="{{ url_for('admin_add_user') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="username" name="username"
+                               placeholder="Enter username" required autofocus autocomplete="off">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="password" name="password"
+                               placeholder="Enter password" required autocomplete="new-password">
+                        <div class="form-text">Use a strong, unique password.</div>
+                    </div>
+
+                    <div class="d-grid mt-3">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-user-plus"></i> Create User
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {% if users %}
+        <div class="card shadow-sm">
+            <div class="card-header">
+                <h6 class="mb-0"><i class="fas fa-users"></i> Existing Users</h6>
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for u in users %}
+                <li class="list-group-item d-flex align-items-center">
+                    <i class="fas fa-user text-muted me-2"></i>
+                    <span>{{ u.username }}</span>
+                    <small class="text-muted ms-auto">Added {{ u.created_at.strftime('%d %b %Y') if u.created_at else '' }}</small>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if current_user.is_authenticated %}
+        <div class="mt-3 text-center">
+            <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm">
+                <i class="fas fa-arrow-left"></i> Back to Dashboard
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
