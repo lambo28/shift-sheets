@@ -4,6 +4,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, jso
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta, date
 import os
+import json
 from config import config
 
 # -----------------------------------------------------------------------------
@@ -52,7 +53,7 @@ class Driver(db.Model):
     def formatted_driver_number(self):
         try:
             return str(int(self.driver_number))
-        except Exception:
+        except (ValueError, TypeError):
             return self.driver_number
     
     # Get current active assignment
@@ -86,14 +87,12 @@ class ShiftPattern(db.Model):
     # Helper method to get pattern as list
     def get_pattern_data(self):
         try:
-            import json
             return json.loads(self.pattern_data)
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             return []
     
     # Helper method to set pattern data
     def set_pattern_data(self, pattern_list):
-        import json
         self.pattern_data = json.dumps(pattern_list)
     
     # Get count of unique drivers assigned to this pattern
@@ -183,7 +182,9 @@ class DriverCustomTiming(db.Model):
         ).order_by(DriverCustomTiming.priority).all()
         candidates.extend(driver_wide)
         
-        # Find best match based on criteria specificity
+        # Collect all matches, then choose deterministically by:
+        # assignment-specific > driver-wide, lower priority number, higher specificity
+        matching_candidates = []
         for timing in candidates:
             # Check if this timing matches all criteria
             if timing.shift_type is not None and timing.shift_type != shift_type:
@@ -192,11 +193,29 @@ class DriverCustomTiming(db.Model):
                 continue
             if timing.day_of_week is not None and timing.day_of_week != weekday:
                 continue
-            
-            # This timing matches - return it
-            return timing
-        
-        return None
+
+            specificity_score = 0
+            if timing.shift_type is not None:
+                specificity_score += 1
+            if timing.day_of_cycle is not None:
+                specificity_score += 1
+            if timing.day_of_week is not None:
+                specificity_score += 1
+
+            matching_candidates.append((timing, specificity_score))
+
+        if not matching_candidates:
+            return None
+
+        matching_candidates.sort(
+            key=lambda item: (
+                item[0].assignment_id is None,
+                item[0].priority,
+                -item[1],
+                item[0].id
+            )
+        )
+        return matching_candidates[0][0]
 
 class DriverAssignment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -280,7 +299,7 @@ def calculate_hours(start_time, end_time, break_minutes=0):
         total_minutes = (end - start).total_seconds() / 60
         total_minutes -= break_minutes
         return max(0, total_minutes / 60)  # Convert to hours
-    except Exception:
+    except (ValueError, TypeError):
         return 0.0
 
 def get_operational_date():
@@ -308,13 +327,7 @@ def get_drivers_for_date(target_date):
     drivers_working = {t.shift_type: [] for t in all_timings}
     
     # Get all active driver assignments for the target date
-    assignments = DriverAssignment.query.filter(
-        DriverAssignment.start_date <= target_date,
-        db.or_(
-            DriverAssignment.end_date.is_(None),
-            DriverAssignment.end_date >= target_date
-        )
-    ).all()
+    assignments = get_active_assignments_for_date(target_date)
     
     for assignment in assignments:
         shift_type = assignment.get_shift_for_date(target_date)
@@ -368,8 +381,52 @@ def get_week_dates(date_str):
         monday = date - timedelta(days=date.weekday())
         sunday = monday + timedelta(days=6)
         return monday, sunday
-    except Exception:
+    except (ValueError, TypeError):
         return None, None
+
+def parse_date_string(date_str):
+    """Parse YYYY-MM-DD string into date object, or None if invalid."""
+    if not date_str:
+        return None
+    try:
+        return datetime.strptime(date_str, '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        return None
+
+def parse_time_string(time_str):
+    """Parse HH:MM string into time object, or None if invalid."""
+    if not time_str:
+        return None
+    try:
+        return datetime.strptime(time_str, '%H:%M').time()
+    except (ValueError, TypeError):
+        return None
+
+def parse_optional_int(value):
+    """Parse an optional int-like value, returning None for blank and invalid values."""
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+def parse_positive_int(value):
+    """Parse positive integer, returning None if invalid."""
+    parsed = parse_optional_int(value)
+    if parsed is None or parsed <= 0:
+        return None
+    return parsed
+
+def get_active_assignments_for_date(target_date):
+    """Get assignments active for a given date."""
+    return DriverAssignment.query.filter(
+        DriverAssignment.start_date <= target_date,
+        db.or_(
+            DriverAssignment.end_date.is_(None),
+            DriverAssignment.end_date >= target_date
+        )
+    ).all()
 
 # -----------------------------------------------------------------------------
 # Routes: Dashboard and Navigation
@@ -409,8 +466,13 @@ def index():
 @app.route("/drivers")
 def drivers():
     """Manage drivers"""
-    from sqlalchemy import cast, Integer
-    all_drivers = Driver.query.order_by(cast(Driver.driver_number, Integer)).all()
+    def driver_sort_key(driver):
+        try:
+            return (0, int(driver.driver_number), driver.driver_number)
+        except (ValueError, TypeError):
+            return (1, 0, driver.driver_number)
+
+    all_drivers = sorted(Driver.query.all(), key=driver_sort_key)
     return render_template("drivers.html", drivers=all_drivers)
 
 @app.route("/shifts")
@@ -471,7 +533,7 @@ def update_shift_types():
         
         db.session.commit()
         return json_success()
-    except Exception as e:
+    except (ValueError, TypeError) as e:
         db.session.rollback()
         return json_error(str(e))
 
@@ -500,7 +562,7 @@ def add_shift_type():
         db.session.add(timing)
         db.session.commit()
         return json_success()
-    except Exception as e:
+    except (ValueError, TypeError) as e:
         db.session.rollback()
         return json_error(str(e))
 
@@ -540,7 +602,22 @@ def add_shift_pattern():
             flash(message, "error")
             return redirect(url_for("shifts"))
 
-        cycle_length = int(request.form.get("cycle_length", 7))
+        cycle_length = parse_positive_int(request.form.get("cycle_length", 7))
+        if not cycle_length:
+            message = 'Cycle length must be a positive number.'
+            if is_ajax_request():
+                return json_error(message)
+            flash(message, "error")
+            return redirect(url_for("shifts"))
+
+        pattern_name = (request.form.get("name") or "").strip()
+        if not pattern_name:
+            message = 'Pattern name is required.'
+            if is_ajax_request():
+                return json_error(message)
+            flash(message, "error")
+            return redirect(url_for("shifts"))
+
         pattern_data = []
         
         for day in range(cycle_length):
@@ -548,7 +625,7 @@ def add_shift_pattern():
             pattern_data.append(shift)
         
         pattern = ShiftPattern(
-            name=request.form.get("name"),
+            name=pattern_name,
             description=request.form.get("description"),
             cycle_length=cycle_length
         )
@@ -591,9 +668,17 @@ def edit_shift_pattern(pattern_id):
     
     try:
         # Update basic info
-        pattern.name = request.form.get("name")
+        pattern_name = (request.form.get("name") or "").strip()
+        if not pattern_name:
+            return json_error('Pattern name is required')
+
+        cycle_length = parse_positive_int(request.form.get("cycle_length", 7))
+        if not cycle_length:
+            return json_error('Cycle length must be a positive number')
+
+        pattern.name = pattern_name
         pattern.description = request.form.get("description")
-        pattern.cycle_length = int(request.form.get("cycle_length", 7))
+        pattern.cycle_length = cycle_length
         
         # Update pattern data
         pattern_data = []
@@ -660,8 +745,22 @@ def assign_pattern_to_driver(driver_id):
     patterns = ShiftPattern.query.all()
     
     if request.method == "POST":
-        start_date = datetime.strptime(request.form.get("start_date"), '%Y-%m-%d').date()
-        end_date = datetime.strptime(request.form.get("end_date"), '%Y-%m-%d').date() if request.form.get("end_date") else None
+        start_date = parse_date_string(request.form.get("start_date"))
+        end_date = parse_date_string(request.form.get("end_date")) if request.form.get("end_date") else None
+        pattern_id = parse_optional_int(request.form.get("pattern_id"))
+
+        if not start_date:
+            flash("Invalid start date", "error")
+            return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+        if request.form.get("end_date") and not end_date:
+            flash("Invalid end date", "error")
+            return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+        if end_date and end_date < start_date:
+            flash("End date cannot be before start date", "error")
+            return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+        if not pattern_id:
+            flash("Invalid shift pattern", "error")
+            return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
         
         # Find any overlapping assignments that need to be ended
         overlapping_assignments = DriverAssignment.query.filter(
@@ -680,7 +779,7 @@ def assign_pattern_to_driver(driver_id):
         # Create new assignment
         assignment = DriverAssignment(
             driver_id=driver_id,
-            shift_pattern_id=int(request.form.get("pattern_id")),
+            shift_pattern_id=pattern_id,
             start_date=start_date,
             end_date=end_date
         )
@@ -859,7 +958,7 @@ def generate_daily_sheet():
     
     try:
         target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
-    except Exception:
+    except (ValueError, TypeError):
         flash("Invalid date format", "error")
         return redirect(url_for("daily_sheet_form"))
     
@@ -876,7 +975,7 @@ def print_daily_sheet():
     
     try:
         target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
-    except Exception:
+    except (ValueError, TypeError):
         flash("Invalid date format", "error")
         return redirect(url_for("daily_sheet_form"))
     
@@ -892,16 +991,8 @@ def print_daily_sheet():
 
 def get_cars_working_at_time(target_date, target_time):
     """Get count of cars working at a specific date and time"""
-    from datetime import datetime, timedelta
-    
     # Get all active assignments for the target date
-    assignments = DriverAssignment.query.filter(
-        DriverAssignment.start_date <= target_date,
-        db.or_(
-            DriverAssignment.end_date.is_(None),
-            DriverAssignment.end_date >= target_date
-        )
-    ).all()
+    assignments = get_active_assignments_for_date(target_date)
     
     # Get all user-defined shift timings
     timings_dict = {t.shift_type: t for t in ShiftTiming.query.all()}
@@ -958,9 +1049,13 @@ def cars_working():
         try:
             date_str = request.form.get("date")
             time_str = request.form.get("time")
-            
-            target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-            target_time = datetime.strptime(time_str, '%H:%M').time()
+
+            target_date = parse_date_string(date_str)
+            target_time = parse_time_string(time_str)
+
+            if not target_date or not target_time:
+                flash("Invalid date or time", "error")
+                return render_template("cars_working.html", timings=all_timings_dict)
             
             car_count = get_cars_working_at_time(target_date, target_time)
             
@@ -993,23 +1088,36 @@ def add_custom_timing(driver_id):
     if request.method == "POST":
         try:
             # Parse form data
-            assignment_id = request.form.get("assignment_id") or None
+            assignment_id = parse_optional_int(request.form.get("assignment_id"))
             shift_type = request.form.get("shift_type") or None
             day_of_cycle = request.form.get("day_of_cycle")
             day_of_week = request.form.get("day_of_week") or None
             start_time_str = request.form.get("start_time")
             end_time_str = request.form.get("end_time")
-            priority = int(request.form.get("priority", 100))
+            priority = parse_optional_int(request.form.get("priority", 100))
             notes = request.form.get("notes")
-            
-            # Convert times
-            start_time = datetime.strptime(start_time_str, '%H:%M').time()
-            end_time = datetime.strptime(end_time_str, '%H:%M').time()
-            
-            # Convert day_of_cycle to int or None
-            day_of_cycle = int(day_of_cycle) if day_of_cycle else None
-            day_of_week = int(day_of_week) if day_of_week else None
-            assignment_id = int(assignment_id) if assignment_id else None
+
+            # Convert and validate fields
+            start_time = parse_time_string(start_time_str)
+            end_time = parse_time_string(end_time_str)
+            day_of_cycle = parse_optional_int(day_of_cycle)
+            day_of_week = parse_optional_int(day_of_week)
+
+            if not start_time or not end_time:
+                flash("Invalid start or end time", "error")
+                return redirect(url_for("add_custom_timing", driver_id=driver_id))
+
+            if priority is None:
+                flash("Invalid priority", "error")
+                return redirect(url_for("add_custom_timing", driver_id=driver_id))
+
+            if day_of_week is not None and (day_of_week < 0 or day_of_week > 6):
+                flash("Day of week must be between 0 and 6", "error")
+                return redirect(url_for("add_custom_timing", driver_id=driver_id))
+
+            if day_of_cycle is not None and day_of_cycle < 0:
+                flash("Day of cycle must be 0 or greater", "error")
+                return redirect(url_for("add_custom_timing", driver_id=driver_id))
             
             # Create timing
             timing = DriverCustomTiming(
@@ -1028,7 +1136,7 @@ def add_custom_timing(driver_id):
             db.session.commit()
             flash("Custom timing added successfully!", "success")
             return redirect(url_for("driver_custom_timings", driver_id=driver_id))
-            
+
         except Exception as e:
             db.session.rollback()
             flash(f"Error adding custom timing: {str(e)}", "error")
