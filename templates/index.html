@@ -93,10 +93,11 @@
                     </div>
                     
                     <!-- Visual Progress Bars -->
-                    {% set max_count = namespace(val=1) %}
+                    {% set max_count = namespace(val=0) %}
                     {% for st in all_shift_types %}
                         {% if today_shift_counts[st.shift_type] > max_count.val %}{% set max_count.val = today_shift_counts[st.shift_type] %}{% endif %}
                     {% endfor %}
+                    {% if max_count.val > 0 %}
                     <div class="row">
                         {% for st in all_shift_types %}
                         <div class="col">

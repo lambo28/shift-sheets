@@ -131,7 +131,7 @@ class ShiftPattern(db.Model):
 # Add Shift Timing Configuration Model
 class ShiftTiming(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    shift_type = db.Column(db.String(50), unique=True, nullable=False)
+    shift_type = db.Column(db.String(50), unique=True, nullable=False)  # user-defined name, up to 50 chars
     start_time = db.Column(db.Time, nullable=False)
     end_time = db.Column(db.Time, nullable=False)
 
