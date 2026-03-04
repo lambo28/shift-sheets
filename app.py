@@ -152,6 +152,28 @@ class ShiftTiming(db.Model):
         parts = self.shift_type.replace('_', ' ').split()
         return ' '.join(p.upper() if p.lower() in {'am', 'pm'} else p.capitalize() for p in parts)
 
+    def get_parent_display_label(self):
+        """Get the display label of the parent shift type if it exists."""
+        if not self.parent_shift_type:
+            return ''
+        parent = ShiftTiming.query.filter_by(shift_type=self.parent_shift_type).first()
+        return parent.display_label if parent else self.parent_shift_type
+
+    def get_patterns_using_shift(self):
+        """Get list of patterns that use this shift type."""
+        patterns = []
+        all_patterns = ShiftPattern.query.all()
+        for pattern in all_patterns:
+            pattern_data = pattern.get_pattern_data()
+            for day_entry in pattern_data:
+                # Handle both single shift and list of shifts
+                day_shifts = day_entry if isinstance(day_entry, list) else [day_entry]
+                if self.shift_type in day_shifts:
+                    patterns.append(pattern)
+                    break  # Found in this pattern, no need to check further days
+        return patterns
+
+
 # Driver Custom Timing Configuration Model
 class DriverCustomTiming(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -243,6 +265,15 @@ class DriverAssignment(db.Model):
     end_date = db.Column(db.Date)  # Optional - for temporary assignments
     start_day_of_cycle = db.Column(db.Integer, default=1, nullable=False)  # Which day of the pattern cycle to start on
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # Track pause/resume relationships for temporary assignments
+    paused_by_assignment_id = db.Column(db.Integer, db.ForeignKey('driver_assignment.id'), nullable=True)  # Which assignment caused this to pause
+    resumes_assignment_id = db.Column(db.Integer, db.ForeignKey('driver_assignment.id'), nullable=True)  # Which assignment this resumes
+    original_end_date = db.Column(db.Date, nullable=True)  # Store original end_date before being paused (so we can restore it)
+    
+    # Relationships for pause/resume tracking
+    paused_by = db.relationship('DriverAssignment', remote_side=[id], foreign_keys=[paused_by_assignment_id], backref='paused_assignments')
+    resumes = db.relationship('DriverAssignment', remote_side=[id], foreign_keys=[resumes_assignment_id], backref='resumed_by_assignments')
     
     # Get shift type for a specific date
     def get_shift_for_date(self, target_date):
@@ -644,29 +675,9 @@ def drivers():
     all_drivers = sorted(Driver.query.all(), key=driver_sort_key)
     all_patterns = ShiftPattern.query.all()
 
-    today = datetime.now().date()
     driver_assignments = {}
     for driver in all_drivers:
-        items = []
-        for assignment in driver.assignments:
-            if assignment.start_date > today:
-                status = "scheduled"
-            elif not assignment.end_date or assignment.end_date > today:
-                status = "active"
-            else:
-                status = "ended"
-
-            items.append({
-                "id": assignment.id,
-                "patternId": assignment.shift_pattern_id,
-                "patternName": assignment.shift_pattern.name,
-                "startDate": assignment.start_date.strftime("%Y-%m-%d"),
-                "endDate": assignment.end_date.strftime("%Y-%m-%d") if assignment.end_date else None,
-                "startDayOfCycle": assignment.start_day_of_cycle,
-                "createdAt": assignment.created_at.strftime("%d/%m/%Y"),
-                "status": status,
-            })
-        driver_assignments[driver.id] = items
+        driver_assignments[driver.id] = serialize_driver_assignment_items(driver)
 
     return render_template(
         "drivers.html",
@@ -675,6 +686,31 @@ def drivers():
         datetime=datetime,
         driver_assignments=driver_assignments,
     )
+
+
+def serialize_driver_assignment_items(driver):
+    today = datetime.now().date()
+    items = []
+    for assignment in driver.assignments:
+        if assignment.start_date > today:
+            status = "scheduled"
+        elif not assignment.end_date or assignment.end_date >= today:
+            status = "active"
+        else:
+            status = "ended"
+
+        items.append({
+            "id": assignment.id,
+            "patternId": assignment.shift_pattern_id,
+            "patternName": assignment.shift_pattern.name,
+            "startDate": assignment.start_date.strftime("%Y-%m-%d"),
+            "endDate": assignment.end_date.strftime("%Y-%m-%d") if assignment.end_date else None,
+            "startDayOfCycle": assignment.start_day_of_cycle,
+            "createdAt": assignment.created_at.strftime("%d/%m/%Y"),
+            "status": status,
+            "hasEndDate": assignment.end_date is not None,
+        })
+    return items
 
 @app.route("/shifts")
 def shifts():
@@ -854,23 +890,93 @@ def add_shift_type():
 def delete_shift_type(shift_type):
     """Delete a shift type if not in use"""
     try:
-        patterns = ShiftPattern.query.all()
-        for pattern in patterns:
-            if shift_type in iter_pattern_shift_types(pattern.get_pattern_data()):
-                return json_error(f'Shift type is used in pattern: {pattern.name}')
-
-        custom_timing = DriverCustomTiming.query.filter_by(shift_type=shift_type).first()
-        if custom_timing:
-            return json_error('Shift type is used in custom driver timings')
-
+        # Check if shift type is used in any patterns
         timing = ShiftTiming.query.filter_by(shift_type=shift_type).first()
         if not timing:
             return json_error('Shift type not found')
+        
+        patterns_using = timing.get_patterns_using_shift()
+        if patterns_using:
+            pattern_names = ', '.join([p.name for p in patterns_using])
+            message = f'Cannot delete shift type while it is used in patterns: {pattern_names}'
+            return json_error(message)
+        
+        # Check if other shifts are grouped under this shift type
+        child_shifts = ShiftTiming.query.filter_by(parent_shift_type=shift_type).all()
+        if child_shifts:
+            child_names = ', '.join([s.display_label for s in child_shifts])
+            message = f'Cannot delete shift type while other shifts are grouped under it: {child_names}'
+            return json_error(message)
+
+        # Check if used in custom driver timings
+        custom_timing = DriverCustomTiming.query.filter_by(shift_type=shift_type).first()
+        if custom_timing:
+            return json_error('Cannot delete shift type while it is used in custom driver timings')
 
         db.session.delete(timing)
         db.session.commit()
         return json_success()
     except Exception as e:
+        db.session.rollback()
+        return json_error(str(e))
+
+@app.route("/shift-types/<shift_type>/data", methods=["GET"])
+def get_shift_type_data(shift_type):
+    """Get shift type data for editing"""
+    timing = ShiftTiming.query.filter_by(shift_type=shift_type).first()
+    if not timing:
+        return json_error('Shift type not found'), 404
+    
+    return jsonify({
+        'shift_type': timing.shift_type,
+        'display_label': timing.display_label,
+        'start_time': timing.start_time.strftime('%H:%M'),
+        'end_time': timing.end_time.strftime('%H:%M'),
+        'badge_color': timing.badge_color,
+        'icon': timing.icon,
+        'parent_shift_type': timing.parent_shift_type
+    })
+
+@app.route("/shift-types/<shift_type>/edit", methods=["POST"])
+def edit_shift_type(shift_type):
+    """Edit an existing shift type"""
+    try:
+        timing = ShiftTiming.query.filter_by(shift_type=shift_type).first()
+        if not timing:
+            return json_error('Shift type not found')
+        
+        display_name = request.form.get("shift_type", "").strip()
+        start_time_str = request.form.get("start_time")
+        end_time_str = request.form.get("end_time")
+        badge_color = request.form.get("badge_color", "bg-primary")
+        icon = request.form.get("icon", "fas fa-clock")
+        parent_shift_type = request.form.get("parent_shift_type", "").strip() or None
+
+        if parent_shift_type == '_none':
+            parent_shift_type = None
+        
+        if not display_name or not start_time_str or not end_time_str:
+            return json_error('All fields are required')
+        
+        # Validate parent exists if specified
+        if parent_shift_type:
+            parent = ShiftTiming.query.filter_by(shift_type=parent_shift_type).first()
+            if not parent:
+                return json_error('Selected parent shift does not exist')
+        
+        start_time = datetime.strptime(start_time_str, '%H:%M').time()
+        end_time = datetime.strptime(end_time_str, '%H:%M').time()
+        
+        timing.display_name = display_name
+        timing.start_time = start_time
+        timing.end_time = end_time
+        timing.badge_color = badge_color
+        timing.icon = icon
+        timing.parent_shift_type = parent_shift_type
+        
+        db.session.commit()
+        return json_success()
+    except (ValueError, TypeError) as e:
         db.session.rollback()
         return json_error(str(e))
 
@@ -1036,21 +1142,30 @@ def assign_pattern_to_driver(driver_id):
     patterns = ShiftPattern.query.all()
     
     if request.method == "POST":
+        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
         start_date = parse_date_string(request.form.get("start_date"))
         end_date = parse_date_string(request.form.get("end_date")) if request.form.get("end_date") else None
         pattern_id = parse_optional_int(request.form.get("pattern_id"))
         start_day_of_cycle = parse_optional_int(request.form.get("start_day_of_cycle")) or 1
 
         if not start_date:
+            if is_ajax:
+                return jsonify({"ok": False, "error": "Invalid start date"}), 400
             flash("Invalid start date", "error")
             return redirect(url_for("drivers"))
         if request.form.get("end_date") and not end_date:
+            if is_ajax:
+                return jsonify({"ok": False, "error": "Invalid end date"}), 400
             flash("Invalid end date", "error")
             return redirect(url_for("drivers"))
         if end_date and end_date < start_date:
+            if is_ajax:
+                return jsonify({"ok": False, "error": "End date cannot be before start date"}), 400
             flash("End date cannot be before start date", "error")
             return redirect(url_for("drivers"))
         if not pattern_id:
+            if is_ajax:
+                return jsonify({"ok": False, "error": "Invalid shift pattern"}), 400
             flash("Invalid shift pattern", "error")
             return redirect(url_for("drivers"))
         
@@ -1064,11 +1179,7 @@ def assign_pattern_to_driver(driver_id):
             )
         ).all()
         
-        # End all overlapping assignments the day before new one starts
-        for assignment in overlapping_assignments:
-            assignment.end_date = start_date - timedelta(days=1)
-        
-        # Create new assignment
+        # Create new assignment first so we have an ID to reference
         assignment = DriverAssignment(
             driver_id=driver_id,
             shift_pattern_id=pattern_id,
@@ -1079,11 +1190,55 @@ def assign_pattern_to_driver(driver_id):
         
         try:
             db.session.add(assignment)
+            db.session.flush()  # Get the ID without committing
+            
+            # Handle overlapping assignments
+            for overlapping in overlapping_assignments:
+                original_end_date = overlapping.end_date
+                # Store original end date before modifying, then set to day before new assignment starts
+                overlapping.original_end_date = original_end_date
+                overlapping.end_date = start_date - timedelta(days=1)
+                overlapping.paused_by_assignment_id = assignment.id
+                
+                # If the new assignment is temporary (has end_date) and the overlapping one 
+                # would have continued past the new assignment's end, create a resumption
+                should_resume = False
+                resume_end_date = None
+                
+                if end_date:
+                    if not original_end_date:
+                        # Overlapping was ongoing - will resume as ongoing
+                        should_resume = True
+                        resume_end_date = None
+                    elif original_end_date > end_date:
+                        # Overlapping had end date beyond new assignment - will resume with original end date
+                        should_resume = True
+                        resume_end_date = original_end_date
+                
+                if should_resume:
+                    resumption = DriverAssignment(
+                        driver_id=driver_id,
+                        shift_pattern_id=overlapping.shift_pattern_id,
+                        start_date=end_date + timedelta(days=1),
+                        end_date=resume_end_date,
+                        start_day_of_cycle=overlapping.start_day_of_cycle,
+                        resumes_assignment_id=overlapping.id
+                    )
+                    db.session.add(resumption)
+            
             db.session.commit()
+            if is_ajax:
+                return jsonify({
+                    "ok": True,
+                    "message": "Shift pattern assigned successfully!",
+                    "driverAssignments": serialize_driver_assignment_items(driver),
+                })
             flash("Shift pattern assigned successfully!", "success")
             return redirect(url_for("drivers"))
         except Exception as e:
             db.session.rollback()
+            if is_ajax:
+                return jsonify({"ok": False, "error": f"Error assigning pattern: {str(e)}"}), 500
             flash(f"Error assigning pattern: {str(e)}", "error")
             return redirect(url_for("drivers"))
     
@@ -1094,40 +1249,78 @@ def end_assignment(driver_id, assignment_id):
     """End an active driver assignment"""
     driver = Driver.query.get_or_404(driver_id)
     assignment = DriverAssignment.query.get_or_404(assignment_id)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     
     # Verify the assignment belongs to this driver
     if assignment.driver_id != driver_id:
-        flash("Invalid assignment", "error")
+        error_msg = "Invalid assignment"
+        if is_ajax:
+            return jsonify({"ok": False, "error": error_msg}), 400
+        flash(error_msg, "error")
         return redirect(url_for("drivers"))
     
-    # Check if assignment is still active
-    if assignment.end_date:
-        flash("Assignment is already ended", "error")
+    today = datetime.now().date()
+    
+    # Check if assignment has already ended (end date in the past)
+    if assignment.end_date and assignment.end_date < today:
+        error_msg = "Assignment has already ended"
+        if is_ajax:
+            return jsonify({"ok": False, "error": error_msg}), 400
+        flash(error_msg, "error")
         return redirect(url_for("drivers"))
     
     try:
-        # Set end date to today
+        # Set end date to today (or update it to today if it was set for future)
         assignment.end_date = datetime.now().date()
         
+        # Check if this assignment paused any others - if so, delete their auto-resumptions
+        # and restore them with their original end dates
+        for paused in assignment.paused_assignments:
+            # Find and delete any resumption assignment for this paused assignment
+            resumption = DriverAssignment.query.filter(
+                DriverAssignment.resumes_assignment_id == paused.id,
+                DriverAssignment.driver_id == driver_id
+            ).first()
+            if resumption:
+                db.session.delete(resumption)
+            # Restore paused assignment with its original end date
+            paused.end_date = paused.original_end_date
+            paused.paused_by_assignment_id = None
+            paused.original_end_date = None
+        
         # Check if there was a previous assignment that was ended because of this one
-        # Look for assignments that ended the day before this one started
+        # (for cases where user manually created assignment without the auto system)
         previous_assignment = DriverAssignment.query.filter(
             DriverAssignment.driver_id == driver_id,
             DriverAssignment.end_date == assignment.start_date - timedelta(days=1),
-            DriverAssignment.id != assignment_id
+            DriverAssignment.id != assignment_id,
+            DriverAssignment.paused_by_assignment_id.is_(None)  # Not already tracked as paused
         ).order_by(DriverAssignment.start_date.desc()).first()
         
         # If found, restore it to ongoing (remove end date)
         if previous_assignment:
             previous_assignment.end_date = None
-            flash(f"Assignment ended and previous pattern '{previous_assignment.shift_pattern.name}' restored for {driver.formatted_name()}", "success")
+            message = f"Assignment ended and previous pattern '{previous_assignment.shift_pattern.name}' restored"
         else:
-            flash(f"Assignment ended successfully for {driver.formatted_name()}", "success")
+            message = "Assignment ended successfully"
             
         db.session.commit()
+        
+        if is_ajax:
+            return jsonify({
+                "ok": True,
+                "message": message,
+                "driverId": driver_id,
+                "driverAssignments": serialize_driver_assignment_items(driver)
+            }), 200
+        
+        flash(message + f" for {driver.formatted_name()}", "success")
     except Exception as e:
         db.session.rollback()
-        flash(f"Error ending assignment: {str(e)}", "error")
+        error_msg = f"Error ending assignment: {str(e)}"
+        if is_ajax:
+            return jsonify({"ok": False, "error": error_msg}), 500
+        flash(error_msg, "error")
     
     return redirect(url_for("drivers"))
 
@@ -1136,8 +1329,11 @@ def edit_assignment(driver_id, assignment_id):
     """Edit an existing driver assignment"""
     driver = Driver.query.get_or_404(driver_id)
     assignment = DriverAssignment.query.get_or_404(assignment_id)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
     if assignment.driver_id != driver_id:
+        if is_ajax:
+            return jsonify({"ok": False, "error": "Invalid assignment"}), 400
         flash("Invalid assignment", "error")
         return redirect(url_for("drivers"))
 
@@ -1147,21 +1343,36 @@ def edit_assignment(driver_id, assignment_id):
     start_day_of_cycle = parse_optional_int(request.form.get("start_day_of_cycle")) or 1
 
     if not start_date:
+        if is_ajax:
+            return jsonify({"ok": False, "error": "Invalid start date"}), 400
         flash("Invalid start date", "error")
         return redirect(url_for("drivers"))
     if request.form.get("end_date") and not end_date:
+        if is_ajax:
+            return jsonify({"ok": False, "error": "Invalid end date"}), 400
         flash("Invalid end date", "error")
         return redirect(url_for("drivers"))
     if end_date and end_date < start_date:
+        if is_ajax:
+            return jsonify({"ok": False, "error": "End date cannot be before start date"}), 400
         flash("End date cannot be before start date", "error")
         return redirect(url_for("drivers"))
     if not pattern_id:
+        if is_ajax:
+            return jsonify({"ok": False, "error": "Invalid shift pattern"}), 400
         flash("Invalid shift pattern", "error")
         return redirect(url_for("drivers"))
 
+    # Store old values before updating
+    old_start_date = assignment.start_date
+    old_end_date = assignment.end_date
+    old_pattern_id = assignment.shift_pattern_id
+
+    # Check for overlaps excluding this assignment and excluding resumptions it created
     overlap_exists = DriverAssignment.query.filter(
         DriverAssignment.driver_id == driver_id,
         DriverAssignment.id != assignment_id,
+        DriverAssignment.resumes_assignment_id != assignment_id,  # Exclude resumptions created by this
         DriverAssignment.start_date <= (end_date if end_date else date.max),
         db.or_(
             DriverAssignment.end_date.is_(None),
@@ -1170,19 +1381,71 @@ def edit_assignment(driver_id, assignment_id):
     ).first()
 
     if overlap_exists:
+        if is_ajax:
+            return jsonify({"ok": False, "error": "Edited assignment overlaps with another assignment"}), 400
         flash("Edited assignment overlaps with another assignment", "error")
         return redirect(url_for("drivers"))
 
-    assignment.shift_pattern_id = pattern_id
-    assignment.start_date = start_date
-    assignment.end_date = end_date
-    assignment.start_day_of_cycle = start_day_of_cycle
-
     try:
+        # Update the assignment
+        assignment.shift_pattern_id = pattern_id
+        assignment.start_date = start_date
+        assignment.end_date = end_date
+        assignment.start_day_of_cycle = start_day_of_cycle
+        db.session.flush()
+
+        # If dates or end_date changed, recalculate pause/resume relationships
+        if old_start_date != start_date or old_end_date != end_date:
+            # Update paused assignments' end dates if start date changed
+            if old_start_date != start_date:
+                for paused in assignment.paused_assignments:
+                    paused.end_date = start_date - timedelta(days=1)
+            
+            # Handle resumption assignments based on end_date changes
+            if old_end_date != end_date:
+                # Find existing resumptions created by this assignment
+                existing_resumptions = DriverAssignment.query.filter(
+                    DriverAssignment.driver_id == driver_id,
+                    DriverAssignment.resumes_assignment_id.in_(
+                        [p.id for p in assignment.paused_assignments]
+                    )
+                ).all()
+                
+                if end_date:
+                    # Assignment now/still has end date - update or create resumptions
+                    for paused in assignment.paused_assignments:
+                        resumption = next((r for r in existing_resumptions if r.resumes_assignment_id == paused.id), None)
+                        if resumption:
+                            # Update existing resumption start date
+                            resumption.start_date = end_date + timedelta(days=1)
+                        else:
+                            # Create new resumption if one doesn't exist
+                            new_resumption = DriverAssignment(
+                                driver_id=driver_id,
+                                shift_pattern_id=paused.shift_pattern_id,
+                                start_date=end_date + timedelta(days=1),
+                                end_date=None,
+                                start_day_of_cycle=paused.start_day_of_cycle,
+                                resumes_assignment_id=paused.id
+                            )
+                            db.session.add(new_resumption)
+                else:
+                    # Assignment is now ongoing (no end_date) - delete resumptions
+                    for resumption in existing_resumptions:
+                        db.session.delete(resumption)
+        
         db.session.commit()
+        if is_ajax:
+            return jsonify({
+                "ok": True,
+                "message": f"Assignment updated successfully for {driver.formatted_name()}",
+                "driverAssignments": serialize_driver_assignment_items(driver),
+            })
         flash(f"Assignment updated successfully for {driver.formatted_name()}", "success")
     except Exception as e:
         db.session.rollback()
+        if is_ajax:
+            return jsonify({"ok": False, "error": f"Error updating assignment: {str(e)}"}), 500
         flash(f"Error updating assignment: {str(e)}", "error")
 
     return redirect(url_for("drivers"))
@@ -1192,21 +1455,41 @@ def delete_assignment(driver_id, assignment_id):
     """Delete a driver assignment completely"""
     driver = Driver.query.get_or_404(driver_id)
     assignment = DriverAssignment.query.get_or_404(assignment_id)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     
     # Verify the assignment belongs to this driver
     if assignment.driver_id != driver_id:
-        flash("Invalid assignment", "error")
+        error_msg = "Invalid assignment"
+        if is_ajax:
+            return jsonify({"ok": False, "error": error_msg}), 400
+        flash(error_msg, "error")
         return redirect(url_for("drivers"))
     
     try:
+        pattern_name = assignment.shift_pattern.name
+        
+        # If this assignment paused others, restore them
+        for paused in assignment.paused_assignments:
+            # Find and delete any resumption assignment for this paused assignment
+            resumption = DriverAssignment.query.filter(
+                DriverAssignment.resumes_assignment_id == paused.id,
+                DriverAssignment.driver_id == driver_id
+            ).first()
+            if resumption:
+                db.session.delete(resumption)
+            # Restore paused assignment with its original end date
+            paused.end_date = paused.original_end_date
+            paused.original_end_date = None
+            paused.paused_by_assignment_id = None
+        
         # Check if this assignment auto-ended a previous one and restore it
+        # (for cases where user manually created assignment without the auto system)
         previous_assignment = DriverAssignment.query.filter(
             DriverAssignment.driver_id == driver_id,
             DriverAssignment.end_date == assignment.start_date - timedelta(days=1),
-            DriverAssignment.id != assignment_id
+            DriverAssignment.id != assignment_id,
+            DriverAssignment.paused_by_assignment_id.is_(None)  # Not already tracked as paused
         ).order_by(DriverAssignment.start_date.desc()).first()
-        
-        pattern_name = assignment.shift_pattern.name
         
         # Delete the assignment
         db.session.delete(assignment)
@@ -1214,16 +1497,68 @@ def delete_assignment(driver_id, assignment_id):
         # Restore previous assignment if it was auto-ended
         if previous_assignment:
             previous_assignment.end_date = None
-            flash(f"Assignment '{pattern_name}' deleted and previous pattern '{previous_assignment.shift_pattern.name}' restored for {driver.formatted_name()}", "success")
+            message = f"Assignment '{pattern_name}' deleted and previous pattern '{previous_assignment.shift_pattern.name}' restored"
         else:
-            flash(f"Assignment '{pattern_name}' deleted successfully for {driver.formatted_name()}", "success")
+            message = f"Assignment '{pattern_name}' deleted successfully"
             
         db.session.commit()
+        
+        if is_ajax:
+            return jsonify({
+                "ok": True,
+                "message": message,
+                "driverId": driver_id,
+                "driverAssignments": serialize_driver_assignment_items(driver)
+            }), 200
+        
+        flash(message + f" for {driver.formatted_name()}", "success")
     except Exception as e:
         db.session.rollback()
-        flash(f"Error deleting assignment: {str(e)}", "error")
+        error_msg = f"Error deleting assignment: {str(e)}"
+        if is_ajax:
+            return jsonify({"ok": False, "error": error_msg}), 500
+        flash(error_msg, "error")
     
     return redirect(url_for("drivers"))
+
+@app.route("/driver/<int:driver_id>/data", methods=["GET"])
+def get_driver_data(driver_id):
+    """Get current driver data for background refresh"""
+    driver = Driver.query.get_or_404(driver_id)
+    today = datetime.now().date()
+    
+    current_assignment = driver.get_current_assignment()
+    future_assignments = [a for a in driver.assignments if a.start_date > today]
+    
+    return jsonify({
+        "ok": True,
+        "driver": {
+            "id": driver.id,
+            "formatted_driver_number": driver.formatted_driver_number(),
+            "formatted_name": driver.formatted_name(),
+            "name": driver.name,
+            "car_type": driver.car_type,
+            "school_badge": driver.school_badge,
+            "pet_friendly": driver.pet_friendly,
+            "assistance_guide_dogs_exempt": driver.assistance_guide_dogs_exempt,
+            "electric_vehicle": driver.electric_vehicle,
+            "created_at": driver.created_at.strftime('%d/%m/%Y'),
+        },
+        "current_assignment": {
+            "pattern_name": current_assignment.shift_pattern.name if current_assignment else None,
+            "start_date": current_assignment.start_date.strftime('%Y-%m-%d') if current_assignment else None,
+            "end_date": current_assignment.end_date.strftime('%Y-%m-%d') if current_assignment and current_assignment.end_date else None,
+            "has_end_date": current_assignment.end_date is not None if current_assignment else False,
+        } if current_assignment else None,
+        "future_assignments": [
+            {
+                "pattern_name": a.shift_pattern.name,
+                "start_date": a.start_date.strftime('%Y-%m-%d'),
+            }
+            for a in future_assignments
+        ],
+        "assignments": serialize_driver_assignment_items(driver),
+    })
 
 # -----------------------------------------------------------------------------
 # Routes: Driver Management
@@ -1232,6 +1567,8 @@ def delete_assignment(driver_id, assignment_id):
 @app.route("/driver/add", methods=["GET", "POST"])
 def add_driver():
     """Add new driver"""
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    
     if request.method == "GET":
         return redirect(url_for("drivers"))
 
@@ -1249,11 +1586,17 @@ def add_driver():
         try:
             db.session.add(driver)
             db.session.commit()
-            flash("Driver added successfully!", "success")
+            message = "Driver added successfully!"
+            if is_ajax:
+                return jsonify({"ok": True, "message": message}), 200
+            flash(message, "success")
             return redirect(url_for("drivers"))
         except Exception as e:
             db.session.rollback()
-            flash(f"Error adding driver: {str(e)}", "error")
+            error_msg = f"Error adding driver: {str(e)}"
+            if is_ajax:
+                return jsonify({"ok": False, "error": error_msg}), 500
+            flash(error_msg, "error")
 
     return redirect(url_for("drivers"))
 
@@ -1261,6 +1604,7 @@ def add_driver():
 def edit_driver(driver_id):
     """Edit existing driver"""
     driver = Driver.query.get_or_404(driver_id)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
     if request.method == "GET":
         return redirect(url_for("drivers"))
@@ -1276,11 +1620,17 @@ def edit_driver(driver_id):
         
         try:
             db.session.commit()
-            flash("Driver updated successfully!", "success")
+            message = "Driver updated successfully!"
+            if is_ajax:
+                return jsonify({"ok": True, "message": message}), 200
+            flash(message, "success")
             return redirect(url_for("drivers"))
         except Exception as e:
             db.session.rollback()
-            flash(f"Error updating driver: {str(e)}", "error")
+            error_msg = f"Error updating driver: {str(e)}"
+            if is_ajax:
+                return jsonify({"ok": False, "error": error_msg}), 500
+            flash(error_msg, "error")
 
     return redirect(url_for("drivers"))
 
@@ -1288,13 +1638,21 @@ def edit_driver(driver_id):
 def delete_driver(driver_id):
     """Delete driver"""
     driver = Driver.query.get_or_404(driver_id)
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    
     try:
         db.session.delete(driver)
         db.session.commit()
-        flash("Driver deleted successfully!", "success")
+        message = "Driver deleted successfully!"
+        if is_ajax:
+            return jsonify({"ok": True, "message": message}), 200
+        flash(message, "success")
     except Exception as e:
         db.session.rollback()
-        flash(f"Error deleting driver: {str(e)}", "error")
+        error_msg = f"Error deleting driver: {str(e)}"
+        if is_ajax:
+            return jsonify({"ok": False, "error": error_msg}), 500
+        flash(error_msg, "error")
     
     return redirect(url_for("drivers"))
 

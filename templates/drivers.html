@@ -2,41 +2,8 @@
 
 {% block title %}Drivers - Driver Shift Sheets{% endblock %}
 
-{% block extra_head %}
-<style>
-.btn-group .btn {
-    transition: all 0.3s ease !important;
-    transform: scale(1) !important;
-}
+{% block extra_head %}{% endblock %}
 
-.btn-group .btn:hover {
-    transform: scale(1.1) !important;
-    box-shadow: 0 6px 12px rgba(0,0,0,0.3) !important;
-    z-index: 10 !important;
-    position: relative !important;
-}
-
-.btn-primary:hover {
-    background-color: #0056b3 !important;
-    border-color: #0056b3 !important;
-}
-
-.btn-info:hover {
-    background-color: #138496 !important;
-    border-color: #138496 !important;
-}
-
-.btn-danger:hover {
-    background-color: #c82333 !important;
-    border-color: #c82333 !important;
-}
-
-.btn-warning:hover {
-    background-color: #e0a800 !important;
-    border-color: #e0a800 !important;
-}
-</style>
-{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -66,7 +33,7 @@
                     </thead>
                     <tbody>
                         {% for driver in drivers %}
-                        <tr>
+                        <tr data-driver-id="{{ driver.id }}">
                             <td>
                                 <span class="badge bg-primary fs-6">{{ driver.formatted_driver_number() }}</span>
                             </td>
@@ -106,11 +73,25 @@
                                 {% if current_assignment or future_assignments %}
                                     <div class="d-flex flex-column">
                                         {% if current_assignment %}
-                                            <span class="badge bg-success mb-1">
+                                            {% set today = datetime.now().date() %}
+                                            {% set current_has_end = current_assignment.end_date is not none %}
+                                            {% set current_ending_today = current_has_end and current_assignment.end_date == today %}
+                                            {% set current_days_to_end = (current_assignment.end_date - today).days if current_has_end else none %}
+                                            <span class="badge {{ 'bg-warning text-dark' if current_has_end else 'bg-success' }} mb-1">
                                                 {{ current_assignment.shift_pattern.name }}
                                             </span>
                                             <small class="text-muted">
-                                                Since {{ current_assignment.start_date.strftime('%d/%m/%Y') }}
+                                                {% if current_has_end %}
+                                                    {% if current_ending_today %}
+                                                        Ending Today · Started {{ current_assignment.start_date.strftime('%d/%m/%Y') }}
+                                                    {% elif current_days_to_end == 1 %}
+                                                        Ending Tomorrow · Started {{ current_assignment.start_date.strftime('%d/%m/%Y') }}
+                                                    {% else %}
+                                                        Ending {{ current_assignment.end_date.strftime('%d/%m/%Y') }} · Started {{ current_assignment.start_date.strftime('%d/%m/%Y') }}
+                                                    {% endif %}
+                                                {% else %}
+                                                    Active · Since {{ current_assignment.start_date.strftime('%d/%m/%Y') }}
+                                                {% endif %}
                                             </small>
                                         {% endif %}
                                         {% for assignment in future_assignments %}
@@ -118,7 +99,8 @@
                                                 {{ assignment.shift_pattern.name }}
                                             </span>
                                             <small class="text-muted">
-                                                From {{ assignment.start_date.strftime('%d/%m/%Y') }}
+                                                {% set days_until_start = (assignment.start_date - datetime.now().date()).days %}
+                                                Scheduled · Starts in {{ days_until_start }} day{{ 's' if days_until_start != 1 else '' }} ({{ assignment.start_date.strftime('%d/%m/%Y') }})
                                             </small>
                                         {% endfor %}
                                     </div>
@@ -466,479 +448,52 @@
         </div>
     </div>
 </div>
+
+<!-- Assignment Action Confirmation Modal -->
+<div class="modal fade" id="assignmentActionModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="assignmentActionTitle">Confirm Action</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p id="assignmentActionMessage">Are you sure?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form id="assignmentActionForm" method="POST" style="display: inline;">
+                    <button type="submit" class="btn btn-danger" id="assignmentActionSubmitBtn">Confirm</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Notification Alert Banner Container -->
+<div id="alertBannerContainer"></div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script id="driverAssignmentsData" type="application/json">{{ driver_assignments|tojson }}</script>
+<!-- Load driver management module files -->
+<script src="{{ url_for('static', filename='js/shared.core.js') }}"></script>
+<script src="{{ url_for('static', filename='js/drivers.core.js') }}"></script>
+<script src="{{ url_for('static', filename='js/drivers.form-handlers.js') }}"></script>
+<script src="{{ url_for('static', filename='js/drivers.event-bindings.js') }}"></script>
 <script>
-// Store driver assignments data  
+// Initialize driver assignments data from JSON embedded in page
 const driverAssignments = JSON.parse(document.getElementById('driverAssignmentsData').textContent || '{}');
-
-function adjustDriverWorkflowFrameSize() {
-    const frameEl = document.getElementById('driverWorkflowFrame');
-    if (!frameEl || !frameEl.contentWindow || !frameEl.contentWindow.document) return;
-
-    try {
-        const doc = frameEl.contentWindow.document;
-        const contentHeight = Math.max(
-            doc.body ? doc.body.scrollHeight : 0,
-            doc.documentElement ? doc.documentElement.scrollHeight : 0
-        );
-        const minHeight = 420;
-        const maxHeight = Math.round(window.innerHeight * 0.75);
-        const targetHeight = Math.min(Math.max(contentHeight + 12, minHeight), maxHeight);
-        frameEl.style.height = `${targetHeight}px`;
-    } catch (error) {
-        frameEl.style.height = '460px';
+// Initialize all module functions on DOM ready
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof initializeFormHandlers === 'function') {
+        initializeFormHandlers();
     }
-}
-
-// Add event listener for all button clicks
-document.addEventListener('click', function(event) {
-    // Handle assign pattern button
-    if (event.target.closest('.assign-pattern-btn')) {
-        const button = event.target.closest('.assign-pattern-btn');
-        const driverId = button.getAttribute('data-driver-id');
-        const driverNumber = button.getAttribute('data-driver-number');
-        const driverName = button.getAttribute('data-driver-name');
-        const currentPattern = button.getAttribute('data-current-pattern');
-        const currentStart = button.getAttribute('data-current-start');
-
-        // Set form action
-        document.getElementById('assignPatternForm').action = `/driver/${driverId}/assign-pattern`;
-        
-        // Set modal title with driver info
-        document.getElementById('assignPatternModalTitle').innerHTML = `<i class="fas fa-calendar-plus"></i> Assign Shift Pattern - #${driverNumber} ${driverName}`;
-        
-        // Set current date as start date
-        const today = new Date();
-        const todayString = today.getFullYear() + '-' + 
-                           String(today.getMonth() + 1).padStart(2, '0') + '-' + 
-                           String(today.getDate()).padStart(2, '0');
-        document.getElementById('assign_start_date').value = todayString;
-        document.getElementById('assign_end_date').value = '';
-        
-        // Reset form
-        document.getElementById('assign_pattern_id').value = '';
-        document.getElementById('assignPatternPreview').style.display = 'none';
-        document.getElementById('assign_current_assignment_warning').style.display = 'none';
-        document.getElementById('assign_end_date').classList.remove('is-invalid');
-        document.getElementById('assignPatternSubmitBtn').innerHTML = '<i class="fas fa-calendar-plus"></i> Assign Pattern';
-        
-        // Store current assignment data for use in validation
-        document.getElementById('assignPatternForm').dataset.currentPattern = currentPattern || '';
-        document.getElementById('assignPatternForm').dataset.currentStart = currentStart || '';
-        document.getElementById('assignPatternForm').dataset.driverId = driverId;
-        
-        // Load and display assignment history
-        loadAssignmentHistory(driverId);
-        
-        // Open modal
-        const assignModal = new bootstrap.Modal(document.getElementById('assignPatternModal'));
-        assignModal.show();
-        return;
-    }
-
-    // Handle assignment delete button
-    if (event.target.closest('.delete-assignment-btn')) {
-        const button = event.target.closest('.delete-assignment-btn');
-        const assignmentId = button.getAttribute('data-assignment-id');
-        const patternName = button.getAttribute('data-pattern-name');
-        const driverId = button.getAttribute('data-driver-id');
-        confirmDeleteAssignment(assignmentId, patternName, driverId);
-        return;
-    }
-
-    // Handle assignment end button
-    if (event.target.closest('.end-assignment-btn')) {
-        const button = event.target.closest('.end-assignment-btn');
-        const assignmentId = button.getAttribute('data-assignment-id');
-        const patternName = button.getAttribute('data-pattern-name');
-        const driverId = button.getAttribute('data-driver-id');
-        confirmEndAssignment(assignmentId, patternName, driverId);
-        return;
-    }
-
-    // Handle assignment edit button
-    if (event.target.closest('.edit-assignment-btn')) {
-        const button = event.target.closest('.edit-assignment-btn');
-        const assignmentId = button.getAttribute('data-assignment-id');
-        const driverId = button.getAttribute('data-driver-id');
-        openEditAssignment(driverId, assignmentId);
-        return;
-    }
-
-    // Handle workflow button
-    if (event.target.closest('.open-driver-workflow-btn')) {
-        const button = event.target.closest('.open-driver-workflow-btn');
-        const title = button.getAttribute('data-workflow-title') || 'Driver Workflow';
-        const url = button.getAttribute('data-workflow-url') || 'about:blank';
-
-        const titleEl = document.getElementById('driverWorkflowTitle');
-        const frameEl = document.getElementById('driverWorkflowFrame');
-
-        if (titleEl) {
-            titleEl.textContent = title;
-        }
-        if (frameEl) {
-            frameEl.src = url;
-        }
-
-        const workflowModal = new bootstrap.Modal(document.getElementById('driverWorkflowModal'));
-        workflowModal.show();
-
-        if (frameEl) {
-            frameEl.addEventListener('load', adjustDriverWorkflowFrameSize, { once: true });
-        }
-        return;
-    }
-
-    if (event.target.closest('.edit-driver-btn')) {
-        const button = event.target.closest('.edit-driver-btn');
-        const driverId = button.getAttribute('data-driver-id');
-        document.getElementById('editDriverForm').action = `/driver/${driverId}/edit`;
-        document.getElementById('edit_driver_number').value = button.getAttribute('data-driver-number') || '';
-        document.getElementById('edit_name').value = button.getAttribute('data-driver-name') || '';
-        document.getElementById('edit_car_type').value = button.getAttribute('data-car-type') || '';
-        document.getElementById('edit_electric_vehicle').checked = button.getAttribute('data-electric-vehicle') === '1';
-        document.getElementById('edit_school_badge').checked = button.getAttribute('data-school-badge') === '1';
-        document.getElementById('edit_pet_friendly').checked = button.getAttribute('data-pet-friendly') === '1';
-        document.getElementById('edit_assistance_guide_dogs_exempt').checked = button.getAttribute('data-assistance-guide-dogs-exempt') === '1';
-
-        const editModal = new bootstrap.Modal(document.getElementById('editDriverModal'));
-        editModal.show();
-        return;
-    }
-
-    if (event.target.closest('.delete-driver-btn')) {
-        const button = event.target.closest('.delete-driver-btn');
-        const driverId = button.getAttribute('data-driver-id');
-        const driverName = button.getAttribute('data-driver-name');
-        confirmDelete(driverId, driverName);
+    if (typeof initializeEventBindings === 'function') {
+        initializeEventBindings();
     }
 });
 
-const driverWorkflowModalEl = document.getElementById('driverWorkflowModal');
-if (driverWorkflowModalEl) {
-    driverWorkflowModalEl.addEventListener('shown.bs.modal', function () {
-        adjustDriverWorkflowFrameSize();
-    });
 
-    driverWorkflowModalEl.addEventListener('hidden.bs.modal', function () {
-        const frameEl = document.getElementById('driverWorkflowFrame');
-        if (frameEl) {
-            frameEl.src = 'about:blank';
-            frameEl.style.height = '460px';
-        }
-        location.reload();
-    });
-}
-
-function formatTitleCase(input) {
-    const cursorPosition = input.selectionStart;
-    input.value = input.value.toLowerCase().replace(/\b\w/g, function(char) {
-        return char.toUpperCase();
-    });
-    input.setSelectionRange(cursorPosition, cursorPosition);
-}
-
-['add_name', 'edit_name'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('input', function(e) {
-        formatTitleCase(e.target);
-    });
-});
-
-function loadAssignmentHistory(driverId) {
-    const assignments = driverAssignments[driverId] || [];
-    const historySection = document.getElementById('assignmentHistorySection');
-    const historyContent = document.getElementById('assignmentHistoryContent');
-    
-    if (assignments.length === 0) {
-        historySection.style.display = 'none';
-        return;
-    }
-    
-    let html = '<div class="table-responsive"><table class="table table-sm table-hover">';
-    html += '<thead><tr><th>Pattern</th><th>Period</th><th>Status</th><th>Assigned</th><th>Actions</th></tr></thead>';
-    html += '<tbody>';
-    
-    assignments.forEach(assignment => {
-        const startDateFormatted = new Date(assignment.startDate).toLocaleDateString('en-GB');
-        const endDateFormatted = assignment.endDate ? new Date(assignment.endDate).toLocaleDateString('en-GB') : 'Ongoing';
-        const statusBadge = {
-            'scheduled': '<span class="badge bg-primary">Scheduled</span>',
-            'active': '<span class="badge bg-success">Active</span>',
-            'ended': '<span class="badge bg-secondary">Ended</span>'
-        }[assignment.status] || '';
-        
-        html += '<tr>';
-        html += `<td>${assignment.patternName}</td>`;
-        html += `<td>${startDateFormatted} - ${endDateFormatted}</td>`;
-        html += `<td>${statusBadge}</td>`;
-        html += `<td>${assignment.createdAt}</td>`;
-        html += '<td><div class="btn-group" role="group">';
-        
-        if (assignment.status === 'scheduled') {
-            html += `<button type="button" class="btn btn-sm btn-outline-primary edit-assignment-btn"
-                     data-assignment-id="${assignment.id}" data-driver-id="${driverId}" title="Edit Assignment">
-                     <i class="fas fa-edit"></i></button>`;
-            html += `<button type="button" class="btn btn-sm btn-outline-danger delete-assignment-btn" 
-                     data-assignment-id="${assignment.id}" data-pattern-name="${assignment.patternName}" 
-                     data-driver-id="${driverId}" title="Delete Assignment">
-                     <i class="fas fa-trash"></i></button>`;
-        } else if (assignment.status === 'active') {
-            html += `<button type="button" class="btn btn-sm btn-outline-primary edit-assignment-btn"
-                     data-assignment-id="${assignment.id}" data-driver-id="${driverId}" title="Edit Assignment">
-                     <i class="fas fa-edit"></i></button>`;
-            html += `<button type="button" class="btn btn-sm btn-outline-warning end-assignment-btn" 
-                     data-assignment-id="${assignment.id}" data-pattern-name="${assignment.patternName}" 
-                     data-driver-id="${driverId}" title="End Assignment">
-                     <i class="fas fa-stop"></i> End</button>`;
-        } else {
-            html += `<button type="button" class="btn btn-sm btn-outline-danger delete-assignment-btn" 
-                     data-assignment-id="${assignment.id}" data-pattern-name="${assignment.patternName}" 
-                     data-driver-id="${driverId}" title="Delete Assignment">
-                     <i class="fas fa-trash"></i></button>`;
-        }
-        
-        html += '</div></td>';
-        html += '</tr>';
-    });
-    
-    html += '</tbody></table></div>';
-    
-    historyContent.innerHTML = html;
-    historySection.style.display = 'block';
-}
-
-function openEditAssignment(driverId, assignmentId) {
-    const assignments = driverAssignments[driverId] || [];
-    const assignment = assignments.find(a => String(a.id) === String(assignmentId));
-
-    if (!assignment) {
-        alert('Could not find assignment to edit. Please refresh and try again.');
-        return;
-    }
-
-    document.getElementById('assignPatternForm').action = `/driver/${driverId}/assignment/${assignmentId}/edit`;
-    document.getElementById('assign_pattern_id').value = String(assignment.patternId);
-    showAssignPatternPreview();
-    document.getElementById('assign_start_day').value = String(assignment.startDayOfCycle || 1);
-    document.getElementById('assign_start_date').value = assignment.startDate || '';
-    document.getElementById('assign_end_date').value = assignment.endDate || '';
-    document.getElementById('assign_current_assignment_warning').style.display = 'none';
-    document.getElementById('assignPatternSubmitBtn').innerHTML = '<i class="fas fa-save"></i> Update Assignment';
-    document.getElementById('assignPatternModalTitle').innerHTML = '<i class="fas fa-edit"></i> Edit Shift Assignment';
-}
-
-function confirmEndAssignment(assignmentId, patternName, driverId) {
-    if (confirm(`Are you sure you want to end the assignment for "${patternName}"?\n\nThis will stop the shift pattern from today onwards.`)) {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = `/driver/${driverId}/assignment/${assignmentId}/end`;
-        document.body.appendChild(form);
-        form.submit();
-    }
-}
-
-function confirmDeleteAssignment(assignmentId, patternName, driverId) {
-    if (confirm(`Are you sure you want to DELETE the assignment for "${patternName}"?\n\nThis will permanently remove the assignment from history.`)) {
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = `/driver/${driverId}/assignment/${assignmentId}/delete`;
-        document.body.appendChild(form);
-        form.submit();
-    }
-}
-
-function showAssignPatternPreview() {
-    const select = document.getElementById('assign_pattern_id');
-    const preview = document.getElementById('assignPatternPreview');
-    const display = document.getElementById('assignPatternDisplay');
-    const startDaySection = document.getElementById('startDaySection');
-    const startDaySelect = document.getElementById('assign_start_day');
-    
-    if (!select.value) {
-        preview.style.display = 'none';
-        startDaySection.style.display = 'none';
-        return;
-    }
-    
-    const option = select.selectedOptions[0];
-    const cycleLength = parseInt(option.dataset.cycle || 1);
-    let patternData = [];
-    try {
-        patternData = JSON.parse(option.dataset.pattern || '[]');
-    } catch (error) {
-        patternData = [];
-    }
-
-    // Populate starting day dropdown
-    startDaySelect.innerHTML = '';
-    for (let i = 1; i <= cycleLength; i++) {
-        const opt = document.createElement('option');
-        opt.value = i;
-        opt.textContent = `Day ${i}`;
-        startDaySelect.appendChild(opt);
-    }
-    startDaySection.style.display = 'block';
-
-    const normalizedPattern = patternData.map(dayEntry => Array.isArray(dayEntry) ? dayEntry : [dayEntry]);
-    const allShifts = normalizedPattern.flat();
-    const nonOffShifts = allShifts.filter(s => s !== 'day_off');
-    
-    display.innerHTML = '';
-    normalizedPattern.forEach(dayShifts => {
-        const workingShifts = dayShifts.filter(s => s !== 'day_off');
-        
-        if (workingShifts.length >= 2) {
-            const openParen = document.createElement('span');
-            openParen.textContent = '(';
-            openParen.style.marginRight = '2px';
-            openParen.style.fontWeight = 'bold';
-            display.appendChild(openParen);
-        }
-        
-        const shiftsToRender = workingShifts.length > 0 ? workingShifts : ['day_off'];
-        shiftsToRender.forEach(shift => {
-            const badge = document.createElement('span');
-            badge.className = 'badge ';
-            badge.style.display = 'inline-flex';
-            badge.style.alignItems = 'center';
-            badge.style.justifyContent = 'center';
-            badge.style.minWidth = '24px';
-            badge.style.lineHeight = '1.3';
-            badge.style.padding = '0.35em 0.5em';
-            
-            const shiftColorMap = {
-                'day_off': { color: 'bg-secondary', text: 'OFF', label: 'Rest Day' },
-                'earlies': { color: 'bg-warning', label: 'Earlies' },
-                'days': { color: 'bg-success', label: 'Days' },
-                'lates': { color: 'bg-info', label: 'Lates' },
-                'nights': { color: 'bg-dark', label: 'Nights' }
-            };
-            
-            if (shift === 'day_off') {
-                badge.className += shiftColorMap[shift].color;
-                badge.textContent = shiftColorMap[shift].text;
-                badge.title = shiftColorMap[shift].label;
-            } else {
-                const shiftInfo = shiftColorMap[shift];
-                const formatted = shift.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-                
-                if (shiftInfo) {
-                    badge.className += shiftInfo.color;
-                    badge.title = formatted;
-                    badge.textContent = shiftInfo.label[0].toUpperCase();
-                } else {
-                    badge.className += 'bg-primary';
-                    badge.title = formatted;
-                    const myInitial = shift.charAt(0).toUpperCase();
-                    const conflicts = nonOffShifts.filter(s => s.charAt(0).toUpperCase() === myInitial && s !== shift);
-                    
-                    if (conflicts.length === 0) {
-                        badge.textContent = myInitial;
-                    } else {
-                        const words = formatted.split(/\s+/);
-                        badge.textContent = words.length > 1 ? words.map(w => w[0]).join('') : myInitial;
-                    }
-                }
-            }
-            
-            display.appendChild(badge);
-        });
-        
-        if (workingShifts.length >= 2) {
-            const closeParen = document.createElement('span');
-            closeParen.textContent = ')';
-            closeParen.style.marginLeft = '2px';
-            closeParen.style.fontWeight = 'bold';
-            display.appendChild(closeParen);
-        }
-    });
-    
-    preview.style.display = 'block';
-    updateAssignPatternWarning();
-}
-
-function updateAssignPatternWarning() {
-    const form = document.getElementById('assignPatternForm');
-    const patternSelect = document.getElementById('assign_pattern_id');
-    const startDateInput = document.getElementById('assign_start_date');
-    const warningDiv = document.getElementById('assign_current_assignment_warning');
-    const warningText = document.getElementById('assign_warning_text');
-    
-    const currentPattern = form.dataset.currentPattern || '';
-    const currentStart = form.dataset.currentStart || '';
-    
-    if (currentPattern && patternSelect.value && startDateInput.value) {
-        const startDate = new Date(startDateInput.value);
-        const endDate = new Date(startDate);
-        endDate.setDate(endDate.getDate() - 1);
-        
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        startDate.setHours(0, 0, 0, 0);
-        
-        if (startDate > today) {
-            warningText.innerHTML = `This driver is assigned to "${currentPattern}". Current pattern will continue until ${endDate.toLocaleDateString('en-GB')} and new pattern starts ${startDate.toLocaleDateString('en-GB')}.`;
-        } else {
-            warningText.innerHTML = `This driver is currently assigned to "${currentPattern}". The new assignment will end the current one.`;
-        }
-        warningDiv.style.display = 'block';
-    } else {
-        warningDiv.style.display = 'none';
-    }
-}
-
-function validateAssignDates() {
-    const startDateInput = document.getElementById('assign_start_date');
-    const endDateInput = document.getElementById('assign_end_date');
-    const startDate = startDateInput.value;
-    const endDate = endDateInput.value;
-    
-    if (startDate) {
-        endDateInput.min = startDate;
-        
-        if (endDate && endDate < startDate) {
-            endDateInput.setCustomValidity('End date must be after start date');
-            endDateInput.classList.add('is-invalid');
-            return false;
-        } else {
-            endDateInput.setCustomValidity('');
-            endDateInput.classList.remove('is-invalid');
-            return true;
-        }
-    }
-    return true;
-}
-
-// Event listeners for assign pattern modal
-document.getElementById('assign_pattern_id').addEventListener('change', showAssignPatternPreview);
-document.getElementById('assign_start_date').addEventListener('change', function() {
-    validateAssignDates();
-    updateAssignPatternWarning();
-});
-document.getElementById('assign_end_date').addEventListener('change', validateAssignDates);
-
-document.getElementById('assignPatternForm').addEventListener('submit', function(e) {
-    if (!validateAssignDates()) {
-        e.preventDefault();
-        return false;
-    }
-});
-
-function confirmDelete(driverId, driverName) {
-    window.showGlobalDeleteConfirm({
-        title: 'Confirm Deletion',
-        message: 'Are you sure you want to delete driver',
-        name: driverName,
-        warning: 'This will also remove all pattern assignments for this driver.',
-        action: `/driver/${driverId}/delete`,
-        submitLabel: 'Delete Driver'
-    });
-}
 </script>
 {% endblock %}

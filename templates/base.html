@@ -178,7 +178,6 @@
             const warningEl = document.getElementById('globalDeleteWarning');
             const formEl = document.getElementById('deleteForm');
             const submitEl = document.getElementById('globalDeleteSubmitBtn');
-            const feedbackEl = document.getElementById('deletePatternFeedback');
 
             if (titleEl) titleEl.textContent = title;
             if (messageEl) messageEl.textContent = message;
@@ -204,9 +203,28 @@
             }
 
             if (formEl) formEl.action = action;
-            if (submitEl) submitEl.textContent = submitLabel;
+            if (submitEl) {
+                submitEl.textContent = submitLabel;
+                // For shift type deletions (action is javascript:void(0)), change button to regular button
+                if (action === 'javascript:void(0);') {
+                    submitEl.type = 'button';
+                } else {
+                    submitEl.type = 'submit';
+                }
+            }
 
-            if (feedbackEl) {
+            // Recreate feedback element if it was removed
+            let feedbackEl = document.getElementById('deletePatternFeedback');
+            if (!feedbackEl) {
+                feedbackEl = document.createElement('div');
+                feedbackEl.id = 'deletePatternFeedback';
+                feedbackEl.className = 'alert d-none mt-3';
+                feedbackEl.setAttribute('role', 'alert');
+                const modalBody = document.querySelector('#deleteModal .modal-body');
+                if (modalBody) {
+                    modalBody.appendChild(feedbackEl);
+                }
+            } else {
                 feedbackEl.classList.add('d-none');
                 feedbackEl.textContent = '';
                 feedbackEl.classList.remove('alert-success', 'alert-danger', 'alert-warning', 'alert-info', 'fade', 'show', 'alert-dismissible');

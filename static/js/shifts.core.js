@@ -1,3 +1,8 @@
+/**
+ * shifts.core.js
+ * Core utilities for Shift Patterns management
+ */
+
 function getCurrentShiftTypes() {
     const form = document.getElementById('shiftTypesForm');
     if (!form) return [];
@@ -155,45 +160,6 @@ function clearFeedbackTimer(timerKey) {
     delete feedbackTimers[timerKey];
 }
 
-function showTimedFeedback(elementId, timerKey, type, message) {
-    const feedback = document.getElementById(elementId);
-    if (!feedback) return;
-
-    clearFeedbackTimer(timerKey);
-
-    if (!message) {
-        feedback.classList.add('d-none');
-        feedback.innerHTML = '';
-        feedback.classList.remove(...ALERT_VARIANT_CLASSES, ...FEEDBACK_TRANSITION_CLASSES);
-        feedback.classList.remove('alert-dismissible');
-        return;
-    }
-
-    feedback.classList.remove('d-none', ...ALERT_VARIANT_CLASSES, ...FEEDBACK_TRANSITION_CLASSES);
-    feedback.classList.add(`alert-${type}`, 'fade', 'show', 'alert-dismissible');
-    feedback.innerHTML = `${message}<button type="button" class="btn-close" aria-label="Close"></button>`;
-
-    const closeButton = feedback.querySelector('.btn-close');
-    if (closeButton) {
-        closeButton.addEventListener('click', () => {
-            feedback.classList.remove('show');
-            setTimeout(() => {
-                feedback.classList.add('d-none');
-                feedback.classList.remove('fade', 'alert-dismissible', ...ALERT_VARIANT_CLASSES);
-                feedback.innerHTML = '';
-            }, 300);
-        });
-    }
-}
-
-function showShiftTypesFeedback(type, message) {
-    showTimedFeedback('shiftTypesFeedback', 'shiftTypesFeedback', type, message);
-}
-
-function showMainPageFeedback(type, message) {
-    showTimedFeedback('mainPageFeedback', 'mainPageFeedback', type, message);
-}
-
 function setPendingMainFeedback(type, message) {
     try {
         sessionStorage.setItem('pendingMainFeedback', JSON.stringify({ type, message }));
@@ -210,7 +176,7 @@ function flushPendingMainFeedback() {
         sessionStorage.removeItem('pendingMainFeedback');
         const payload = JSON.parse(raw);
         if (payload && payload.type && payload.message) {
-            showMainPageFeedback(payload.type, payload.message);
+            showAlertBanner(payload.type, payload.message);
         }
     } catch (error) {
         console.warn('Could not load pending feedback:', error);
@@ -232,5 +198,191 @@ async function requestJson(url, options = {}) {
     }
 
     return data;
+}
+
+function attachFormattedInputListener(inputId, formatter) {
+    const inputEl = document.getElementById(inputId);
+    if (!inputEl || inputEl.hasFormattingListener) return;
+
+    inputEl.addEventListener('input', function(e) {
+        const input = e.target;
+        const cursorPosition = input.selectionStart;
+        input.value = formatter(input.value);
+        input.setSelectionRange(cursorPosition, cursorPosition);
+    });
+
+    inputEl.hasFormattingListener = true;
+}
+
+function toTitleCaseWords(value) {
+    return value
+        .toLowerCase()
+        .replace(/\b\w/g, function(char) {
+            return char.toUpperCase();
+        })
+        .replace(/\bAm\b/g, 'AM')
+        .replace(/\bPm\b/g, 'PM');
+}
+
+function toSentenceCase(value) {
+    return value.toLowerCase().replace(/(^|\. )(\w)/g, function(match, p1, p2) {
+        return p1 + p2.toUpperCase();
+    });
+}
+
+function normalizeSelectedShiftValues(value) {
+    if (Array.isArray(value)) {
+        const cleaned = value.map(v => String(v || '').trim()).filter(Boolean);
+        return cleaned.length ? cleaned : ['day_off'];
+    }
+
+    if (typeof value === 'string' && value.trim()) {
+        return [value.trim()];
+    }
+
+    return ['day_off'];
+}
+
+function getSelectedDayShiftValues(selectEl) {
+    if (!selectEl) {
+        return ['day_off'];
+    }
+
+    const primaryValue = String(selectEl.value || 'day_off').trim() || 'day_off';
+    if (primaryValue === 'day_off') {
+        return ['day_off'];
+    }
+
+    const values = [primaryValue];
+    const secondarySelect = document.getElementById(`${selectEl.id}_extra`);
+    if (secondarySelect) {
+        const secondaryValue = String(secondarySelect.value || '').trim();
+        if (secondaryValue && secondaryValue !== 'day_off' && secondaryValue !== primaryValue) {
+            values.push(secondaryValue);
+        }
+    }
+
+    return values;
+}
+
+function getParentShiftType(shiftType) {
+    if (!shiftType || shiftType === 'day_off') {
+        return null;
+    }
+
+    const input = document.querySelector(`#shiftTypesForm select[name="${shiftType}_parent"]`);
+    if (!input) {
+        return null;
+    }
+
+    const value = String(input.value || '').trim();
+    if (!value || value === '_none') {
+        return null;
+    }
+    return value;
+}
+
+function isSubShift(shiftType) {
+    return !!getParentShiftType(shiftType);
+}
+
+function getAvailableSecondarySubShifts(primaryShiftType) {
+    if (!isSubShift(primaryShiftType)) {
+        return [];
+    }
+
+    return getCurrentShiftTypes().filter((type) => {
+        return type !== primaryShiftType && isSubShift(type);
+    });
+}
+
+function buildShiftOptionsMarkup(selectedValue = 'day_off') {
+    const dayOffSelected = selectedValue === 'day_off' ? 'selected' : '';
+    const options = getCurrentShiftTypes().map((type) => {
+        const isSelected = selectedValue === type ? 'selected' : '';
+        const displayInput = document.querySelector(`#shiftTypesForm input[name="${type}_name"]`);
+        const label = formatShiftLabel(displayInput ? displayInput.value : type);
+        return `<option value="${type}" ${isSelected}>${label}</option>`;
+    }).join('');
+
+    return `<option value="day_off" ${dayOffSelected}>Day Off</option>${options}`;
+}
+
+function updateSecondaryShiftVisibility(primarySelect, secondarySelect, preferredValue = '') {
+    if (!primarySelect || !secondarySelect) {
+        return;
+    }
+
+    const wrapper = document.getElementById(`${secondarySelect.id}_wrapper`);
+    const primaryValue = String(primarySelect.value || 'day_off').trim() || 'day_off';
+
+    if (primaryValue === 'day_off' || !isSubShift(primaryValue)) {
+        secondarySelect.innerHTML = '<option value="">None</option>';
+        secondarySelect.value = '';
+        if (wrapper) {
+            wrapper.classList.add('d-none');
+        }
+        return;
+    }
+
+    const siblings = getAvailableSecondarySubShifts(primaryValue);
+    let options = '<option value="">None</option>';
+    siblings.forEach((type) => {
+        const displayInput = document.querySelector(`#shiftTypesForm input[name="${type}_name"]`);
+        const label = formatShiftLabel(displayInput ? displayInput.value : type);
+        const selected = preferredValue === type ? 'selected' : '';
+        options += `<option value="${type}" ${selected}>${label}</option>`;
+    });
+
+    secondarySelect.innerHTML = options;
+    if (preferredValue && siblings.includes(preferredValue)) {
+        secondarySelect.value = preferredValue;
+    } else {
+        secondarySelect.value = '';
+    }
+
+    if (wrapper) {
+        wrapper.classList.remove('d-none');
+    }
+}
+
+function handlePrimaryShiftChange(selectEl) {
+    if (!selectEl) {
+        return;
+    }
+    const secondarySelect = document.getElementById(`${selectEl.id}_extra`);
+    updateSecondaryShiftVisibility(selectEl, secondarySelect);
+}
+
+function renderDayShiftSelect(selectId, fieldName, selectedValues = ['day_off']) {
+    const normalized = normalizeSelectedShiftValues(selectedValues);
+    const primaryValue = normalized[0] || 'day_off';
+    const secondaryValue = normalized.length > 1 ? normalized[1] : '';
+
+    return `
+        <select class="form-select" id="${selectId}" name="${fieldName}" onchange="handlePrimaryShiftChange(this)">
+            ${buildShiftOptionsMarkup(primaryValue)}
+        </select>
+        <div id="${selectId}_extra_wrapper" class="mt-2 d-none">
+            <label for="${selectId}_extra" class="form-label mb-1">Second Shift (Optional)</label>
+            <select class="form-select" id="${selectId}_extra" aria-label="Second Shift">
+                <option value="">None</option>
+            </select>
+        </div>
+        <small class="text-muted">Choose one shift. If it is a sub-shift, you can add a second one.</small>
+    `;
+}
+
+function initializeDayShiftSelect(selectId, selectedValues = ['day_off']) {
+    const primarySelect = document.getElementById(selectId);
+    const secondarySelect = document.getElementById(`${selectId}_extra`);
+    if (!primarySelect || !secondarySelect) {
+        return;
+    }
+
+    const normalized = normalizeSelectedShiftValues(selectedValues);
+    primarySelect.value = normalized[0] || 'day_off';
+    const secondaryValue = normalized.length > 1 ? normalized[1] : '';
+    updateSecondaryShiftVisibility(primarySelect, secondarySelect, secondaryValue);
 }
 
