@@ -26,7 +26,7 @@
                             <div class="mb-3">
                                 <label for="time" class="form-label">Time</label>
                                 <input type="time" class="form-control" id="time" name="time" 
-                                       value="{{ time.strftime('%H:%M') if time else '12:00' }}" required>
+                                       value="{{ time.strftime('%H:%M') if time else '' }}" required>
                             </div>
                         </div>
                     </div>
@@ -37,6 +37,33 @@
                         </button>
                     </div>
                 </form>
+                
+                <script>
+                document.addEventListener('DOMContentLoaded', function() {
+                    const dateInput = document.getElementById('date');
+                    const timeInput = document.getElementById('time');
+                    
+                    // Set date to today only if not already set
+                    if (!dateInput.value) {
+                        const today = new Date().toISOString().split('T')[0];
+                        dateInput.value = today;
+                    }
+                    
+                    // Set time to next full hour only if not already set
+                    if (!timeInput.value) {
+                        const now = new Date();
+                        let nextHour = now.getHours() + 1;
+                        
+                        // Wrap around midnight
+                        if (nextHour >= 24) {
+                            nextHour = 0;
+                        }
+                        
+                        const timeString = String(nextHour).padStart(2, '0') + ':00';
+                        timeInput.value = timeString;
+                    }
+                });
+                </script>
                 
                 {% if car_count is defined %}
                     <hr>
@@ -56,54 +83,6 @@
                         </div>
                     </div>
                 {% endif %}
-                
-                <hr>
-                <div class="mt-4">
-                    <h5><i class="fas fa-clock"></i> Current Shift Times</h5>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="card bg-light">
-                                <div class="card-body p-3">
-                                    <h6><i class="fas fa-sun text-warning"></i> Earlies</h6>
-                                    <p class="mb-0">{{ timings.earlies.start_time.strftime('%H:%M') }} - {{ timings.earlies.end_time.strftime('%H:%M') }}</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="card bg-light">
-                                <div class="card-body p-3">
-                                    <h6><i class="fas fa-sun text-primary"></i> Days</h6>
-                                    <p class="mb-0">{{ timings.days.start_time.strftime('%H:%M') }} - {{ timings.days.end_time.strftime('%H:%M') }}</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="row mt-2">
-                        <div class="col-md-6">
-                            <div class="card bg-light">
-                                <div class="card-body p-3">
-                                    <h6><i class="fas fa-moon text-info"></i> Lates</h6>
-                                    <p class="mb-0">{{ timings.lates.start_time.strftime('%H:%M') }} - {{ timings.lates.end_time.strftime('%H:%M') }}</p>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="card bg-light">
-                                <div class="card-body p-3">
-                                    <h6><i class="fas fa-moon text-dark"></i> Nights</h6>
-                                    <p class="mb-0">{{ timings.nights.start_time.strftime('%H:%M') }} - {{ timings.nights.end_time.strftime('%H:%M') }}*</p>
-                                    <small class="text-muted">*Next day if end < start</small>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="mt-3">
-                        <p class="text-muted">
-                            <i class="fas fa-info-circle"></i>
-                            These shift times can be configured in <a href="{{ url_for('settings') }}">Settings</a>.
-                        </p>
-                    </div>
-                </div>
             </div>
         </div>
     </div>

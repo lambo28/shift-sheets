@@ -185,10 +185,9 @@ shift-sheets/
     ├── base.html             # Base template with navigation
     ├── index.html            # Dashboard overview
     ├── drivers.html          # Driver management
-    ├── add_driver.html       # Add driver form
-    ├── shifts.html           # Shift pattern management  
-    ├── shifts.html            # Unified shift management (patterns, timing, etc.)
+  ├── shifts.html           # Unified shift management (patterns, timing, etc.)
     ├── assign_pattern.html    # Assign pattern to driver
+  ├── driver_custom_timings.html # Driver custom timing rules
     ├── daily_sheet_form.html  # Daily sheet generator
     ├── daily_sheet.html       # Daily roster view
     └── print_daily_sheet.html # Print-friendly sheets

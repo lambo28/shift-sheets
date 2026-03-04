@@ -163,26 +163,27 @@ function showTimedFeedback(elementId, timerKey, type, message) {
 
     if (!message) {
         feedback.classList.add('d-none');
-        feedback.textContent = '';
+        feedback.innerHTML = '';
         feedback.classList.remove(...ALERT_VARIANT_CLASSES, ...FEEDBACK_TRANSITION_CLASSES);
+        feedback.classList.remove('alert-dismissible');
         return;
     }
 
     feedback.classList.remove('d-none', ...ALERT_VARIANT_CLASSES, ...FEEDBACK_TRANSITION_CLASSES);
-    feedback.classList.add(`alert-${type}`, 'fade', 'show');
-    feedback.textContent = message;
+    feedback.classList.add(`alert-${type}`, 'fade', 'show', 'alert-dismissible');
+    feedback.innerHTML = `${message}<button type="button" class="btn-close" aria-label="Close"></button>`;
 
-    const timerGroup = {};
-    timerGroup.hide = setTimeout(() => {
-        feedback.classList.remove('show');
-        timerGroup.cleanup = setTimeout(() => {
-            feedback.classList.add('d-none');
-            feedback.classList.remove('fade');
-            feedback.textContent = '';
-            delete feedbackTimers[timerKey];
-        }, 300);
-    }, 10000);
-    feedbackTimers[timerKey] = timerGroup;
+    const closeButton = feedback.querySelector('.btn-close');
+    if (closeButton) {
+        closeButton.addEventListener('click', () => {
+            feedback.classList.remove('show');
+            setTimeout(() => {
+                feedback.classList.add('d-none');
+                feedback.classList.remove('fade', 'alert-dismissible', ...ALERT_VARIANT_CLASSES);
+                feedback.innerHTML = '';
+            }, 300);
+        });
+    }
 }
 
 function showShiftTypesFeedback(type, message) {

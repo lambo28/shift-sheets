@@ -36,6 +36,162 @@ function toSentenceCase(value) {
     });
 }
 
+function normalizeSelectedShiftValues(value) {
+    if (Array.isArray(value)) {
+        const cleaned = value.map(v => String(v || '').trim()).filter(Boolean);
+        return cleaned.length ? cleaned : ['day_off'];
+    }
+
+    if (typeof value === 'string' && value.trim()) {
+        return [value.trim()];
+    }
+
+    return ['day_off'];
+}
+
+function getSelectedDayShiftValues(selectEl) {
+    if (!selectEl) {
+        return ['day_off'];
+    }
+
+    const primaryValue = String(selectEl.value || 'day_off').trim() || 'day_off';
+    if (primaryValue === 'day_off') {
+        return ['day_off'];
+    }
+
+    const values = [primaryValue];
+    const secondarySelect = document.getElementById(`${selectEl.id}_extra`);
+    if (secondarySelect) {
+        const secondaryValue = String(secondarySelect.value || '').trim();
+        if (secondaryValue && secondaryValue !== 'day_off' && secondaryValue !== primaryValue) {
+            values.push(secondaryValue);
+        }
+    }
+
+    return values;
+}
+
+function getParentShiftType(shiftType) {
+    if (!shiftType || shiftType === 'day_off') {
+        return null;
+    }
+
+    const input = document.querySelector(`#shiftTypesForm select[name="${shiftType}_parent"]`);
+    if (!input) {
+        return null;
+    }
+
+    const value = String(input.value || '').trim();
+    if (!value || value === '_none') {
+        return null;
+    }
+    return value;
+}
+
+function isSubShift(shiftType) {
+    return !!getParentShiftType(shiftType);
+}
+
+function getAvailableSecondarySubShifts(primaryShiftType) {
+    if (!isSubShift(primaryShiftType)) {
+        return [];
+    }
+
+    return getCurrentShiftTypes().filter((type) => {
+        return type !== primaryShiftType && isSubShift(type);
+    });
+}
+
+function buildShiftOptionsMarkup(selectedValue = 'day_off') {
+    const dayOffSelected = selectedValue === 'day_off' ? 'selected' : '';
+    const options = getCurrentShiftTypes().map((type) => {
+        const isSelected = selectedValue === type ? 'selected' : '';
+        const displayInput = document.querySelector(`#shiftTypesForm input[name="${type}_name"]`);
+        const label = formatShiftLabel(displayInput ? displayInput.value : type);
+        return `<option value="${type}" ${isSelected}>${label}</option>`;
+    }).join('');
+
+    return `<option value="day_off" ${dayOffSelected}>Day Off</option>${options}`;
+}
+
+function updateSecondaryShiftVisibility(primarySelect, secondarySelect, preferredValue = '') {
+    if (!primarySelect || !secondarySelect) {
+        return;
+    }
+
+    const wrapper = document.getElementById(`${secondarySelect.id}_wrapper`);
+    const primaryValue = String(primarySelect.value || 'day_off').trim() || 'day_off';
+
+    if (primaryValue === 'day_off' || !isSubShift(primaryValue)) {
+        secondarySelect.innerHTML = '<option value="">None</option>';
+        secondarySelect.value = '';
+        if (wrapper) {
+            wrapper.classList.add('d-none');
+        }
+        return;
+    }
+
+    const siblings = getAvailableSecondarySubShifts(primaryValue);
+    let options = '<option value="">None</option>';
+    siblings.forEach((type) => {
+        const displayInput = document.querySelector(`#shiftTypesForm input[name="${type}_name"]`);
+        const label = formatShiftLabel(displayInput ? displayInput.value : type);
+        const selected = preferredValue === type ? 'selected' : '';
+        options += `<option value="${type}" ${selected}>${label}</option>`;
+    });
+
+    secondarySelect.innerHTML = options;
+    if (preferredValue && siblings.includes(preferredValue)) {
+        secondarySelect.value = preferredValue;
+    } else {
+        secondarySelect.value = '';
+    }
+
+    if (wrapper) {
+        wrapper.classList.remove('d-none');
+    }
+}
+
+function handlePrimaryShiftChange(selectEl) {
+    if (!selectEl) {
+        return;
+    }
+    const secondarySelect = document.getElementById(`${selectEl.id}_extra`);
+    updateSecondaryShiftVisibility(selectEl, secondarySelect);
+}
+
+function renderDayShiftSelect(selectId, fieldName, selectedValues = ['day_off']) {
+    const normalized = normalizeSelectedShiftValues(selectedValues);
+    const primaryValue = normalized[0] || 'day_off';
+    const secondaryValue = normalized.length > 1 ? normalized[1] : '';
+
+    return `
+        <select class="form-select" id="${selectId}" name="${fieldName}" onchange="handlePrimaryShiftChange(this)">
+            ${buildShiftOptionsMarkup(primaryValue)}
+        </select>
+        <div id="${selectId}_extra_wrapper" class="mt-2 d-none">
+            <label for="${selectId}_extra" class="form-label mb-1">Second Shift (Optional)</label>
+            <select class="form-select" id="${selectId}_extra" aria-label="Second Shift">
+                <option value="">None</option>
+            </select>
+        </div>
+        <small class="text-muted">Choose one shift. If it is a sub-shift, you can add a second one.</small>
+    `;
+}
+
+function initializeDayShiftSelect(selectId, selectedValues = ['day_off']) {
+    const primarySelect = document.getElementById(selectId);
+    const secondarySelect = document.getElementById(`${selectId}_extra`);
+    if (!primarySelect || !secondarySelect) {
+        return;
+    }
+
+    const normalized = normalizeSelectedShiftValues(selectedValues);
+    primarySelect.value = normalized[0] || 'day_off';
+    const secondaryValue = normalized.length > 1 ? normalized[1] : '';
+    updateSecondaryShiftVisibility(primarySelect, secondarySelect, secondaryValue);
+}
+
 function updateCreatePatternDays() {
     const cycleLength = parseInt(document.getElementById('createCycleLength').value);
     const container = document.getElementById('createPatternDaysContainer');
@@ -66,13 +222,11 @@ function updateCreatePatternDays() {
         
         dayDiv.innerHTML = `
             <label for="create_day_${i}_shift" class="form-label">${dayNames[i]}</label>
-            <select class="form-select" id="create_day_${i}_shift" name="day_${i}_shift" required>
-                <option value="day_off">Day Off</option>
-                ${buildShiftTypeOptions()}
-            </select>
+            ${renderDayShiftSelect(`create_day_${i}_shift`, `day_${i}_shift`, ['day_off'])}
         `;
         
         container.appendChild(dayDiv);
+        initializeDayShiftSelect(`create_day_${i}_shift`, ['day_off']);
     }
     
     attachFormattedInputListener('createName', toTitleCaseWords);
@@ -88,7 +242,9 @@ function saveCreatePattern() {
     for (let i = 0; i < cycleLength; i++) {
         const select = document.getElementById(`create_day_${i}_shift`);
         if (select) {
-            formData.append(`day_${i}_shift`, select.value);
+            getSelectedDayShiftValues(select).forEach((value) => {
+                formData.append(`day_${i}_shift`, value);
+            });
         }
     }
     
@@ -262,26 +418,16 @@ function addShiftType() {
 
 function deleteShiftType(shiftType) {
     window.pendingShiftTypeDelete = shiftType;
-    const shiftTypeName = document.getElementById('shiftTypeName');
-    if (shiftTypeName) {
-        shiftTypeName.textContent = toTitleCase(shiftType);
-    }
     showShiftTypeDeleteFeedback('danger', '');
-    const shiftTypeDeleteModalEl = document.getElementById('shiftTypeDeleteModal');
-    if (shiftTypeDeleteModalEl) {
-        shiftTypeDeleteModalEl.style.zIndex = '2000';
-    }
 
-    const modal = new bootstrap.Modal(shiftTypeDeleteModalEl);
-    modal.show();
-
-    setTimeout(() => {
-        const backdrops = document.querySelectorAll('.modal-backdrop.show');
-        if (backdrops.length > 0) {
-            const topBackdrop = backdrops[backdrops.length - 1];
-            topBackdrop.style.zIndex = '1990';
-        }
-    }, 0);
+    window.showGlobalDeleteConfirm({
+        title: 'Confirm Deletion',
+        message: 'Are you sure you want to delete the shift type',
+        name: toTitleCase(shiftType),
+        warning: 'This cannot be undone.',
+        action: `/shift-types/delete/${shiftType}`,
+        submitLabel: 'Delete Shift Type'
+    });
 }
 
 function confirmDeleteShiftType() {
@@ -300,7 +446,10 @@ function confirmDeleteShiftType() {
             return;
         }
 
-        hideModalById('shiftTypeDeleteModal');
+        const globalDeleteModal = bootstrap.Modal.getInstance(document.getElementById('deleteModal'));
+        if (globalDeleteModal) {
+            globalDeleteModal.hide();
+        }
 
         const card = document.getElementById(`shift-card-${shiftType}`);
         if (card) {
@@ -319,7 +468,7 @@ function confirmDeleteShiftType() {
 }
 
 function showShiftTypeDeleteFeedback(type, message) {
-    showTimedFeedback('shiftTypeDeleteFeedback', 'shiftTypeDeleteFeedback', type, message);
+    showTimedFeedback('deletePatternFeedback', 'deletePatternFeedback', type, message);
 }
 
 function showDeletePatternFeedback(type, message) {
@@ -356,12 +505,15 @@ const dayNames = ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5', 'Day 6', 'Day 7',
                   'Day 29', 'Day 30', 'Day 31', 'Day 32'];
 
 function confirmDelete(patternId, patternName) {
-    document.getElementById('patternName').textContent = patternName;
-    document.getElementById('deleteForm').action = `/shift-pattern/${patternId}/delete`;
     showDeletePatternFeedback('danger', '');
-    
-    const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
-    deleteModal.show();
+    window.showGlobalDeleteConfirm({
+        title: 'Confirm Deletion',
+        message: 'Are you sure you want to delete the shift pattern',
+        name: patternName,
+        warning: 'This will also remove ended driver assignments using this pattern.',
+        action: `/shift-pattern/${patternId}/delete`,
+        submitLabel: 'Delete Pattern'
+    });
 }
 
 function editPattern(patternId) {
@@ -398,17 +550,15 @@ function updateEditPatternDays() {
         dayDiv.className = 'col-md-3 mb-3';
         
         // Get existing value if available
-        const currentValue = (window.currentEditPatternData && window.currentEditPatternData[i]) ? window.currentEditPatternData[i] : 'day_off';
+        const currentValue = (window.currentEditPatternData && window.currentEditPatternData[i]) ? window.currentEditPatternData[i] : ['day_off'];
         
         dayDiv.innerHTML = `
             <label for="edit_day_${i}_shift" class="form-label">${dayNames[i]}</label>
-            <select class="form-select" id="edit_day_${i}_shift" name="day_${i}_shift" required>
-                <option value="day_off" ${currentValue === 'day_off' ? 'selected' : ''}>Day Off</option>
-                ${buildShiftTypeOptions(currentValue)}
-            </select>
+            ${renderDayShiftSelect(`edit_day_${i}_shift`, `day_${i}_shift`, currentValue)}
         `;
         
         container.appendChild(dayDiv);
+        initializeDayShiftSelect(`edit_day_${i}_shift`, currentValue);
     }
     
     attachFormattedInputListener('editName', toTitleCaseWords);
@@ -424,7 +574,9 @@ function savePattern() {
     for (let i = 0; i < cycleLength; i++) {
         const select = document.getElementById(`edit_day_${i}_shift`);
         if (select) {
-            formData.append(`day_${i}_shift`, select.value);
+            getSelectedDayShiftValues(select).forEach((value) => {
+                formData.append(`day_${i}_shift`, value);
+            });
         }
     }
     
@@ -462,14 +614,13 @@ function updateCopyPatternDays() {
         for (let i = 0; i < days; i++) {
             const dayDiv = document.createElement('div');
             dayDiv.className = 'col-md-3 mb-3';
+            const currentValue = (window.currentCopyPatternData && window.currentCopyPatternData[i]) ? window.currentCopyPatternData[i] : ['day_off'];
             dayDiv.innerHTML = `
                 <label for="copyDay${i}" class="form-label">${dayNames[i]}</label>
-                <select class="form-select" id="copyDay${i}" name="day_${i}_shift">
-                    <option value="day_off">Day Off</option>
-                    ${buildShiftTypeOptions()}
-                </select>
+                ${renderDayShiftSelect(`copyDay${i}`, `day_${i}_shift`, currentValue)}
             `;
             container.appendChild(dayDiv);
+            initializeDayShiftSelect(`copyDay${i}`, currentValue);
         }
     } else {
         daysSection.style.display = 'none';
@@ -501,18 +652,6 @@ function copyPattern(patternId) {
                 window.currentCopyPatternData = data.pattern_data;
                 updateCopyPatternDays();
                 
-                // Wait for DOM update then set day values
-                setTimeout(() => {
-                    if (window.currentCopyPatternData) {
-                        for (let i = 0; i < data.cycle_length; i++) {
-                            const select = document.getElementById(`copyDay${i}`);
-                            if (select && window.currentCopyPatternData[i]) {
-                                select.value = window.currentCopyPatternData[i];
-                            }
-                        }
-                    }
-                }, 100);
-                
                 // Show modal
                 new bootstrap.Modal(document.getElementById('copyPatternModal')).show();
             } catch (uiError) {
@@ -540,7 +679,9 @@ function saveCopyPattern() {
     for (let i = 0; i < cycleLength; i++) {
         const select = document.getElementById(`copyDay${i}`);
         if (select) {
-            formData.append(`day_${i}_shift`, select.value);
+            getSelectedDayShiftValues(select).forEach((value) => {
+                formData.append(`day_${i}_shift`, value);
+            });
         }
     }
     

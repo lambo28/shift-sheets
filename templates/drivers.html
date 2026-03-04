@@ -43,9 +43,9 @@
     <h1>
         <i class="fas fa-users"></i> Drivers
     </h1>
-    <a href="{{ url_for('add_driver') }}" class="btn btn-primary">
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addDriverModal">
         <i class="fas fa-user-plus"></i> Add New Driver
-    </a>
+    </button>
 </div>
 
 {% if drivers %}
@@ -131,18 +131,39 @@
                             <td>{{ driver.created_at.strftime('%d/%m/%Y') }}</td>
                             <td>
                                 <div class="btn-group" role="group">
-                                    <a href="{{ url_for('edit_driver', driver_id=driver.id) }}" 
-                                       class="btn btn-sm btn-primary" title="Edit Driver">
+                                    <button type="button"
+                                            class="btn btn-sm btn-primary edit-driver-btn"
+                                            title="Edit Driver"
+                                            data-driver-id="{{ driver.id }}"
+                                            data-driver-number="{{ driver.driver_number }}"
+                                            data-driver-name="{{ driver.name }}"
+                                            data-car-type="{{ driver.car_type }}"
+                                            data-electric-vehicle="{{ '1' if driver.electric_vehicle else '0' }}"
+                                            data-school-badge="{{ '1' if driver.school_badge else '0' }}"
+                                            data-pet-friendly="{{ '1' if driver.pet_friendly else '0' }}"
+                                            data-assistance-guide-dogs-exempt="{{ '1' if driver.assistance_guide_dogs_exempt else '0' }}">
                                         <i class="fas fa-edit"></i>
-                                    </a>
-                                    <a href="{{ url_for('assign_pattern_to_driver', driver_id=driver.id) }}" 
-                                       class="btn btn-sm btn-info" title="Assign Pattern">
+                                    </button>
+                                            {% set current_assignment = driver.get_current_assignment() %}
+                                            <button type="button"
+                                                class="btn btn-sm btn-info assign-pattern-btn"
+                                                title="Assign Pattern"
+                                                data-driver-id="{{ driver.id }}"
+                                                data-driver-number="{{ driver.formatted_driver_number() }}"
+                                                data-driver-name="{{ driver.formatted_name() }}"
+                                                {% if current_assignment and not current_assignment.end_date %}
+                                                data-current-pattern="{{ current_assignment.shift_pattern.name }}"
+                                                data-current-start="{{ current_assignment.start_date.strftime('%Y-%m-%d') }}"
+                                                {% endif %}>
                                         <i class="fas fa-calendar"></i>
-                                    </a>
-                                    <a href="{{ url_for('driver_custom_timings', driver_id=driver.id) }}" 
-                                       class="btn btn-sm btn-warning" title="Custom Timings">
+                                            </button>
+                                            <button type="button"
+                                                class="btn btn-sm btn-warning open-driver-workflow-btn"
+                                                title="Custom Timings"
+                                                data-workflow-title="Custom Timings - {{ driver.formatted_name() }}"
+                                                data-workflow-url="{{ url_for('driver_custom_timings', driver_id=driver.id) }}?modal=1">
                                         <i class="fas fa-clock"></i>
-                                    </a>
+                                            </button>
                                     <button type="button" class="btn btn-sm btn-danger delete-driver-btn" 
                                             data-driver-id="{{ driver.id }}"
                                             data-driver-name="{{ driver.formatted_name() }}"
@@ -223,30 +244,224 @@
             <i class="fas fa-user-times fa-4x text-muted mb-3"></i>
             <h3 class="text-muted">No Drivers Found</h3>
             <p class="text-muted mb-4">Start by adding your first driver to the system.</p>
-            <a href="{{ url_for('add_driver') }}" class="btn btn-primary btn-lg">
+            <button type="button" class="btn btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#addDriverModal">
                 <i class="fas fa-user-plus"></i> Add First Driver
-            </a>
+            </button>
         </div>
     </div>
 {% endif %}
 
-<!-- Delete Confirmation Modal -->
-<div class="modal fade" id="deleteModal" tabindex="-1">
-    <div class="modal-dialog">
+<div class="modal fade" id="addDriverModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('add_driver') }}">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-user-plus"></i> Add New Driver</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="add_driver_number" class="form-label">Driver Number *</label>
+                        <input type="number" class="form-control" id="add_driver_number" name="driver_number" required min="1">
+                    </div>
+                    <div class="mb-3">
+                        <label for="add_name" class="form-label">Full Name *</label>
+                        <input type="text" class="form-control" id="add_name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="add_car_type" class="form-label">Vehicle Type *</label>
+                        <select class="form-select" id="add_car_type" name="car_type" required>
+                            <option value="">Select vehicle type</option>
+                            <option value="Standard">Standard</option>
+                            <option value="Estate">Estate</option>
+                            <option value="XL Estate">XL Estate</option>
+                            <option value="Minibus">Minibus</option>
+                        </select>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="add_electric_vehicle" name="electric_vehicle" value="1">
+                        <label class="form-check-label" for="add_electric_vehicle"><i class="fas fa-bolt text-warning"></i> Electric Vehicle</label>
+                    </div>
+                    <label class="form-label mt-2">Driver Attributes</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="add_school_badge" name="school_badge" value="1">
+                        <label class="form-check-label" for="add_school_badge"><i class="fas fa-school text-warning"></i> School Badge</label>
+                    </div>
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" id="add_pet_friendly" name="pet_friendly" value="1">
+                        <label class="form-check-label" for="add_pet_friendly"><i class="fas fa-paw text-success"></i> Pet Friendly</label>
+                    </div>
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" id="add_assistance_guide_dogs_exempt" name="assistance_guide_dogs_exempt" value="1">
+                        <label class="form-check-label" for="add_assistance_guide_dogs_exempt"><i class="fas fa-eye text-info"></i> Exempt from Assistance/Guide Dogs</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-user-plus"></i> Add Driver</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editDriverModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form method="POST" id="editDriverForm">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-edit"></i> Edit Driver</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="edit_driver_number" class="form-label">Driver Number *</label>
+                        <input type="number" class="form-control" id="edit_driver_number" name="driver_number" required min="1">
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_name" class="form-label">Full Name *</label>
+                        <input type="text" class="form-control" id="edit_name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_car_type" class="form-label">Vehicle Type *</label>
+                        <select class="form-select" id="edit_car_type" name="car_type" required>
+                            <option value="">Select vehicle type</option>
+                            <option value="Standard">Standard</option>
+                            <option value="Estate">Estate</option>
+                            <option value="XL Estate">XL Estate</option>
+                            <option value="Minibus">Minibus</option>
+                        </select>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="edit_electric_vehicle" name="electric_vehicle" value="1">
+                        <label class="form-check-label" for="edit_electric_vehicle"><i class="fas fa-bolt text-warning"></i> Electric Vehicle</label>
+                    </div>
+                    <label class="form-label mt-2">Driver Attributes</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="edit_school_badge" name="school_badge" value="1">
+                        <label class="form-check-label" for="edit_school_badge"><i class="fas fa-school text-warning"></i> School Badge</label>
+                    </div>
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" id="edit_pet_friendly" name="pet_friendly" value="1">
+                        <label class="form-check-label" for="edit_pet_friendly"><i class="fas fa-paw text-success"></i> Pet Friendly</label>
+                    </div>
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" id="edit_assistance_guide_dogs_exempt" name="assistance_guide_dogs_exempt" value="1">
+                        <label class="form-check-label" for="edit_assistance_guide_dogs_exempt"><i class="fas fa-eye text-info"></i> Exempt from Assistance/Guide Dogs</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Update Driver</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="assignPatternModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form method="POST" id="assignPatternForm">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="assignPatternModalTitle"><i class="fas fa-calendar-plus"></i> Assign Shift Pattern</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    {% if patterns %}
+                        <div class="mb-3">
+                            <label for="assign_pattern_id" class="form-label">Select Shift Pattern *</label>
+                            <select class="form-select" id="assign_pattern_id" name="pattern_id" required>
+                                <option value="">Choose a pattern...</option>
+                                {% for pattern in patterns %}
+                                    <option value="{{ pattern.id }}" 
+                                            data-cycle="{{ pattern.cycle_length }}" 
+                                            data-pattern='{{ pattern.get_pattern_data()|tojson|forceescape }}'>
+                                        {{ pattern.name }} ({{ pattern.cycle_length }} day cycle)
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Starting Day of Cycle -->
+                        <div class="mb-3" id="startDaySection" style="display: none;">
+                            <label for="assign_start_day" class="form-label">Starting Day of Cycle *</label>
+                            <select class="form-select" id="assign_start_day" name="start_day_of_cycle">
+                                <option value="1">Day 1</option>
+                            </select>
+                            <div class="form-text">Which day of the pattern cycle to start on</div>
+                        </div>
+
+                        <!-- Pattern Preview -->
+                        <div id="assignPatternPreview" style="display: none;">
+                            <div class="card bg-light mb-3">
+                                <div class="card-body">
+                                    <h6><i class="fas fa-eye"></i> Pattern Preview</h6>
+                                    <div id="assignPatternDisplay" class="d-flex flex-wrap gap-1"></div>
+                                    <small class="text-muted d-block mt-2">E=Earlies, D=Days, L=Lates, N=Nights, OFF=Rest Day</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="assign_start_date" class="form-label">Assignment Start Date *</label>
+                                    <input type="date" class="form-control" id="assign_start_date" name="start_date" required>
+                                    <div class="form-text">When this pattern assignment begins</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="assign_end_date" class="form-label">Assignment End Date</label>
+                                    <input type="date" class="form-control" id="assign_end_date" name="end_date">
+                                    <div class="form-text">Leave empty for ongoing assignment</div>
+                                    <div class="invalid-feedback">End date must be after start date</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-warning" id="assign_current_assignment_warning" style="display: none;">
+                            <i class="fas fa-exclamation-triangle"></i> 
+                            <strong>Current Assignment:</strong> <span id="assign_warning_text"></span>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4">
+                            <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No Shift Patterns Available</h5>
+                            <p class="text-muted">You need to create at least one shift pattern before assigning to drivers.</p>
+                        </div>
+                    {% endif %}
+
+                    <!-- Assignment History Section -->
+                    <div id="assignmentHistorySection" style="display: none;">
+                        <hr class="my-4">
+                        <h6 class="mb-3"><i class="fas fa-history"></i> Assignment History</h6>
+                        <div id="assignmentHistoryContent" style="max-height: 300px; overflow-y: auto;">
+                            <!-- Will be populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    {% if patterns %}
+                        <button type="submit" id="assignPatternSubmitBtn" class="btn btn-primary"><i class="fas fa-calendar-plus"></i> Assign Pattern</button>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="driverWorkflowModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Confirm Deletion</h5>
+                <h5 class="modal-title" id="driverWorkflowTitle">Driver Workflow</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body">
-                <p>Are you sure you want to delete driver <strong><span id="driverName"></span></strong>?</p>
-                <p class="text-danger"><i class="fas fa-exclamation-triangle"></i> This will also remove all pattern assignments for this driver.</p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <form id="deleteForm" method="POST" style="display: inline;">
-                    <button type="submit" class="btn btn-danger">Delete Driver</button>
-                </form>
+            <div class="modal-body p-0">
+                <iframe id="driverWorkflowFrame" src="about:blank" style="width: 100%; height: 460px; border: 0;"></iframe>
             </div>
         </div>
     </div>
@@ -254,9 +469,147 @@
 {% endblock %}
 
 {% block extra_scripts %}
+<script id="driverAssignmentsData" type="application/json">{{ driver_assignments|tojson }}</script>
 <script>
-// Add event listener for delete button clicks
+// Store driver assignments data  
+const driverAssignments = JSON.parse(document.getElementById('driverAssignmentsData').textContent || '{}');
+
+function adjustDriverWorkflowFrameSize() {
+    const frameEl = document.getElementById('driverWorkflowFrame');
+    if (!frameEl || !frameEl.contentWindow || !frameEl.contentWindow.document) return;
+
+    try {
+        const doc = frameEl.contentWindow.document;
+        const contentHeight = Math.max(
+            doc.body ? doc.body.scrollHeight : 0,
+            doc.documentElement ? doc.documentElement.scrollHeight : 0
+        );
+        const minHeight = 420;
+        const maxHeight = Math.round(window.innerHeight * 0.75);
+        const targetHeight = Math.min(Math.max(contentHeight + 12, minHeight), maxHeight);
+        frameEl.style.height = `${targetHeight}px`;
+    } catch (error) {
+        frameEl.style.height = '460px';
+    }
+}
+
+// Add event listener for all button clicks
 document.addEventListener('click', function(event) {
+    // Handle assign pattern button
+    if (event.target.closest('.assign-pattern-btn')) {
+        const button = event.target.closest('.assign-pattern-btn');
+        const driverId = button.getAttribute('data-driver-id');
+        const driverNumber = button.getAttribute('data-driver-number');
+        const driverName = button.getAttribute('data-driver-name');
+        const currentPattern = button.getAttribute('data-current-pattern');
+        const currentStart = button.getAttribute('data-current-start');
+
+        // Set form action
+        document.getElementById('assignPatternForm').action = `/driver/${driverId}/assign-pattern`;
+        
+        // Set modal title with driver info
+        document.getElementById('assignPatternModalTitle').innerHTML = `<i class="fas fa-calendar-plus"></i> Assign Shift Pattern - #${driverNumber} ${driverName}`;
+        
+        // Set current date as start date
+        const today = new Date();
+        const todayString = today.getFullYear() + '-' + 
+                           String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+                           String(today.getDate()).padStart(2, '0');
+        document.getElementById('assign_start_date').value = todayString;
+        document.getElementById('assign_end_date').value = '';
+        
+        // Reset form
+        document.getElementById('assign_pattern_id').value = '';
+        document.getElementById('assignPatternPreview').style.display = 'none';
+        document.getElementById('assign_current_assignment_warning').style.display = 'none';
+        document.getElementById('assign_end_date').classList.remove('is-invalid');
+        document.getElementById('assignPatternSubmitBtn').innerHTML = '<i class="fas fa-calendar-plus"></i> Assign Pattern';
+        
+        // Store current assignment data for use in validation
+        document.getElementById('assignPatternForm').dataset.currentPattern = currentPattern || '';
+        document.getElementById('assignPatternForm').dataset.currentStart = currentStart || '';
+        document.getElementById('assignPatternForm').dataset.driverId = driverId;
+        
+        // Load and display assignment history
+        loadAssignmentHistory(driverId);
+        
+        // Open modal
+        const assignModal = new bootstrap.Modal(document.getElementById('assignPatternModal'));
+        assignModal.show();
+        return;
+    }
+
+    // Handle assignment delete button
+    if (event.target.closest('.delete-assignment-btn')) {
+        const button = event.target.closest('.delete-assignment-btn');
+        const assignmentId = button.getAttribute('data-assignment-id');
+        const patternName = button.getAttribute('data-pattern-name');
+        const driverId = button.getAttribute('data-driver-id');
+        confirmDeleteAssignment(assignmentId, patternName, driverId);
+        return;
+    }
+
+    // Handle assignment end button
+    if (event.target.closest('.end-assignment-btn')) {
+        const button = event.target.closest('.end-assignment-btn');
+        const assignmentId = button.getAttribute('data-assignment-id');
+        const patternName = button.getAttribute('data-pattern-name');
+        const driverId = button.getAttribute('data-driver-id');
+        confirmEndAssignment(assignmentId, patternName, driverId);
+        return;
+    }
+
+    // Handle assignment edit button
+    if (event.target.closest('.edit-assignment-btn')) {
+        const button = event.target.closest('.edit-assignment-btn');
+        const assignmentId = button.getAttribute('data-assignment-id');
+        const driverId = button.getAttribute('data-driver-id');
+        openEditAssignment(driverId, assignmentId);
+        return;
+    }
+
+    // Handle workflow button
+    if (event.target.closest('.open-driver-workflow-btn')) {
+        const button = event.target.closest('.open-driver-workflow-btn');
+        const title = button.getAttribute('data-workflow-title') || 'Driver Workflow';
+        const url = button.getAttribute('data-workflow-url') || 'about:blank';
+
+        const titleEl = document.getElementById('driverWorkflowTitle');
+        const frameEl = document.getElementById('driverWorkflowFrame');
+
+        if (titleEl) {
+            titleEl.textContent = title;
+        }
+        if (frameEl) {
+            frameEl.src = url;
+        }
+
+        const workflowModal = new bootstrap.Modal(document.getElementById('driverWorkflowModal'));
+        workflowModal.show();
+
+        if (frameEl) {
+            frameEl.addEventListener('load', adjustDriverWorkflowFrameSize, { once: true });
+        }
+        return;
+    }
+
+    if (event.target.closest('.edit-driver-btn')) {
+        const button = event.target.closest('.edit-driver-btn');
+        const driverId = button.getAttribute('data-driver-id');
+        document.getElementById('editDriverForm').action = `/driver/${driverId}/edit`;
+        document.getElementById('edit_driver_number').value = button.getAttribute('data-driver-number') || '';
+        document.getElementById('edit_name').value = button.getAttribute('data-driver-name') || '';
+        document.getElementById('edit_car_type').value = button.getAttribute('data-car-type') || '';
+        document.getElementById('edit_electric_vehicle').checked = button.getAttribute('data-electric-vehicle') === '1';
+        document.getElementById('edit_school_badge').checked = button.getAttribute('data-school-badge') === '1';
+        document.getElementById('edit_pet_friendly').checked = button.getAttribute('data-pet-friendly') === '1';
+        document.getElementById('edit_assistance_guide_dogs_exempt').checked = button.getAttribute('data-assistance-guide-dogs-exempt') === '1';
+
+        const editModal = new bootstrap.Modal(document.getElementById('editDriverModal'));
+        editModal.show();
+        return;
+    }
+
     if (event.target.closest('.delete-driver-btn')) {
         const button = event.target.closest('.delete-driver-btn');
         const driverId = button.getAttribute('data-driver-id');
@@ -265,12 +618,327 @@ document.addEventListener('click', function(event) {
     }
 });
 
-function confirmDelete(driverId, driverName) {
-    document.getElementById('driverName').textContent = driverName;
-    document.getElementById('deleteForm').action = `/driver/${driverId}/delete`;
+const driverWorkflowModalEl = document.getElementById('driverWorkflowModal');
+if (driverWorkflowModalEl) {
+    driverWorkflowModalEl.addEventListener('shown.bs.modal', function () {
+        adjustDriverWorkflowFrameSize();
+    });
+
+    driverWorkflowModalEl.addEventListener('hidden.bs.modal', function () {
+        const frameEl = document.getElementById('driverWorkflowFrame');
+        if (frameEl) {
+            frameEl.src = 'about:blank';
+            frameEl.style.height = '460px';
+        }
+        location.reload();
+    });
+}
+
+function formatTitleCase(input) {
+    const cursorPosition = input.selectionStart;
+    input.value = input.value.toLowerCase().replace(/\b\w/g, function(char) {
+        return char.toUpperCase();
+    });
+    input.setSelectionRange(cursorPosition, cursorPosition);
+}
+
+['add_name', 'edit_name'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', function(e) {
+        formatTitleCase(e.target);
+    });
+});
+
+function loadAssignmentHistory(driverId) {
+    const assignments = driverAssignments[driverId] || [];
+    const historySection = document.getElementById('assignmentHistorySection');
+    const historyContent = document.getElementById('assignmentHistoryContent');
     
-    var deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
-    deleteModal.show();
+    if (assignments.length === 0) {
+        historySection.style.display = 'none';
+        return;
+    }
+    
+    let html = '<div class="table-responsive"><table class="table table-sm table-hover">';
+    html += '<thead><tr><th>Pattern</th><th>Period</th><th>Status</th><th>Assigned</th><th>Actions</th></tr></thead>';
+    html += '<tbody>';
+    
+    assignments.forEach(assignment => {
+        const startDateFormatted = new Date(assignment.startDate).toLocaleDateString('en-GB');
+        const endDateFormatted = assignment.endDate ? new Date(assignment.endDate).toLocaleDateString('en-GB') : 'Ongoing';
+        const statusBadge = {
+            'scheduled': '<span class="badge bg-primary">Scheduled</span>',
+            'active': '<span class="badge bg-success">Active</span>',
+            'ended': '<span class="badge bg-secondary">Ended</span>'
+        }[assignment.status] || '';
+        
+        html += '<tr>';
+        html += `<td>${assignment.patternName}</td>`;
+        html += `<td>${startDateFormatted} - ${endDateFormatted}</td>`;
+        html += `<td>${statusBadge}</td>`;
+        html += `<td>${assignment.createdAt}</td>`;
+        html += '<td><div class="btn-group" role="group">';
+        
+        if (assignment.status === 'scheduled') {
+            html += `<button type="button" class="btn btn-sm btn-outline-primary edit-assignment-btn"
+                     data-assignment-id="${assignment.id}" data-driver-id="${driverId}" title="Edit Assignment">
+                     <i class="fas fa-edit"></i></button>`;
+            html += `<button type="button" class="btn btn-sm btn-outline-danger delete-assignment-btn" 
+                     data-assignment-id="${assignment.id}" data-pattern-name="${assignment.patternName}" 
+                     data-driver-id="${driverId}" title="Delete Assignment">
+                     <i class="fas fa-trash"></i></button>`;
+        } else if (assignment.status === 'active') {
+            html += `<button type="button" class="btn btn-sm btn-outline-primary edit-assignment-btn"
+                     data-assignment-id="${assignment.id}" data-driver-id="${driverId}" title="Edit Assignment">
+                     <i class="fas fa-edit"></i></button>`;
+            html += `<button type="button" class="btn btn-sm btn-outline-warning end-assignment-btn" 
+                     data-assignment-id="${assignment.id}" data-pattern-name="${assignment.patternName}" 
+                     data-driver-id="${driverId}" title="End Assignment">
+                     <i class="fas fa-stop"></i> End</button>`;
+        } else {
+            html += `<button type="button" class="btn btn-sm btn-outline-danger delete-assignment-btn" 
+                     data-assignment-id="${assignment.id}" data-pattern-name="${assignment.patternName}" 
+                     data-driver-id="${driverId}" title="Delete Assignment">
+                     <i class="fas fa-trash"></i></button>`;
+        }
+        
+        html += '</div></td>';
+        html += '</tr>';
+    });
+    
+    html += '</tbody></table></div>';
+    
+    historyContent.innerHTML = html;
+    historySection.style.display = 'block';
+}
+
+function openEditAssignment(driverId, assignmentId) {
+    const assignments = driverAssignments[driverId] || [];
+    const assignment = assignments.find(a => String(a.id) === String(assignmentId));
+
+    if (!assignment) {
+        alert('Could not find assignment to edit. Please refresh and try again.');
+        return;
+    }
+
+    document.getElementById('assignPatternForm').action = `/driver/${driverId}/assignment/${assignmentId}/edit`;
+    document.getElementById('assign_pattern_id').value = String(assignment.patternId);
+    showAssignPatternPreview();
+    document.getElementById('assign_start_day').value = String(assignment.startDayOfCycle || 1);
+    document.getElementById('assign_start_date').value = assignment.startDate || '';
+    document.getElementById('assign_end_date').value = assignment.endDate || '';
+    document.getElementById('assign_current_assignment_warning').style.display = 'none';
+    document.getElementById('assignPatternSubmitBtn').innerHTML = '<i class="fas fa-save"></i> Update Assignment';
+    document.getElementById('assignPatternModalTitle').innerHTML = '<i class="fas fa-edit"></i> Edit Shift Assignment';
+}
+
+function confirmEndAssignment(assignmentId, patternName, driverId) {
+    if (confirm(`Are you sure you want to end the assignment for "${patternName}"?\n\nThis will stop the shift pattern from today onwards.`)) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/driver/${driverId}/assignment/${assignmentId}/end`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+function confirmDeleteAssignment(assignmentId, patternName, driverId) {
+    if (confirm(`Are you sure you want to DELETE the assignment for "${patternName}"?\n\nThis will permanently remove the assignment from history.`)) {
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `/driver/${driverId}/assignment/${assignmentId}/delete`;
+        document.body.appendChild(form);
+        form.submit();
+    }
+}
+
+function showAssignPatternPreview() {
+    const select = document.getElementById('assign_pattern_id');
+    const preview = document.getElementById('assignPatternPreview');
+    const display = document.getElementById('assignPatternDisplay');
+    const startDaySection = document.getElementById('startDaySection');
+    const startDaySelect = document.getElementById('assign_start_day');
+    
+    if (!select.value) {
+        preview.style.display = 'none';
+        startDaySection.style.display = 'none';
+        return;
+    }
+    
+    const option = select.selectedOptions[0];
+    const cycleLength = parseInt(option.dataset.cycle || 1);
+    let patternData = [];
+    try {
+        patternData = JSON.parse(option.dataset.pattern || '[]');
+    } catch (error) {
+        patternData = [];
+    }
+
+    // Populate starting day dropdown
+    startDaySelect.innerHTML = '';
+    for (let i = 1; i <= cycleLength; i++) {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = `Day ${i}`;
+        startDaySelect.appendChild(opt);
+    }
+    startDaySection.style.display = 'block';
+
+    const normalizedPattern = patternData.map(dayEntry => Array.isArray(dayEntry) ? dayEntry : [dayEntry]);
+    const allShifts = normalizedPattern.flat();
+    const nonOffShifts = allShifts.filter(s => s !== 'day_off');
+    
+    display.innerHTML = '';
+    normalizedPattern.forEach(dayShifts => {
+        const workingShifts = dayShifts.filter(s => s !== 'day_off');
+        
+        if (workingShifts.length >= 2) {
+            const openParen = document.createElement('span');
+            openParen.textContent = '(';
+            openParen.style.marginRight = '2px';
+            openParen.style.fontWeight = 'bold';
+            display.appendChild(openParen);
+        }
+        
+        const shiftsToRender = workingShifts.length > 0 ? workingShifts : ['day_off'];
+        shiftsToRender.forEach(shift => {
+            const badge = document.createElement('span');
+            badge.className = 'badge ';
+            badge.style.display = 'inline-flex';
+            badge.style.alignItems = 'center';
+            badge.style.justifyContent = 'center';
+            badge.style.minWidth = '24px';
+            badge.style.lineHeight = '1.3';
+            badge.style.padding = '0.35em 0.5em';
+            
+            const shiftColorMap = {
+                'day_off': { color: 'bg-secondary', text: 'OFF', label: 'Rest Day' },
+                'earlies': { color: 'bg-warning', label: 'Earlies' },
+                'days': { color: 'bg-success', label: 'Days' },
+                'lates': { color: 'bg-info', label: 'Lates' },
+                'nights': { color: 'bg-dark', label: 'Nights' }
+            };
+            
+            if (shift === 'day_off') {
+                badge.className += shiftColorMap[shift].color;
+                badge.textContent = shiftColorMap[shift].text;
+                badge.title = shiftColorMap[shift].label;
+            } else {
+                const shiftInfo = shiftColorMap[shift];
+                const formatted = shift.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                
+                if (shiftInfo) {
+                    badge.className += shiftInfo.color;
+                    badge.title = formatted;
+                    badge.textContent = shiftInfo.label[0].toUpperCase();
+                } else {
+                    badge.className += 'bg-primary';
+                    badge.title = formatted;
+                    const myInitial = shift.charAt(0).toUpperCase();
+                    const conflicts = nonOffShifts.filter(s => s.charAt(0).toUpperCase() === myInitial && s !== shift);
+                    
+                    if (conflicts.length === 0) {
+                        badge.textContent = myInitial;
+                    } else {
+                        const words = formatted.split(/\s+/);
+                        badge.textContent = words.length > 1 ? words.map(w => w[0]).join('') : myInitial;
+                    }
+                }
+            }
+            
+            display.appendChild(badge);
+        });
+        
+        if (workingShifts.length >= 2) {
+            const closeParen = document.createElement('span');
+            closeParen.textContent = ')';
+            closeParen.style.marginLeft = '2px';
+            closeParen.style.fontWeight = 'bold';
+            display.appendChild(closeParen);
+        }
+    });
+    
+    preview.style.display = 'block';
+    updateAssignPatternWarning();
+}
+
+function updateAssignPatternWarning() {
+    const form = document.getElementById('assignPatternForm');
+    const patternSelect = document.getElementById('assign_pattern_id');
+    const startDateInput = document.getElementById('assign_start_date');
+    const warningDiv = document.getElementById('assign_current_assignment_warning');
+    const warningText = document.getElementById('assign_warning_text');
+    
+    const currentPattern = form.dataset.currentPattern || '';
+    const currentStart = form.dataset.currentStart || '';
+    
+    if (currentPattern && patternSelect.value && startDateInput.value) {
+        const startDate = new Date(startDateInput.value);
+        const endDate = new Date(startDate);
+        endDate.setDate(endDate.getDate() - 1);
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        startDate.setHours(0, 0, 0, 0);
+        
+        if (startDate > today) {
+            warningText.innerHTML = `This driver is assigned to "${currentPattern}". Current pattern will continue until ${endDate.toLocaleDateString('en-GB')} and new pattern starts ${startDate.toLocaleDateString('en-GB')}.`;
+        } else {
+            warningText.innerHTML = `This driver is currently assigned to "${currentPattern}". The new assignment will end the current one.`;
+        }
+        warningDiv.style.display = 'block';
+    } else {
+        warningDiv.style.display = 'none';
+    }
+}
+
+function validateAssignDates() {
+    const startDateInput = document.getElementById('assign_start_date');
+    const endDateInput = document.getElementById('assign_end_date');
+    const startDate = startDateInput.value;
+    const endDate = endDateInput.value;
+    
+    if (startDate) {
+        endDateInput.min = startDate;
+        
+        if (endDate && endDate < startDate) {
+            endDateInput.setCustomValidity('End date must be after start date');
+            endDateInput.classList.add('is-invalid');
+            return false;
+        } else {
+            endDateInput.setCustomValidity('');
+            endDateInput.classList.remove('is-invalid');
+            return true;
+        }
+    }
+    return true;
+}
+
+// Event listeners for assign pattern modal
+document.getElementById('assign_pattern_id').addEventListener('change', showAssignPatternPreview);
+document.getElementById('assign_start_date').addEventListener('change', function() {
+    validateAssignDates();
+    updateAssignPatternWarning();
+});
+document.getElementById('assign_end_date').addEventListener('change', validateAssignDates);
+
+document.getElementById('assignPatternForm').addEventListener('submit', function(e) {
+    if (!validateAssignDates()) {
+        e.preventDefault();
+        return false;
+    }
+});
+
+function confirmDelete(driverId, driverName) {
+    window.showGlobalDeleteConfirm({
+        title: 'Confirm Deletion',
+        message: 'Are you sure you want to delete driver',
+        name: driverName,
+        warning: 'This will also remove all pattern assignments for this driver.',
+        action: `/driver/${driverId}/delete`,
+        submitLabel: 'Delete Driver'
+    });
 }
 </script>
 {% endblock %}

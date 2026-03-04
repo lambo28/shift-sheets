@@ -4,18 +4,11 @@ if (shiftTypesModalEl) {
     shiftTypesModalEl.addEventListener('hidden.bs.modal', resetNewShiftTypeForm);
 }
 
-const shiftTypeDeleteModalEl = document.getElementById('shiftTypeDeleteModal');
-if (shiftTypeDeleteModalEl) {
-    shiftTypeDeleteModalEl.addEventListener('hidden.bs.modal', () => {
-        shiftTypeDeleteModalEl.style.zIndex = '';
-        showShiftTypeDeleteFeedback('danger', '');
-    });
-}
-
 const deleteModalEl = document.getElementById('deleteModal');
 if (deleteModalEl) {
     deleteModalEl.addEventListener('hidden.bs.modal', () => {
         showDeletePatternFeedback('danger', '');
+        window.pendingShiftTypeDelete = null;
     });
 }
 
@@ -44,11 +37,6 @@ if (copyCycleLengthEl) {
 const savePatternBtn = document.getElementById('savePatternBtn');
 if (savePatternBtn) {
     savePatternBtn.addEventListener('click', savePattern);
-}
-
-const confirmShiftTypeDeleteBtn = document.getElementById('confirmShiftTypeDeleteBtn');
-if (confirmShiftTypeDeleteBtn) {
-    confirmShiftTypeDeleteBtn.addEventListener('click', confirmDeleteShiftType);
 }
 
 const addShiftTypeBtn = document.getElementById('addShiftTypeBtn');
@@ -117,6 +105,13 @@ const deleteForm = document.getElementById('deleteForm');
 if (deleteForm) {
     deleteForm.addEventListener('submit', function(event) {
         event.preventDefault();
+
+        const pendingShiftTypeDelete = window.pendingShiftTypeDelete;
+
+        if (pendingShiftTypeDelete) {
+            confirmDeleteShiftType();
+            return;
+        }
 
         requestJson(deleteForm.action, {
             method: 'POST',

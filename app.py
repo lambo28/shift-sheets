@@ -123,10 +123,16 @@ class ShiftPattern(db.Model):
 
     # Get what shift type for a specific day in the cycle
     def get_shift_for_day(self, cycle_day):
+        shifts = self.get_shifts_for_day(cycle_day)
+        if shifts:
+            return shifts[0]
+        return None
+
+    def get_shifts_for_day(self, cycle_day):
         pattern = self.get_pattern_data()
         if 0 <= cycle_day < len(pattern):
-            return pattern[cycle_day]
-        return None
+            return normalize_day_shifts(pattern[cycle_day])
+        return []
 
 # Add Shift Timing Configuration Model
 class ShiftTiming(db.Model):
@@ -235,21 +241,30 @@ class DriverAssignment(db.Model):
     shift_pattern_id = db.Column(db.Integer, db.ForeignKey('shift_pattern.id'), nullable=False)
     start_date = db.Column(db.Date, nullable=False)
     end_date = db.Column(db.Date)  # Optional - for temporary assignments
+    start_day_of_cycle = db.Column(db.Integer, default=1, nullable=False)  # Which day of the pattern cycle to start on
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Get shift type for a specific date
     def get_shift_for_date(self, target_date):
         """Get the shift type for a specific date based on the pattern cycle"""
+        shifts = self.get_shifts_for_date(target_date)
+        if shifts:
+            return shifts[0]
+        return None
+
+    def get_shifts_for_date(self, target_date):
+        """Get all shift types for a specific date based on the pattern cycle"""
         if target_date < self.start_date:
-            return None
+            return []
         if self.end_date and target_date > self.end_date:
-            return None
+            return []
             
         # Calculate which day of the cycle this date falls on
         days_since_start = (target_date - self.start_date).days
-        cycle_day = days_since_start % self.shift_pattern.cycle_length
+        # Account for starting on a specific day of the cycle
+        cycle_day = (days_since_start + (self.start_day_of_cycle - 1)) % self.shift_pattern.cycle_length
         
-        return self.shift_pattern.get_shift_for_day(cycle_day)
+        return self.shift_pattern.get_shifts_for_day(cycle_day)
 
 # -----------------------------------------------------------------------------
 # Initialization
@@ -411,8 +426,8 @@ def get_drivers_for_date(target_date):
     assignments = get_active_assignments_for_date(target_date)
     
     for assignment in assignments:
-        shift_type = assignment.get_shift_for_date(target_date)
-        if not shift_type or shift_type == 'day_off' or shift_type not in timings_dict:
+        shift_types = assignment.get_shifts_for_date(target_date)
+        if not shift_types:
             continue
 
         # Calculate cycle day and weekday for custom timing lookup
@@ -420,51 +435,55 @@ def get_drivers_for_date(target_date):
         cycle_day = days_since_start % assignment.shift_pattern.cycle_length
         weekday = target_date.weekday()  # 0=Monday, 6=Sunday
         
-        # Check for custom timing
-        custom_timing = DriverCustomTiming.get_custom_timing(
-            assignment.driver_id, 
-            assignment.id, 
-            shift_type, 
-            cycle_day, 
-            weekday
-        )
-        
-        # Get start and end times
-        if custom_timing:
-            start_time = custom_timing.start_time
-            end_time = custom_timing.end_time
-            timing_note = custom_timing.notes or "Custom timing"
-            is_custom = True
-        else:
-            timing = timings_dict[shift_type]
-            start_time = timing.start_time
-            end_time = timing.end_time
-            timing_note = None
-            is_custom = False
-        
-        # Create driver info object with timing data
-        driver_info = {
-            'driver': assignment.driver,
-            'start_time': start_time,
-            'end_time': end_time,
-            'is_custom': is_custom,
-            'timing_note': timing_note,
-            'shift_type': shift_type  # Keep track of actual shift type
-        }
-        
-        # Determine where to group this driver
-        current_timing = timings_dict.get(shift_type)
-        if current_timing and current_timing.parent_shift_type:
-            # This is a sub-shift, group under parent
-            parent = current_timing.parent_shift_type
-            if parent not in drivers_working:
-                drivers_working[parent] = []
-            drivers_working[parent].append(driver_info)
-        else:
-            # This is a main shift or has no parent
-            if shift_type not in drivers_working:
-                drivers_working[shift_type] = []
-            drivers_working[shift_type].append(driver_info)
+        for shift_type in shift_types:
+            if shift_type == 'day_off' or shift_type not in timings_dict:
+                continue
+
+            # Check for custom timing
+            custom_timing = DriverCustomTiming.get_custom_timing(
+                assignment.driver_id,
+                assignment.id,
+                shift_type,
+                cycle_day,
+                weekday
+            )
+
+            # Get start and end times
+            if custom_timing:
+                start_time = custom_timing.start_time
+                end_time = custom_timing.end_time
+                timing_note = custom_timing.notes or "Custom timing"
+                is_custom = True
+            else:
+                timing = timings_dict[shift_type]
+                start_time = timing.start_time
+                end_time = timing.end_time
+                timing_note = None
+                is_custom = False
+
+            # Create driver info object with timing data
+            driver_info = {
+                'driver': assignment.driver,
+                'start_time': start_time,
+                'end_time': end_time,
+                'is_custom': is_custom,
+                'timing_note': timing_note,
+                'shift_type': shift_type  # Keep track of actual shift type
+            }
+
+            # Determine where to group this driver
+            current_timing = timings_dict.get(shift_type)
+            if current_timing and current_timing.parent_shift_type:
+                # This is a sub-shift, group under parent
+                parent = current_timing.parent_shift_type
+                if parent not in drivers_working:
+                    drivers_working[parent] = []
+                drivers_working[parent].append(driver_info)
+            else:
+                # This is a main shift or has no parent
+                if shift_type not in drivers_working:
+                    drivers_working[shift_type] = []
+                drivers_working[shift_type].append(driver_info)
     
     return drivers_working
 
@@ -511,6 +530,62 @@ def parse_positive_int(value):
     if parsed is None or parsed <= 0:
         return None
     return parsed
+
+def normalize_day_shifts(day_entry):
+    """Normalize a pattern day value into a deduplicated list of shift types."""
+    if day_entry is None:
+        return ['day_off']
+
+    if isinstance(day_entry, str):
+        values = [day_entry]
+    elif isinstance(day_entry, list):
+        values = day_entry
+    else:
+        return ['day_off']
+
+    cleaned = []
+    seen = set()
+    for value in values:
+        shift = str(value).strip()
+        if not shift or shift == 'day_off':
+            continue
+        if shift not in seen:
+            cleaned.append(shift)
+            seen.add(shift)
+
+    return cleaned or ['day_off']
+
+def compact_day_shifts(day_entry):
+    """Return day_off, a single shift string, or a list for multi-shift days."""
+    normalized = normalize_day_shifts(day_entry)
+    if normalized == ['day_off']:
+        return 'day_off'
+    if len(normalized) == 1:
+        return normalized[0]
+    return normalized
+
+def parse_day_shifts_from_form(form_data, day_index):
+    """Parse one day's shift selection(s) from submitted form data."""
+    day_key = f"day_{day_index}_shift"
+    values = [v for v in form_data.getlist(day_key) if str(v).strip()]
+    if not values:
+        return 'day_off'
+
+    normalized_values = [str(v).strip() for v in values]
+    if 'day_off' in normalized_values:
+        non_day_off = [v for v in normalized_values if v != 'day_off']
+        if non_day_off:
+            raise ValueError('Day Off cannot be combined with working shifts')
+        return 'day_off'
+
+    return compact_day_shifts(normalized_values)
+
+def iter_pattern_shift_types(pattern_data):
+    """Yield all working shift types used by a pattern, including multi-shift days."""
+    for day_entry in pattern_data:
+        for shift_type in normalize_day_shifts(day_entry):
+            if shift_type != 'day_off':
+                yield shift_type
 
 def get_active_assignments_for_date(target_date):
     """Get assignments active for a given date."""
@@ -567,7 +642,39 @@ def drivers():
             return (1, 0, driver.driver_number)
 
     all_drivers = sorted(Driver.query.all(), key=driver_sort_key)
-    return render_template("drivers.html", drivers=all_drivers)
+    all_patterns = ShiftPattern.query.all()
+
+    today = datetime.now().date()
+    driver_assignments = {}
+    for driver in all_drivers:
+        items = []
+        for assignment in driver.assignments:
+            if assignment.start_date > today:
+                status = "scheduled"
+            elif not assignment.end_date or assignment.end_date > today:
+                status = "active"
+            else:
+                status = "ended"
+
+            items.append({
+                "id": assignment.id,
+                "patternId": assignment.shift_pattern_id,
+                "patternName": assignment.shift_pattern.name,
+                "startDate": assignment.start_date.strftime("%Y-%m-%d"),
+                "endDate": assignment.end_date.strftime("%Y-%m-%d") if assignment.end_date else None,
+                "startDayOfCycle": assignment.start_day_of_cycle,
+                "createdAt": assignment.created_at.strftime("%d/%m/%Y"),
+                "status": status,
+            })
+        driver_assignments[driver.id] = items
+
+    return render_template(
+        "drivers.html",
+        drivers=all_drivers,
+        patterns=all_patterns,
+        datetime=datetime,
+        driver_assignments=driver_assignments,
+    )
 
 @app.route("/shifts")
 def shifts():
@@ -576,18 +683,6 @@ def shifts():
     all_timings = ShiftTiming.query.order_by(ShiftTiming.start_time, ShiftTiming.shift_type).all()
     timings = {timing.shift_type: timing for timing in all_timings}
     return render_template("shifts.html", patterns=all_patterns, timings=timings, all_timings=all_timings)
-
-@app.route("/settings")
-def settings():
-    """Settings - shift management is now handled in the Shifts page"""
-    flash("Shift settings are now managed in Shifts → Manage Shifts.", "info")
-    return redirect(url_for("shifts"))
-
-@app.route("/settings", methods=["POST"])
-def update_settings():
-    """Update shift timing settings - redirect to shifts"""
-    flash("Shift settings are now managed in Shifts → Manage Shifts.", "info")
-    return redirect(url_for("shifts"))
 
 # -----------------------------------------------------------------------------
 # Routes: Shift Types and Patterns
@@ -689,7 +784,11 @@ def update_shift_types():
             patterns = ShiftPattern.query.all()
             for pattern in patterns:
                 pattern_data = pattern.get_pattern_data()
-                updated_data = [changed_names.get(shift, shift) for shift in pattern_data]
+                updated_data = []
+                for day_entry in pattern_data:
+                    day_shifts = normalize_day_shifts(day_entry)
+                    renamed = [changed_names.get(shift, shift) for shift in day_shifts]
+                    updated_data.append(compact_day_shifts(renamed))
                 if updated_data != pattern_data:
                     pattern.set_pattern_data(updated_data)
 
@@ -757,7 +856,7 @@ def delete_shift_type(shift_type):
     try:
         patterns = ShiftPattern.query.all()
         for pattern in patterns:
-            if shift_type in pattern.get_pattern_data():
+            if shift_type in iter_pattern_shift_types(pattern.get_pattern_data()):
                 return json_error(f'Shift type is used in pattern: {pattern.name}')
 
         custom_timing = DriverCustomTiming.query.filter_by(shift_type=shift_type).first()
@@ -806,8 +905,15 @@ def add_shift_pattern():
         pattern_data = []
         
         for day in range(cycle_length):
-            shift = request.form.get(f"day_{day}_shift", "day_off")
-            pattern_data.append(shift)
+            try:
+                day_shifts = parse_day_shifts_from_form(request.form, day)
+            except ValueError as exc:
+                message = str(exc)
+                if is_ajax_request():
+                    return json_error(message)
+                flash(message, "error")
+                return redirect(url_for("shifts"))
+            pattern_data.append(day_shifts)
         
         pattern = ShiftPattern(
             name=pattern_name,
@@ -868,8 +974,8 @@ def edit_shift_pattern(pattern_id):
         # Update pattern data
         pattern_data = []
         for day in range(pattern.cycle_length):
-            shift = request.form.get(f"day_{day}_shift", "day_off")
-            pattern_data.append(shift)
+            day_shifts = parse_day_shifts_from_form(request.form, day)
+            pattern_data.append(day_shifts)
         pattern.set_pattern_data(pattern_data)
         
         db.session.commit()
@@ -933,19 +1039,20 @@ def assign_pattern_to_driver(driver_id):
         start_date = parse_date_string(request.form.get("start_date"))
         end_date = parse_date_string(request.form.get("end_date")) if request.form.get("end_date") else None
         pattern_id = parse_optional_int(request.form.get("pattern_id"))
+        start_day_of_cycle = parse_optional_int(request.form.get("start_day_of_cycle")) or 1
 
         if not start_date:
             flash("Invalid start date", "error")
-            return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+            return redirect(url_for("drivers"))
         if request.form.get("end_date") and not end_date:
             flash("Invalid end date", "error")
-            return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+            return redirect(url_for("drivers"))
         if end_date and end_date < start_date:
             flash("End date cannot be before start date", "error")
-            return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+            return redirect(url_for("drivers"))
         if not pattern_id:
             flash("Invalid shift pattern", "error")
-            return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+            return redirect(url_for("drivers"))
         
         # Find any overlapping assignments that need to be ended
         overlapping_assignments = DriverAssignment.query.filter(
@@ -966,17 +1073,19 @@ def assign_pattern_to_driver(driver_id):
             driver_id=driver_id,
             shift_pattern_id=pattern_id,
             start_date=start_date,
-            end_date=end_date
+            end_date=end_date,
+            start_day_of_cycle=start_day_of_cycle
         )
         
         try:
             db.session.add(assignment)
             db.session.commit()
             flash("Shift pattern assigned successfully!", "success")
-            return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+            return redirect(url_for("drivers"))
         except Exception as e:
             db.session.rollback()
             flash(f"Error assigning pattern: {str(e)}", "error")
+            return redirect(url_for("drivers"))
     
     return render_template("assign_pattern.html", driver=driver, patterns=patterns, today=date.today())
 
@@ -994,7 +1103,7 @@ def end_assignment(driver_id, assignment_id):
     # Check if assignment is still active
     if assignment.end_date:
         flash("Assignment is already ended", "error")
-        return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+        return redirect(url_for("drivers"))
     
     try:
         # Set end date to today
@@ -1020,7 +1129,63 @@ def end_assignment(driver_id, assignment_id):
         db.session.rollback()
         flash(f"Error ending assignment: {str(e)}", "error")
     
-    return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+    return redirect(url_for("drivers"))
+
+@app.route("/driver/<int:driver_id>/assignment/<int:assignment_id>/edit", methods=["POST"])
+def edit_assignment(driver_id, assignment_id):
+    """Edit an existing driver assignment"""
+    driver = Driver.query.get_or_404(driver_id)
+    assignment = DriverAssignment.query.get_or_404(assignment_id)
+
+    if assignment.driver_id != driver_id:
+        flash("Invalid assignment", "error")
+        return redirect(url_for("drivers"))
+
+    start_date = parse_date_string(request.form.get("start_date"))
+    end_date = parse_date_string(request.form.get("end_date")) if request.form.get("end_date") else None
+    pattern_id = parse_optional_int(request.form.get("pattern_id"))
+    start_day_of_cycle = parse_optional_int(request.form.get("start_day_of_cycle")) or 1
+
+    if not start_date:
+        flash("Invalid start date", "error")
+        return redirect(url_for("drivers"))
+    if request.form.get("end_date") and not end_date:
+        flash("Invalid end date", "error")
+        return redirect(url_for("drivers"))
+    if end_date and end_date < start_date:
+        flash("End date cannot be before start date", "error")
+        return redirect(url_for("drivers"))
+    if not pattern_id:
+        flash("Invalid shift pattern", "error")
+        return redirect(url_for("drivers"))
+
+    overlap_exists = DriverAssignment.query.filter(
+        DriverAssignment.driver_id == driver_id,
+        DriverAssignment.id != assignment_id,
+        DriverAssignment.start_date <= (end_date if end_date else date.max),
+        db.or_(
+            DriverAssignment.end_date.is_(None),
+            DriverAssignment.end_date >= start_date,
+        ),
+    ).first()
+
+    if overlap_exists:
+        flash("Edited assignment overlaps with another assignment", "error")
+        return redirect(url_for("drivers"))
+
+    assignment.shift_pattern_id = pattern_id
+    assignment.start_date = start_date
+    assignment.end_date = end_date
+    assignment.start_day_of_cycle = start_day_of_cycle
+
+    try:
+        db.session.commit()
+        flash(f"Assignment updated successfully for {driver.formatted_name()}", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error updating assignment: {str(e)}", "error")
+
+    return redirect(url_for("drivers"))
 
 @app.route("/driver/<int:driver_id>/assignment/<int:assignment_id>/delete", methods=["POST"])
 def delete_assignment(driver_id, assignment_id):
@@ -1058,7 +1223,7 @@ def delete_assignment(driver_id, assignment_id):
         db.session.rollback()
         flash(f"Error deleting assignment: {str(e)}", "error")
     
-    return redirect(url_for("assign_pattern_to_driver", driver_id=driver_id))
+    return redirect(url_for("drivers"))
 
 # -----------------------------------------------------------------------------
 # Routes: Driver Management
@@ -1067,6 +1232,9 @@ def delete_assignment(driver_id, assignment_id):
 @app.route("/driver/add", methods=["GET", "POST"])
 def add_driver():
     """Add new driver"""
+    if request.method == "GET":
+        return redirect(url_for("drivers"))
+
     if request.method == "POST":
         driver = Driver(
             driver_number=request.form.get("driver_number"),
@@ -1086,13 +1254,16 @@ def add_driver():
         except Exception as e:
             db.session.rollback()
             flash(f"Error adding driver: {str(e)}", "error")
-    
-    return render_template("add_driver.html")
+
+    return redirect(url_for("drivers"))
 
 @app.route("/driver/<int:driver_id>/edit", methods=["GET", "POST"])
 def edit_driver(driver_id):
     """Edit existing driver"""
     driver = Driver.query.get_or_404(driver_id)
+
+    if request.method == "GET":
+        return redirect(url_for("drivers"))
     
     if request.method == "POST":
         driver.driver_number = request.form.get("driver_number")
@@ -1110,8 +1281,8 @@ def edit_driver(driver_id):
         except Exception as e:
             db.session.rollback()
             flash(f"Error updating driver: {str(e)}", "error")
-    
-    return render_template("edit_driver.html", driver=driver)
+
+    return redirect(url_for("drivers"))
 
 @app.route("/driver/<int:driver_id>/delete", methods=["POST"])
 def delete_driver(driver_id):
@@ -1190,10 +1361,10 @@ def get_cars_working_at_time(target_date, target_time):
     
     cars_working = 0
     for assignment in assignments:
-        # Get the shift type for this date
-        shift_type = assignment.get_shift_for_date(target_date)
-        
-        if not shift_type or shift_type == 'day_off' or shift_type not in timings_dict:
+        # Get all shift types for this date
+        shift_types = assignment.get_shifts_for_date(target_date)
+
+        if not shift_types:
             continue
 
         # Calculate cycle day and weekday for custom timing lookup
@@ -1201,34 +1372,44 @@ def get_cars_working_at_time(target_date, target_time):
         cycle_day = days_since_start % assignment.shift_pattern.cycle_length
         weekday = target_date.weekday()  # 0=Monday, 6=Sunday
         
-        # Check for custom timing first
-        custom_timing = DriverCustomTiming.get_custom_timing(
-            assignment.driver_id, 
-            assignment.id, 
-            shift_type, 
-            cycle_day, 
-            weekday
-        )
-        
-        if custom_timing:
-            # Use custom timing
-            start_time = custom_timing.start_time
-            end_time = custom_timing.end_time
-        else:
-            # Use default timing
-            timing = timings_dict[shift_type]
-            start_time = timing.start_time
-            end_time = timing.end_time
-        
-        # Handle overnight shifts (when end time is before start time)
-        if end_time < start_time:  # Night shift case
-            # Check if target time is after start OR before end (next day)
-            if target_time >= start_time or target_time < end_time:
-                cars_working += 1
-        else:  # Regular day shift
-            # Check if target time is between start and end
-            if start_time <= target_time < end_time:
-                cars_working += 1
+        is_working_now = False
+        for shift_type in shift_types:
+            if shift_type == 'day_off' or shift_type not in timings_dict:
+                continue
+
+            # Check for custom timing first
+            custom_timing = DriverCustomTiming.get_custom_timing(
+                assignment.driver_id,
+                assignment.id,
+                shift_type,
+                cycle_day,
+                weekday
+            )
+
+            if custom_timing:
+                # Use custom timing
+                start_time = custom_timing.start_time
+                end_time = custom_timing.end_time
+            else:
+                # Use default timing
+                timing = timings_dict[shift_type]
+                start_time = timing.start_time
+                end_time = timing.end_time
+
+            # Handle overnight shifts (when end time is before start time)
+            if end_time < start_time:  # Night shift case
+                # Check if target time is after start OR before end (next day)
+                if target_time >= start_time or target_time < end_time:
+                    is_working_now = True
+                    break
+            else:  # Regular day shift
+                # Check if target time is between start and end
+                if start_time <= target_time < end_time:
+                    is_working_now = True
+                    break
+
+        if is_working_now:
+            cars_working += 1
     
     return cars_working
 
@@ -1296,19 +1477,19 @@ def add_custom_timing(driver_id):
 
             if not start_time or not end_time:
                 flash("Invalid start or end time", "error")
-                return redirect(url_for("add_custom_timing", driver_id=driver_id))
+                return redirect(url_for("drivers"))
 
             if priority is None:
                 flash("Invalid priority", "error")
-                return redirect(url_for("add_custom_timing", driver_id=driver_id))
+                return redirect(url_for("drivers"))
 
             if day_of_week is not None and (day_of_week < 0 or day_of_week > 6):
                 flash("Day of week must be between 0 and 6", "error")
-                return redirect(url_for("add_custom_timing", driver_id=driver_id))
+                return redirect(url_for("drivers"))
 
             if day_of_cycle is not None and day_of_cycle < 0:
                 flash("Day of cycle must be 0 or greater", "error")
-                return redirect(url_for("add_custom_timing", driver_id=driver_id))
+                return redirect(url_for("drivers"))
             
             # Create timing
             timing = DriverCustomTiming(
@@ -1326,11 +1507,12 @@ def add_custom_timing(driver_id):
             db.session.add(timing)
             db.session.commit()
             flash("Custom timing added successfully!", "success")
-            return redirect(url_for("driver_custom_timings", driver_id=driver_id))
+            return redirect(url_for("drivers"))
 
         except Exception as e:
             db.session.rollback()
             flash(f"Error adding custom timing: {str(e)}", "error")
+            return redirect(url_for("drivers"))
     
     # Get driver assignments for dropdown
     assignments = DriverAssignment.query.filter_by(driver_id=driver_id).all()
@@ -1351,7 +1533,7 @@ def delete_custom_timing(timing_id):
         db.session.rollback()
         flash(f"Error deleting timing: {str(e)}", "error")
     
-    return redirect(url_for("driver_custom_timings", driver_id=driver_id))
+    return redirect(url_for("drivers"))
 
     # -----------------------------------------------------------------------------
     # Entrypoint
