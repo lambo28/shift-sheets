@@ -14,18 +14,104 @@
                     <p class="mb-0 text-muted">Driver: <strong>{{ driver.formatted_name() }}</strong> (#{{ driver.formatted_driver_number() }})</p>
                 </div>
                 <div class="btn-group">
-                    <a href="{{ url_for('add_custom_timing', driver_id=driver.id) }}" class="btn btn-primary">
+                    <button type="button" class="btn btn-primary btn-sm" id="toggleAddFormBtn"
+                            data-bs-toggle="collapse" data-bs-target="#addTimingForm" aria-expanded="false">
                         <i class="fas fa-plus"></i> Add Custom Timing
-                    </a>
-                    <a href="{{ url_for('drivers') }}" class="btn btn-outline-secondary">
+                    </button>
+                    <a href="{{ url_for('drivers') }}" class="btn btn-outline-secondary btn-sm">
                         <i class="fas fa-arrow-left"></i> Back to Drivers
                     </a>
                 </div>
             </div>
             <div class="card-body">
+
+                <!-- Inline Add Custom Timing Form -->
+                <div class="collapse mb-3" id="addTimingForm">
+                    <div class="card card-body bg-light border">
+                        <h6 class="mb-3"><i class="fas fa-plus-circle text-primary"></i> New Custom Timing</h6>
+                        <form method="POST" action="{{ url_for('add_custom_timing', driver_id=driver.id) }}{% if request.args.get('modal') == '1' %}?modal=1{% endif %}">
+                            <div class="row g-2">
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-semibold">Assignment Scope</label>
+                                    <select class="form-select form-select-sm" name="assignment_id">
+                                        <option value="">All assignments for this driver</option>
+                                        {% for assignment in assignments %}
+                                            <option value="{{ assignment.id }}">
+                                                {{ assignment.shift_pattern.name }}
+                                                ({{ assignment.start_date.strftime('%d/%m/%Y') }}{% if assignment.end_date %} – {{ assignment.end_date.strftime('%d/%m/%Y') }}{% else %} – ongoing{% endif %})
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small fw-semibold">Priority</label>
+                                    <input type="number" class="form-control form-control-sm" name="priority" value="100" min="1" max="999">
+                                </div>
+                            </div>
+                            <div class="row g-2 mt-1">
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-semibold">Shift Type</label>
+                                    <select class="form-select form-select-sm" name="shift_type">
+                                        <option value="">Any shift type</option>
+                                        {% for st in shift_types %}
+                                            <option value="{{ st.shift_type }}">{{ st.display_label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-semibold">Day of Cycle</label>
+                                    <select class="form-select form-select-sm" name="day_of_cycle">
+                                        <option value="">Any day in cycle</option>
+                                        {% for i in range(32) %}
+                                            <option value="{{ i }}">Day {{ i + 1 }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-semibold">Day of Week</label>
+                                    <select class="form-select form-select-sm" name="day_of_week">
+                                        <option value="">Any day of week</option>
+                                        <option value="0">Monday</option>
+                                        <option value="1">Tuesday</option>
+                                        <option value="2">Wednesday</option>
+                                        <option value="3">Thursday</option>
+                                        <option value="4">Friday</option>
+                                        <option value="5">Saturday</option>
+                                        <option value="6">Sunday</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="row g-2 mt-1">
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-semibold">Start Time <span class="text-danger">*</span></label>
+                                    <input type="time" class="form-control form-control-sm" name="start_time" required>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small fw-semibold">End Time <span class="text-danger">*</span></label>
+                                    <input type="time" class="form-control form-control-sm" name="end_time" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-semibold">Notes</label>
+                                    <input type="text" class="form-control form-control-sm" name="notes"
+                                           placeholder="e.g., Doctor's appointment, school run…">
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2 mt-3">
+                                <button type="submit" class="btn btn-primary btn-sm">
+                                    <i class="fas fa-save"></i> Save Timing
+                                </button>
+                                <button type="button" class="btn btn-secondary btn-sm"
+                                        data-bs-toggle="collapse" data-bs-target="#addTimingForm">
+                                    <i class="fas fa-times"></i> Cancel
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
                 {% if timings %}
                     <div class="table-responsive">
-                        <table class="table table-hover">
+                        <table class="table table-hover align-middle">
                             <thead>
                                 <tr>
                                     <th>Priority</th>
@@ -39,14 +125,15 @@
                             </thead>
                             <tbody>
                                 {% for timing in timings %}
-                                <tr>
+                                <!-- Display row -->
+                                <tr id="timing-display-{{ timing.id }}">
                                     <td>
                                         <span class="badge bg-dark">{{ timing.priority }}</span>
                                     </td>
                                     <td>
                                         {% if timing.assignment %}
                                             <span class="badge bg-warning">
-                                                <i class="fas fa-calendar"></i> Assignment: {{ timing.assignment.shift_pattern.name }}
+                                                <i class="fas fa-calendar"></i> {{ timing.assignment.shift_pattern.name }}
                                             </span>
                                         {% else %}
                                             <span class="badge bg-info">
@@ -83,16 +170,110 @@
                                         {% if timing.notes %}
                                             <small class="text-muted">{{ timing.notes }}</small>
                                         {% else %}
-                                            -
+                                            <span class="text-muted">-</span>
                                         {% endif %}
                                     </td>
                                     <td>
-                                        <button type="button" class="btn btn-sm btn-danger delete-timing-btn"
-                                                data-timing-id="{{ timing.id }}"
-                                                data-timing-desc="{{ timing.shift_type or 'Any shift' }} {% if timing.day_of_cycle is not none %}Day {{ timing.day_of_cycle + 1 }}{% endif %} {% if timing.day_of_week is not none %}{{ ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][timing.day_of_week] }}{% endif %}"
-                                                title="Delete Custom Timing">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
+                                        <div class="btn-group btn-group-sm">
+                                            <button type="button" class="btn btn-outline-primary edit-timing-btn"
+                                                    data-timing-id="{{ timing.id }}"
+                                                    title="Edit Custom Timing">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-danger delete-timing-btn"
+                                                    data-timing-id="{{ timing.id }}"
+                                                    data-timing-desc="{{ timing.shift_type or 'Any shift' }}{% if timing.day_of_cycle is not none %} Day {{ timing.day_of_cycle + 1 }}{% endif %}{% if timing.day_of_week is not none %} {{ ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][timing.day_of_week] }}{% endif %}"
+                                                    data-modal="{{ '1' if request.args.get('modal') == '1' else '' }}"
+                                                    title="Delete Custom Timing">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <!-- Inline edit row (hidden by default) -->
+                                <tr id="timing-edit-{{ timing.id }}" class="table-light d-none">
+                                    <td colspan="7" class="p-3">
+                                        <form method="POST"
+                                              action="{{ url_for('edit_custom_timing', timing_id=timing.id) }}{% if request.args.get('modal') == '1' %}?modal=1{% endif %}">
+                                            <div class="row g-2">
+                                                <div class="col-md-5">
+                                                    <label class="form-label small fw-semibold">Assignment Scope</label>
+                                                    <select class="form-select form-select-sm" name="assignment_id">
+                                                        <option value=""{% if not timing.assignment_id %} selected{% endif %}>All assignments for this driver</option>
+                                                        {% for assignment in assignments %}
+                                                            <option value="{{ assignment.id }}"{% if timing.assignment_id == assignment.id %} selected{% endif %}>
+                                                                {{ assignment.shift_pattern.name }}
+                                                                ({{ assignment.start_date.strftime('%d/%m/%Y') }}{% if assignment.end_date %} – {{ assignment.end_date.strftime('%d/%m/%Y') }}{% else %} – ongoing{% endif %})
+                                                            </option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-2">
+                                                    <label class="form-label small fw-semibold">Priority</label>
+                                                    <input type="number" class="form-control form-control-sm" name="priority"
+                                                           value="{{ timing.priority }}" min="1" max="999" required>
+                                                </div>
+                                            </div>
+                                            <div class="row g-2 mt-1">
+                                                <div class="col-md-4">
+                                                    <label class="form-label small fw-semibold">Shift Type</label>
+                                                    <select class="form-select form-select-sm" name="shift_type">
+                                                        <option value=""{% if not timing.shift_type %} selected{% endif %}>Any shift type</option>
+                                                        {% for st in shift_types %}
+                                                            <option value="{{ st.shift_type }}"{% if timing.shift_type == st.shift_type %} selected{% endif %}>{{ st.display_label }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label small fw-semibold">Day of Cycle</label>
+                                                    <select class="form-select form-select-sm" name="day_of_cycle">
+                                                        <option value=""{% if timing.day_of_cycle is none %} selected{% endif %}>Any day in cycle</option>
+                                                        {% for i in range(32) %}
+                                                            <option value="{{ i }}"{% if timing.day_of_cycle == i %} selected{% endif %}>Day {{ i + 1 }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label small fw-semibold">Day of Week</label>
+                                                    <select class="form-select form-select-sm" name="day_of_week">
+                                                        <option value=""{% if timing.day_of_week is none %} selected{% endif %}>Any day of week</option>
+                                                        <option value="0"{% if timing.day_of_week == 0 %} selected{% endif %}>Monday</option>
+                                                        <option value="1"{% if timing.day_of_week == 1 %} selected{% endif %}>Tuesday</option>
+                                                        <option value="2"{% if timing.day_of_week == 2 %} selected{% endif %}>Wednesday</option>
+                                                        <option value="3"{% if timing.day_of_week == 3 %} selected{% endif %}>Thursday</option>
+                                                        <option value="4"{% if timing.day_of_week == 4 %} selected{% endif %}>Friday</option>
+                                                        <option value="5"{% if timing.day_of_week == 5 %} selected{% endif %}>Saturday</option>
+                                                        <option value="6"{% if timing.day_of_week == 6 %} selected{% endif %}>Sunday</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <div class="row g-2 mt-1">
+                                                <div class="col-md-3">
+                                                    <label class="form-label small fw-semibold">Start Time <span class="text-danger">*</span></label>
+                                                    <input type="time" class="form-control form-control-sm" name="start_time"
+                                                           value="{{ timing.start_time.strftime('%H:%M') }}" required>
+                                                </div>
+                                                <div class="col-md-3">
+                                                    <label class="form-label small fw-semibold">End Time <span class="text-danger">*</span></label>
+                                                    <input type="time" class="form-control form-control-sm" name="end_time"
+                                                           value="{{ timing.end_time.strftime('%H:%M') }}" required>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="form-label small fw-semibold">Notes</label>
+                                                    <input type="text" class="form-control form-control-sm" name="notes"
+                                                           value="{{ timing.notes or '' }}">
+                                                </div>
+                                            </div>
+                                            <div class="d-flex gap-2 mt-3">
+                                                <button type="submit" class="btn btn-primary btn-sm">
+                                                    <i class="fas fa-save"></i> Save Changes
+                                                </button>
+                                                <button type="button" class="btn btn-secondary btn-sm cancel-edit-btn"
+                                                        data-timing-id="{{ timing.id }}">
+                                                    <i class="fas fa-times"></i> Cancel
+                                                </button>
+                                            </div>
+                                        </form>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -104,9 +285,10 @@
                         <i class="fas fa-clock fa-3x text-muted mb-3"></i>
                         <h5 class="text-muted">No Custom Timings Set</h5>
                         <p class="text-muted">This driver uses default shift times for all assignments.</p>
-                        <a href="{{ url_for('add_custom_timing', driver_id=driver.id) }}" class="btn btn-primary">
+                        <button type="button" class="btn btn-primary"
+                                data-bs-toggle="collapse" data-bs-target="#addTimingForm">
                             <i class="fas fa-plus"></i> Add First Custom Timing
-                        </a>
+                        </button>
                     </div>
                 {% endif %}
                 
@@ -128,20 +310,55 @@
 
 {% block extra_scripts %}
 <script>
-// Add event listener for delete button clicks
 document.addEventListener('click', function(event) {
+    // Edit button: show inline edit row, hide display row
+    if (event.target.closest('.edit-timing-btn')) {
+        const button = event.target.closest('.edit-timing-btn');
+        const timingId = button.getAttribute('data-timing-id');
+        document.getElementById('timing-display-' + timingId).classList.add('d-none');
+        document.getElementById('timing-edit-' + timingId).classList.remove('d-none');
+        return;
+    }
+
+    // Cancel button: hide edit row, show display row
+    if (event.target.closest('.cancel-edit-btn')) {
+        const button = event.target.closest('.cancel-edit-btn');
+        const timingId = button.getAttribute('data-timing-id');
+        document.getElementById('timing-edit-' + timingId).classList.add('d-none');
+        document.getElementById('timing-display-' + timingId).classList.remove('d-none');
+        return;
+    }
+
+    // Delete button: confirm deletion
     if (event.target.closest('.delete-timing-btn')) {
         const button = event.target.closest('.delete-timing-btn');
         const timingId = button.getAttribute('data-timing-id');
         const timingDesc = button.getAttribute('data-timing-desc');
+        const isModal = button.getAttribute('data-modal') === '1';
 
-        window.showGlobalDeleteConfirm({
-            title: 'Delete Custom Timing',
-            message: 'Are you sure you want to delete this custom timing?',
-            name: timingDesc,
-            action: `/custom-timing/${timingId}/delete`,
-            submitLabel: 'Delete Timing'
-        });
+        if (isModal) {
+            // Inside iframe: deleteModal is not available; use a plain confirm
+            if (confirm('Delete this custom timing?\n' + timingDesc)) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/custom-timing/' + timingId + '/delete';
+                const modalInput = document.createElement('input');
+                modalInput.type = 'hidden';
+                modalInput.name = 'modal';
+                modalInput.value = '1';
+                form.appendChild(modalInput);
+                document.body.appendChild(form);
+                form.submit();
+            }
+        } else if (window.showGlobalDeleteConfirm) {
+            window.showGlobalDeleteConfirm({
+                title: 'Delete Custom Timing',
+                message: 'Are you sure you want to delete this custom timing?',
+                name: timingDesc,
+                action: '/custom-timing/' + timingId + '/delete',
+                submitLabel: 'Delete Timing'
+            });
+        }
     }
 });
 </script>

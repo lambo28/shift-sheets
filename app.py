@@ -1808,7 +1808,10 @@ def driver_custom_timings(driver_id):
     """Manage custom timings for a specific driver"""
     driver = Driver.query.get_or_404(driver_id)
     timings = DriverCustomTiming.query.filter_by(driver_id=driver_id).order_by(DriverCustomTiming.priority).all()
-    return render_template("driver_custom_timings.html", driver=driver, timings=timings)
+    assignments = DriverAssignment.query.filter_by(driver_id=driver_id).all()
+    shift_types = ShiftTiming.query.order_by(ShiftTiming.start_time, ShiftTiming.shift_type).all()
+    return render_template("driver_custom_timings.html", driver=driver, timings=timings,
+                           assignments=assignments, shift_types=shift_types)
 
 @app.route("/driver/<int:driver_id>/custom-timings/add", methods=["GET", "POST"])
 def add_custom_timing(driver_id):
@@ -1865,12 +1868,16 @@ def add_custom_timing(driver_id):
             db.session.add(timing)
             db.session.commit()
             flash("Custom timing added successfully!", "success")
-            return redirect(url_for("drivers"))
+            if request.args.get("modal") == "1":
+                return redirect(url_for("driver_custom_timings", driver_id=driver_id) + "?modal=1")
+            return redirect(url_for("driver_custom_timings", driver_id=driver_id))
 
         except Exception as e:
             db.session.rollback()
             flash(f"Error adding custom timing: {str(e)}", "error")
-            return redirect(url_for("drivers"))
+            if request.args.get("modal") == "1":
+                return redirect(url_for("driver_custom_timings", driver_id=driver_id) + "?modal=1")
+            return redirect(url_for("driver_custom_timings", driver_id=driver_id))
     
     # Get driver assignments for dropdown
     assignments = DriverAssignment.query.filter_by(driver_id=driver_id).all()
@@ -1882,6 +1889,7 @@ def delete_custom_timing(timing_id):
     """Delete a custom timing"""
     timing = DriverCustomTiming.query.get_or_404(timing_id)
     driver_id = timing.driver_id
+    modal = request.form.get("modal") == "1"
     
     try:
         db.session.delete(timing)
@@ -1891,7 +1899,57 @@ def delete_custom_timing(timing_id):
         db.session.rollback()
         flash(f"Error deleting timing: {str(e)}", "error")
     
-    return redirect(url_for("drivers"))
+    if modal:
+        return redirect(url_for("driver_custom_timings", driver_id=driver_id) + "?modal=1")
+    return redirect(url_for("driver_custom_timings", driver_id=driver_id))
+
+@app.route("/custom-timing/<int:timing_id>/edit", methods=["POST"])
+def edit_custom_timing(timing_id):
+    """Edit an existing custom timing"""
+    timing = DriverCustomTiming.query.get_or_404(timing_id)
+    driver_id = timing.driver_id
+    modal = request.args.get("modal") == "1"
+
+    try:
+        assignment_id = parse_optional_int(request.form.get("assignment_id"))
+        shift_type = request.form.get("shift_type") or None
+        day_of_cycle = parse_optional_int(request.form.get("day_of_cycle"))
+        day_of_week = parse_optional_int(request.form.get("day_of_week"))
+        start_time_str = request.form.get("start_time")
+        end_time_str = request.form.get("end_time")
+        priority = parse_optional_int(request.form.get("priority", 100))
+        notes = request.form.get("notes") or None
+
+        start_time = parse_time_string(start_time_str)
+        end_time = parse_time_string(end_time_str)
+
+        if not start_time or not end_time:
+            flash("Invalid start or end time", "error")
+        elif priority is None:
+            flash("Invalid priority", "error")
+        elif day_of_week is not None and (day_of_week < 0 or day_of_week > 6):
+            flash("Day of week must be between 0 and 6", "error")
+        elif day_of_cycle is not None and day_of_cycle < 0:
+            flash("Day of cycle must be 0 or greater", "error")
+        else:
+            timing.assignment_id = assignment_id
+            timing.shift_type = shift_type
+            timing.day_of_cycle = day_of_cycle
+            timing.day_of_week = day_of_week
+            timing.start_time = start_time
+            timing.end_time = end_time
+            timing.priority = priority
+            timing.notes = notes
+            db.session.commit()
+            flash("Custom timing updated successfully!", "success")
+
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error updating custom timing: {str(e)}", "error")
+
+    if modal:
+        return redirect(url_for("driver_custom_timings", driver_id=driver_id) + "?modal=1")
+    return redirect(url_for("driver_custom_timings", driver_id=driver_id))
 
     # -----------------------------------------------------------------------------
     # Entrypoint
