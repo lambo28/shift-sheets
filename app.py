@@ -1827,7 +1827,7 @@ def add_custom_timing(driver_id):
             day_of_week = request.form.get("day_of_week") or None
             start_time_str = request.form.get("start_time")
             end_time_str = request.form.get("end_time")
-            priority = parse_optional_int(request.form.get("priority", 100))
+            priority = parse_optional_int(request.form.get("priority")) or 100
             notes = request.form.get("notes")
 
             # Convert and validate fields
@@ -1869,14 +1869,14 @@ def add_custom_timing(driver_id):
             db.session.commit()
             flash("Custom timing added successfully!", "success")
             if request.args.get("modal") == "1":
-                return redirect(url_for("driver_custom_timings", driver_id=driver_id) + "?modal=1")
+                return redirect(url_for("driver_custom_timings", driver_id=driver_id, modal="1"))
             return redirect(url_for("driver_custom_timings", driver_id=driver_id))
 
         except Exception as e:
             db.session.rollback()
             flash(f"Error adding custom timing: {str(e)}", "error")
             if request.args.get("modal") == "1":
-                return redirect(url_for("driver_custom_timings", driver_id=driver_id) + "?modal=1")
+                return redirect(url_for("driver_custom_timings", driver_id=driver_id, modal="1"))
             return redirect(url_for("driver_custom_timings", driver_id=driver_id))
     
     # Get driver assignments for dropdown
@@ -1900,7 +1900,7 @@ def delete_custom_timing(timing_id):
         flash(f"Error deleting timing: {str(e)}", "error")
     
     if modal:
-        return redirect(url_for("driver_custom_timings", driver_id=driver_id) + "?modal=1")
+        return redirect(url_for("driver_custom_timings", driver_id=driver_id, modal="1"))
     return redirect(url_for("driver_custom_timings", driver_id=driver_id))
 
 @app.route("/custom-timing/<int:timing_id>/edit", methods=["POST"])
@@ -1917,7 +1917,7 @@ def edit_custom_timing(timing_id):
         day_of_week = parse_optional_int(request.form.get("day_of_week"))
         start_time_str = request.form.get("start_time")
         end_time_str = request.form.get("end_time")
-        priority = parse_optional_int(request.form.get("priority", 100))
+        priority = parse_optional_int(request.form.get("priority")) or 100
         notes = request.form.get("notes") or None
 
         start_time = parse_time_string(start_time_str)
@@ -1926,7 +1926,7 @@ def edit_custom_timing(timing_id):
         if not start_time or not end_time:
             flash("Invalid start or end time", "error")
         elif priority is None:
-            flash("Invalid priority", "error")
+            flash("Priority must be a number between 1 and 999", "error")
         elif day_of_week is not None and (day_of_week < 0 or day_of_week > 6):
             flash("Day of week must be between 0 and 6", "error")
         elif day_of_cycle is not None and day_of_cycle < 0:
@@ -1948,7 +1948,7 @@ def edit_custom_timing(timing_id):
         flash(f"Error updating custom timing: {str(e)}", "error")
 
     if modal:
-        return redirect(url_for("driver_custom_timings", driver_id=driver_id) + "?modal=1")
+        return redirect(url_for("driver_custom_timings", driver_id=driver_id, modal="1"))
     return redirect(url_for("driver_custom_timings", driver_id=driver_id))
 
     # -----------------------------------------------------------------------------
