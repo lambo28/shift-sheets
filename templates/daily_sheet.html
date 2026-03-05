@@ -21,18 +21,27 @@
 </div>
 
 <div class="row">
-    {% set shift_order = ['earlies', 'days', 'lates', 'nights'] %}
-    {% set shift_colors = {'earlies': 'warning', 'days': 'success', 'lates': 'info', 'nights': 'dark'} %}
-    {% set shift_icons = {'earlies': 'fa-sun', 'days': 'fa-sun', 'lates': 'fa-moon', 'nights': 'fa-star'} %}
-    
-    {% for shift_type in shift_order %}
-        {% set drivers = drivers_by_shift[shift_type] %}
+    {% for shift_type, drivers in drivers_by_shift.items() %}
+        {% set shift_timing = timings.get(shift_type) if timings else None %}
+        {% set color_map = {
+            'bg-primary': 'text-primary',
+            'bg-success': 'text-success',
+            'bg-danger': 'text-danger',
+            'bg-warning': 'text-warning',
+            'bg-info': 'text-info',
+            'bg-secondary': 'text-secondary',
+            'bg-dark': 'text-dark'
+        } %}
         <div class="col-md-6 mb-4">
             <div class="card">
-                <div class="card-header bg-{{ shift_colors[shift_type] }} text-white">
+                <div class="card-header {{ shift_timing.badge_color if shift_timing else 'bg-primary' }} text-white">
                     <h5 class="mb-0">
-                        <i class="fas {{ shift_icons[shift_type] }}"></i>
-                        {{ shift_type.title() }} Shift
+                        {% if shift_timing %}
+                            <i class="{{ shift_timing.icon }}"></i>
+                        {% else %}
+                            <i class="fas fa-clock"></i>
+                        {% endif %}
+                        {{ shift_timing.display_label if shift_timing else (shift_type|shift_label) }} Shift
                         <span class="badge bg-light text-dark ms-2">{{ drivers|length }} drivers</span>
                     </h5>
                 </div>
@@ -71,6 +80,9 @@
                                                         <small class="text-muted">+1</small>
                                                     {% endif %}
                                                 </div>
+                                                {% if driver_info.shift_type and driver_info.shift_type != shift_type %}
+                                                    <small class="badge bg-secondary mt-1">{{ timings[driver_info.shift_type].display_label if timings and timings.get(driver_info.shift_type) else (driver_info.shift_type|shift_label) }}</small>
+                                                {% endif %}
                                                 {% if driver_info.is_custom %}
                                                     <small class="text-warning">
                                                         <i class="fas fa-clock"></i> Custom
@@ -113,7 +125,7 @@
                     {% else %}
                         <div class="text-center text-muted py-3">
                             <i class="fas fa-user-slash fa-2x mb-2"></i>
-                            <p class="mb-0">No drivers scheduled for {{ shift_type }} shift</p>
+                            <p class="mb-0">No drivers scheduled for {{ shift_type.replace('_', ' ') }} shift</p>
                         </div>
                     {% endif %}
                 </div>
@@ -133,31 +145,31 @@
             </div>
             <div class="card-body">
                 <div class="row text-center">
-                    {% set total_drivers = drivers_by_shift['earlies']|length + drivers_by_shift['days']|length + drivers_by_shift['lates']|length + drivers_by_shift['nights']|length %}
+                    {% set total_drivers = namespace(count=0) %}
+                    {% for d in drivers_by_shift.values() %}{% set total_drivers.count = total_drivers.count + (d | length) %}{% endfor %}
                     <div class="col-md-3">
                         <div class="border-end">
-                            <h3 class="text-primary">{{ total_drivers }}</h3>
+                            <h3 class="text-primary">{{ total_drivers.count }}</h3>
                             <p class="text-muted">Total Drivers</p>
                         </div>
                     </div>
-                    {% for shift_type in shift_order %}
-                        <div class="col-md-2">
+                    {% for shift_type, drivers in drivers_by_shift.items() %}
+                        <div class="col">
                             <div class="border-end">
-                                <h4 class="text-{{ shift_colors[shift_type] }}">{{ drivers_by_shift[shift_type]|length }}</h4>
-                                <p class="text-muted">{{ shift_type.title() }}</p>
+                                <h4 class="text-primary">{{ drivers|length }}</h4>
+                                <p class="text-muted">{{ timings[shift_type].display_label if timings and timings.get(shift_type) else (shift_type|shift_label) }}</p>
                             </div>
                         </div>
                     {% endfor %}
-                    <div class="col-md-1">
-                        <!-- Spacer -->
-                    </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
 
-{% if (drivers_by_shift['earlies']|length + drivers_by_shift['days']|length + drivers_by_shift['lates']|length + drivers_by_shift['nights']|length) == 0 %}
+{% set total_ns = namespace(count=0) %}
+{% for d in drivers_by_shift.values() %}{% set total_ns.count = total_ns.count + (d | length) %}{% endfor %}
+{% if total_ns.count == 0 %}
 <div class="row mt-4">
     <div class="col-md-12">
         <div class="alert alert-info text-center">

@@ -305,3 +305,98 @@ footer {
     box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
     transition: box-shadow 0.15s ease-in-out;
 }
+
+/* ============================================================================ */
+/* DRIVERS PAGE SPECIFIC STYLING */
+/* ============================================================================ */
+
+/* Driver Action Buttons */
+.btn-group .btn {
+    transition: all 0.3s ease !important;
+    transform: scale(1) !important;
+}
+
+.btn-group .btn:hover {
+    transform: scale(1.1) !important;
+    box-shadow: 0 6px 12px rgba(0,0,0,0.3) !important;
+    z-index: 10 !important;
+    position: relative !important;
+}
+
+.btn-primary:hover {
+    background-color: #0056b3 !important;
+    border-color: #0056b3 !important;
+}
+
+.btn-info:hover {
+    background-color: #138496 !important;
+    border-color: #138496 !important;
+}
+
+.btn-danger:hover {
+    background-color: #c82333 !important;
+    border-color: #c82333 !important;
+}
+
+.btn-warning:hover {
+    background-color: #e0a800 !important;
+    border-color: #e0a800 !important;
+}
+
+/* Alert Banner Styling */
+#alertBannerContainer {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.alert-banner {
+    min-width: 300px;
+    max-width: 500px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    animation: slideInBanner 0.3s ease;
+    pointer-events: auto;
+}
+
+@keyframes slideInBanner {
+    from {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideOutBanner {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+}
+
+.alert-banner.dismissing {
+    animation: slideOutBanner 0.3s ease;
+}
+
+@media (max-width: 576px) {
+    #alertBannerContainer {
+        left: 10px;
+        right: 10px;
+    }
+    
+    .alert-banner {
+        min-width: auto;
+        max-width: none;
+    }
+}

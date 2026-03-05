@@ -47,10 +47,9 @@
                                     <label for="shift_type" class="form-label">Shift Type</label>
                                     <select class="form-select" id="shift_type" name="shift_type">
                                         <option value="">Any shift type</option>
-                                        <option value="earlies">Earlies</option>
-                                        <option value="days">Days</option>
-                                        <option value="lates">Lates</option>
-                                        <option value="nights">Nights</option>
+                                        {% for st in shift_types %}
+                                            <option value="{{ st.shift_type }}">{{ st.display_label }}</option>
+                                        {% endfor %}
                                     </select>
                                 </div>
                             </div>

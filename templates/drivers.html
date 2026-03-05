@@ -2,50 +2,17 @@
 
 {% block title %}Drivers - Driver Shift Sheets{% endblock %}
 
-{% block extra_head %}
-<style>
-.btn-group .btn {
-    transition: all 0.3s ease !important;
-    transform: scale(1) !important;
-}
+{% block extra_head %}{% endblock %}
 
-.btn-group .btn:hover {
-    transform: scale(1.1) !important;
-    box-shadow: 0 6px 12px rgba(0,0,0,0.3) !important;
-    z-index: 10 !important;
-    position: relative !important;
-}
-
-.btn-primary:hover {
-    background-color: #0056b3 !important;
-    border-color: #0056b3 !important;
-}
-
-.btn-info:hover {
-    background-color: #138496 !important;
-    border-color: #138496 !important;
-}
-
-.btn-danger:hover {
-    background-color: #c82333 !important;
-    border-color: #c82333 !important;
-}
-
-.btn-warning:hover {
-    background-color: #e0a800 !important;
-    border-color: #e0a800 !important;
-}
-</style>
-{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h1>
         <i class="fas fa-users"></i> Drivers
     </h1>
-    <a href="{{ url_for('add_driver') }}" class="btn btn-primary">
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addDriverModal">
         <i class="fas fa-user-plus"></i> Add New Driver
-    </a>
+    </button>
 </div>
 
 {% if drivers %}
@@ -66,7 +33,7 @@
                     </thead>
                     <tbody>
                         {% for driver in drivers %}
-                        <tr>
+                        <tr data-driver-id="{{ driver.id }}">
                             <td>
                                 <span class="badge bg-primary fs-6">{{ driver.formatted_driver_number() }}</span>
                             </td>
@@ -106,11 +73,25 @@
                                 {% if current_assignment or future_assignments %}
                                     <div class="d-flex flex-column">
                                         {% if current_assignment %}
-                                            <span class="badge bg-success mb-1">
+                                            {% set today = datetime.now().date() %}
+                                            {% set current_has_end = current_assignment.end_date is not none %}
+                                            {% set current_ending_today = current_has_end and current_assignment.end_date == today %}
+                                            {% set current_days_to_end = (current_assignment.end_date - today).days if current_has_end else none %}
+                                            <span class="badge {{ 'bg-warning text-dark' if current_has_end else 'bg-success' }} mb-1">
                                                 {{ current_assignment.shift_pattern.name }}
                                             </span>
                                             <small class="text-muted">
-                                                Since {{ current_assignment.start_date.strftime('%d/%m/%Y') }}
+                                                {% if current_has_end %}
+                                                    {% if current_ending_today %}
+                                                        Ending Today · Started {{ current_assignment.start_date.strftime('%d/%m/%Y') }}
+                                                    {% elif current_days_to_end == 1 %}
+                                                        Ending Tomorrow · Started {{ current_assignment.start_date.strftime('%d/%m/%Y') }}
+                                                    {% else %}
+                                                        Ending {{ current_assignment.end_date.strftime('%d/%m/%Y') }} · Started {{ current_assignment.start_date.strftime('%d/%m/%Y') }}
+                                                    {% endif %}
+                                                {% else %}
+                                                    Active · Since {{ current_assignment.start_date.strftime('%d/%m/%Y') }}
+                                                {% endif %}
                                             </small>
                                         {% endif %}
                                         {% for assignment in future_assignments %}
@@ -118,7 +99,8 @@
                                                 {{ assignment.shift_pattern.name }}
                                             </span>
                                             <small class="text-muted">
-                                                From {{ assignment.start_date.strftime('%d/%m/%Y') }}
+                                                {% set days_until_start = (assignment.start_date - datetime.now().date()).days %}
+                                                Scheduled · Starts in {{ days_until_start }} day{{ 's' if days_until_start != 1 else '' }} ({{ assignment.start_date.strftime('%d/%m/%Y') }})
                                             </small>
                                         {% endfor %}
                                     </div>
@@ -131,18 +113,39 @@
                             <td>{{ driver.created_at.strftime('%d/%m/%Y') }}</td>
                             <td>
                                 <div class="btn-group" role="group">
-                                    <a href="{{ url_for('edit_driver', driver_id=driver.id) }}" 
-                                       class="btn btn-sm btn-primary" title="Edit Driver">
+                                    <button type="button"
+                                            class="btn btn-sm btn-primary edit-driver-btn"
+                                            title="Edit Driver"
+                                            data-driver-id="{{ driver.id }}"
+                                            data-driver-number="{{ driver.driver_number }}"
+                                            data-driver-name="{{ driver.name }}"
+                                            data-car-type="{{ driver.car_type }}"
+                                            data-electric-vehicle="{{ '1' if driver.electric_vehicle else '0' }}"
+                                            data-school-badge="{{ '1' if driver.school_badge else '0' }}"
+                                            data-pet-friendly="{{ '1' if driver.pet_friendly else '0' }}"
+                                            data-assistance-guide-dogs-exempt="{{ '1' if driver.assistance_guide_dogs_exempt else '0' }}">
                                         <i class="fas fa-edit"></i>
-                                    </a>
-                                    <a href="{{ url_for('assign_pattern_to_driver', driver_id=driver.id) }}" 
-                                       class="btn btn-sm btn-info" title="Assign Pattern">
+                                    </button>
+                                            {% set current_assignment = driver.get_current_assignment() %}
+                                            <button type="button"
+                                                class="btn btn-sm btn-info assign-pattern-btn"
+                                                title="Assign Pattern"
+                                                data-driver-id="{{ driver.id }}"
+                                                data-driver-number="{{ driver.formatted_driver_number() }}"
+                                                data-driver-name="{{ driver.formatted_name() }}"
+                                                {% if current_assignment and not current_assignment.end_date %}
+                                                data-current-pattern="{{ current_assignment.shift_pattern.name }}"
+                                                data-current-start="{{ current_assignment.start_date.strftime('%Y-%m-%d') }}"
+                                                {% endif %}>
                                         <i class="fas fa-calendar"></i>
-                                    </a>
-                                    <a href="{{ url_for('driver_custom_timings', driver_id=driver.id) }}" 
-                                       class="btn btn-sm btn-warning" title="Custom Timings">
+                                            </button>
+                                            <button type="button"
+                                                class="btn btn-sm btn-warning open-driver-workflow-btn"
+                                                title="Custom Timings"
+                                                data-workflow-title="Custom Timings - {{ driver.formatted_name() }}"
+                                                data-workflow-url="{{ url_for('driver_custom_timings', driver_id=driver.id) }}?modal=1">
                                         <i class="fas fa-clock"></i>
-                                    </a>
+                                            </button>
                                     <button type="button" class="btn btn-sm btn-danger delete-driver-btn" 
                                             data-driver-id="{{ driver.id }}"
                                             data-driver-name="{{ driver.formatted_name() }}"
@@ -223,54 +226,274 @@
             <i class="fas fa-user-times fa-4x text-muted mb-3"></i>
             <h3 class="text-muted">No Drivers Found</h3>
             <p class="text-muted mb-4">Start by adding your first driver to the system.</p>
-            <a href="{{ url_for('add_driver') }}" class="btn btn-primary btn-lg">
+            <button type="button" class="btn btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#addDriverModal">
                 <i class="fas fa-user-plus"></i> Add First Driver
-            </a>
+            </button>
         </div>
     </div>
 {% endif %}
 
-<!-- Delete Confirmation Modal -->
-<div class="modal fade" id="deleteModal" tabindex="-1">
+<div class="modal fade" id="addDriverModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('add_driver') }}">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-user-plus"></i> Add New Driver</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="add_driver_number" class="form-label">Driver Number *</label>
+                        <input type="number" class="form-control" id="add_driver_number" name="driver_number" required min="1">
+                    </div>
+                    <div class="mb-3">
+                        <label for="add_name" class="form-label">Full Name *</label>
+                        <input type="text" class="form-control" id="add_name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="add_car_type" class="form-label">Vehicle Type *</label>
+                        <select class="form-select" id="add_car_type" name="car_type" required>
+                            <option value="">Select vehicle type</option>
+                            <option value="Standard">Standard</option>
+                            <option value="Estate">Estate</option>
+                            <option value="XL Estate">XL Estate</option>
+                            <option value="Minibus">Minibus</option>
+                        </select>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="add_electric_vehicle" name="electric_vehicle" value="1">
+                        <label class="form-check-label" for="add_electric_vehicle"><i class="fas fa-bolt text-warning"></i> Electric Vehicle</label>
+                    </div>
+                    <label class="form-label mt-2">Driver Attributes</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="add_school_badge" name="school_badge" value="1">
+                        <label class="form-check-label" for="add_school_badge"><i class="fas fa-school text-warning"></i> School Badge</label>
+                    </div>
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" id="add_pet_friendly" name="pet_friendly" value="1">
+                        <label class="form-check-label" for="add_pet_friendly"><i class="fas fa-paw text-success"></i> Pet Friendly</label>
+                    </div>
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" id="add_assistance_guide_dogs_exempt" name="assistance_guide_dogs_exempt" value="1">
+                        <label class="form-check-label" for="add_assistance_guide_dogs_exempt"><i class="fas fa-eye text-info"></i> Exempt from Assistance/Guide Dogs</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-user-plus"></i> Add Driver</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editDriverModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form method="POST" id="editDriverForm">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-edit"></i> Edit Driver</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="edit_driver_number" class="form-label">Driver Number *</label>
+                        <input type="number" class="form-control" id="edit_driver_number" name="driver_number" required min="1">
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_name" class="form-label">Full Name *</label>
+                        <input type="text" class="form-control" id="edit_name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="edit_car_type" class="form-label">Vehicle Type *</label>
+                        <select class="form-select" id="edit_car_type" name="car_type" required>
+                            <option value="">Select vehicle type</option>
+                            <option value="Standard">Standard</option>
+                            <option value="Estate">Estate</option>
+                            <option value="XL Estate">XL Estate</option>
+                            <option value="Minibus">Minibus</option>
+                        </select>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="edit_electric_vehicle" name="electric_vehicle" value="1">
+                        <label class="form-check-label" for="edit_electric_vehicle"><i class="fas fa-bolt text-warning"></i> Electric Vehicle</label>
+                    </div>
+                    <label class="form-label mt-2">Driver Attributes</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="edit_school_badge" name="school_badge" value="1">
+                        <label class="form-check-label" for="edit_school_badge"><i class="fas fa-school text-warning"></i> School Badge</label>
+                    </div>
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" id="edit_pet_friendly" name="pet_friendly" value="1">
+                        <label class="form-check-label" for="edit_pet_friendly"><i class="fas fa-paw text-success"></i> Pet Friendly</label>
+                    </div>
+                    <div class="form-check mt-2">
+                        <input class="form-check-input" type="checkbox" id="edit_assistance_guide_dogs_exempt" name="assistance_guide_dogs_exempt" value="1">
+                        <label class="form-check-label" for="edit_assistance_guide_dogs_exempt"><i class="fas fa-eye text-info"></i> Exempt from Assistance/Guide Dogs</label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Update Driver</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="assignPatternModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form method="POST" id="assignPatternForm">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="assignPatternModalTitle"><i class="fas fa-calendar-plus"></i> Assign Shift Pattern</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    {% if patterns %}
+                        <div class="mb-3">
+                            <label for="assign_pattern_id" class="form-label">Select Shift Pattern *</label>
+                            <select class="form-select" id="assign_pattern_id" name="pattern_id" required>
+                                <option value="">Choose a pattern...</option>
+                                {% for pattern in patterns %}
+                                    <option value="{{ pattern.id }}" 
+                                            data-cycle="{{ pattern.cycle_length }}" 
+                                            data-pattern='{{ pattern.get_pattern_data()|tojson|forceescape }}'>
+                                        {{ pattern.name }} ({{ pattern.cycle_length }} day cycle)
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Starting Day of Cycle -->
+                        <div class="mb-3" id="startDaySection" style="display: none;">
+                            <label for="assign_start_day" class="form-label">Starting Day of Cycle *</label>
+                            <select class="form-select" id="assign_start_day" name="start_day_of_cycle">
+                                <option value="1">Day 1</option>
+                            </select>
+                            <div class="form-text">Which day of the pattern cycle to start on</div>
+                        </div>
+
+                        <!-- Pattern Preview -->
+                        <div id="assignPatternPreview" style="display: none;">
+                            <div class="card bg-light mb-3">
+                                <div class="card-body">
+                                    <h6><i class="fas fa-eye"></i> Pattern Preview</h6>
+                                    <div id="assignPatternDisplay" class="d-flex flex-wrap gap-1"></div>
+                                    <small class="text-muted d-block mt-2">E=Earlies, D=Days, L=Lates, N=Nights, OFF=Rest Day</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="assign_start_date" class="form-label">Assignment Start Date *</label>
+                                    <input type="date" class="form-control" id="assign_start_date" name="start_date" required>
+                                    <div class="form-text">When this pattern assignment begins</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="assign_end_date" class="form-label">Assignment End Date</label>
+                                    <input type="date" class="form-control" id="assign_end_date" name="end_date">
+                                    <div class="form-text">Leave empty for ongoing assignment</div>
+                                    <div class="invalid-feedback">End date must be after start date</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-warning" id="assign_current_assignment_warning" style="display: none;">
+                            <i class="fas fa-exclamation-triangle"></i> 
+                            <strong>Current Assignment:</strong> <span id="assign_warning_text"></span>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-4">
+                            <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No Shift Patterns Available</h5>
+                            <p class="text-muted">You need to create at least one shift pattern before assigning to drivers.</p>
+                        </div>
+                    {% endif %}
+
+                    <!-- Assignment History Section -->
+                    <div id="assignmentHistorySection" style="display: none;">
+                        <hr class="my-4">
+                        <h6 class="mb-3"><i class="fas fa-history"></i> Assignment History</h6>
+                        <div id="assignmentHistoryContent" style="max-height: 300px; overflow-y: auto;">
+                            <!-- Will be populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    {% if patterns %}
+                        <button type="submit" id="assignPatternSubmitBtn" class="btn btn-primary"><i class="fas fa-calendar-plus"></i> Assign Pattern</button>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="driverWorkflowModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="driverWorkflowTitle">Driver Workflow</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <iframe id="driverWorkflowFrame" src="about:blank" style="width: 100%; height: 460px; border: 0;"></iframe>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Assignment Action Confirmation Modal -->
+<div class="modal fade" id="assignmentActionModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Confirm Deletion</h5>
+                <h5 class="modal-title" id="assignmentActionTitle">Confirm Action</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p>Are you sure you want to delete driver <strong><span id="driverName"></span></strong>?</p>
-                <p class="text-danger"><i class="fas fa-exclamation-triangle"></i> This will also remove all pattern assignments for this driver.</p>
+                <p id="assignmentActionMessage">Are you sure?</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <form id="deleteForm" method="POST" style="display: inline;">
-                    <button type="submit" class="btn btn-danger">Delete Driver</button>
+                <form id="assignmentActionForm" method="POST" style="display: inline;">
+                    <button type="submit" class="btn btn-danger" id="assignmentActionSubmitBtn">Confirm</button>
                 </form>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Notification Alert Banner Container -->
+<div id="alertBannerContainer"></div>
 {% endblock %}
 
 {% block extra_scripts %}
+<script id="driverAssignmentsData" type="application/json">{{ driver_assignments|tojson }}</script>
+<!-- Load driver management module files -->
+<script src="{{ url_for('static', filename='js/shared.core.js') }}"></script>
+<script src="{{ url_for('static', filename='js/drivers.core.js') }}"></script>
+<script src="{{ url_for('static', filename='js/drivers.form-handlers.js') }}"></script>
+<script src="{{ url_for('static', filename='js/drivers.event-bindings.js') }}"></script>
 <script>
-// Add event listener for delete button clicks
-document.addEventListener('click', function(event) {
-    if (event.target.closest('.delete-driver-btn')) {
-        const button = event.target.closest('.delete-driver-btn');
-        const driverId = button.getAttribute('data-driver-id');
-        const driverName = button.getAttribute('data-driver-name');
-        confirmDelete(driverId, driverName);
+// Initialize driver assignments data from JSON embedded in page
+const driverAssignments = JSON.parse(document.getElementById('driverAssignmentsData').textContent || '{}');
+// Initialize all module functions on DOM ready
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof initializeFormHandlers === 'function') {
+        initializeFormHandlers();
+    }
+    if (typeof initializeEventBindings === 'function') {
+        initializeEventBindings();
     }
 });
 
-function confirmDelete(driverId, driverName) {
-    document.getElementById('driverName').textContent = driverName;
-    document.getElementById('deleteForm').action = `/driver/${driverId}/delete`;
-    
-    var deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
-    deleteModal.show();
-}
+
 </script>
 {% endblock %}

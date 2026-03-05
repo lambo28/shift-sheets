@@ -28,20 +28,8 @@
     background-color: #721c24 !important;
 }
 
-#shiftTypesModal .modal-dialog {
-    max-width: 1100px;
-}
-
-#shiftTypesModal .modal-body {
-    max-height: 70vh;
-    overflow-y: auto;
-}
-
-@media (max-width: 768px) {
-    #shiftTypesModal .modal-dialog {
-        max-width: 95%;
-        margin: 0.75rem auto;
-    }
+#shiftTypesTableBody td {
+    vertical-align: middle;
 }
 </style>
 {% endblock %}
@@ -53,56 +41,133 @@
     </h1>
 </div>
 
-<div id="mainPageFeedback" class="alert d-none" role="alert"></div>
-
-<!-- Shift Types Overview -->
+<!-- Manage Shift Types -->
 <div class="card mb-4">
     <div class="card-header">
         <div class="d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="fas fa-clock"></i> Current Shifts</h5>
-            <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#shiftTypesModal">
-                <i class="fas fa-edit"></i> Manage Shifts
+            <h5 class="mb-0"><i class="fas fa-clock"></i> Shift Types</h5>
+            <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addShiftTypeModal">
+                <i class="fas fa-plus"></i> Add Shift Type
             </button>
         </div>
     </div>
     <div class="card-body">
-        <div class="row" id="currentShiftsGrid">
-            {% for timing in all_timings %}
-            {% set shift_type = timing.shift_type %}
-            <div class="col-md-3 current-shift-card" data-shift-type="{{ shift_type }}" data-start-time="{{ timing.start_time.strftime('%H:%M') }}">
-                <div class="text-center p-3 border rounded">
-                    {% if shift_type == 'earlies' %}
-                    <i class="fas fa-sun text-warning fa-2x mb-2"></i>
-                    {% elif shift_type == 'days' %}
-                    <i class="fas fa-sun text-success fa-2x mb-2"></i>
-                    {% elif shift_type == 'lates' %}
-                    <i class="fas fa-moon text-info fa-2x mb-2"></i>
-                    {% elif shift_type == 'nights' %}
-                    <i class="fas fa-moon text-dark fa-2x mb-2"></i>
-                    {% else %}
-                    <i class="fas fa-clock text-primary fa-2x mb-2"></i>
-                    {% endif %}
-                    <h6>{{ shift_type.replace('_', ' ').title() }}</h6>
-                    <p class="mb-0">
-                        <strong>{{ timing.start_time.strftime('%H:%M') }} - {{ timing.end_time.strftime('%H:%M') }}</strong>
-                    </p>
-                </div>
-            </div>
-            {% endfor %}
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 60px;"></th>
+                        <th>Name</th>
+                        <th>Time</th>
+                        <th>Group Under</th>
+                        <th>Used in Patterns</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="shiftTypesTableBody">
+                    {% for timing in all_timings %}
+                    {% set color_map = {
+                        'bg-primary': 'text-primary',
+                        'bg-success': 'text-success',
+                        'bg-danger': 'text-danger',
+                        'bg-warning': 'text-warning',
+                        'bg-info': 'text-info',
+                        'bg-secondary': 'text-secondary',
+                        'bg-dark': 'text-dark'
+                    } %}
+                    <tr id="shift-row-{{ timing.shift_type }}">
+                        <td class="text-center">
+                            {% set color_class = {
+                                'bg-primary': 'text-primary',
+                                'bg-success': 'text-success',
+                                'bg-danger': 'text-danger',
+                                'bg-warning': 'text-warning',
+                                'bg-info': 'text-info',
+                                'bg-secondary': 'text-secondary',
+                                'bg-dark': 'text-dark'
+                            }.get(timing.badge_color, 'text-primary') %}
+                            <i class="{{ timing.icon }} {{ color_class }} fa-2x"></i>
+                        </td>
+                        <td>
+                            <strong>{{ timing.display_label }}</strong>
+                        </td>
+                        <td>
+                            {{ timing.start_time.strftime('%H:%M') }} - {{ timing.end_time.strftime('%H:%M') }}
+                        </td>
+                        <td>
+                            {% if timing.parent_shift_type %}
+                                {{ timing.get_parent_display_label() }}
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% set used_patterns = timing.get_patterns_using_shift() %}
+                            {% if used_patterns %}
+                                {% set pattern_names = namespace(items=[]) %}
+                                {% for pattern in used_patterns %}
+                                    {% set _ = pattern_names.items.append(pattern.name) %}
+                                {% endfor %}
+                                <span class="badge bg-info fs-6"
+                                      data-bs-toggle="tooltip"
+                                      data-bs-html="true"
+                                      title="{{ pattern_names.items|join('<br>') }}">
+                                    {{ used_patterns|length }} pattern{{ 's' if used_patterns|length != 1 else '' }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-sm btn-primary js-edit-shift-type" data-shift-type="{{ timing.shift_type }}" title="Edit">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-danger js-delete-shift-type" data-shift-type="{{ timing.shift_type }}" data-shift-name="{{ timing.display_label }}" title="Delete">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
+
+<!-- Hidden form for shift type data used by JavaScript -->
+<form id="shiftTypesForm" style="display: none;">
+    {% for timing in all_timings %}
+    <input type="hidden" name="{{ timing.shift_type }}_name" value="{{ timing.display_label }}">
+    <input type="hidden" name="{{ timing.shift_type }}_start" value="{{ timing.start_time.strftime('%H:%M') }}">
+    <input type="hidden" name="{{ timing.shift_type }}_end" value="{{ timing.end_time.strftime('%H:%M') }}">
+    {% if timing.parent_shift_type %}<input type="hidden" name="{{ timing.shift_type }}_parent" value="{{ timing.parent_shift_type }}">{% endif %}
+    {% endfor %}
+</form>
 
 {% if patterns %}
     <div class="card">
         <div class="card-header">
             <div class="d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-calendar-week"></i> Shift Patterns</h5>
+                {% if all_timings %}
                 <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createPatternModal">
                     <i class="fas fa-plus"></i> Create Pattern
                 </button>
+                {% else %}
+                <button type="button" class="btn btn-sm btn-secondary" disabled title="Add shift types first">
+                    <i class="fas fa-plus"></i> Create Pattern
+                </button>
+                {% endif %}
             </div>
         </div>
+        {% if not all_timings %}
+        <div class="alert alert-warning m-3">
+            <i class="fas fa-exclamation-triangle"></i>
+            <strong>No shift types defined.</strong> Use <strong>Manage Shifts</strong> to add shift types before creating new patterns.
+        </div>
+        {% endif %}
         <div class="card-body">
             <div class="table-responsive">
                 <table class="table table-hover">
@@ -113,7 +178,6 @@
                             <th>Cycle Length</th>
                             <th>Pattern Preview</th>
                             <th>Assigned To</th>
-                            <th>Created</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -137,21 +201,28 @@
                                 <div class="d-flex flex-wrap gap-1">
                                     {% set pattern_data = pattern.get_pattern_data() %}
                                     {% set show_count = 14 if pattern.cycle_length > 14 else pattern.cycle_length %}
-                                    {% for shift in pattern_data[:show_count] %}
-                                        {% if shift == 'day_off' %}
-                                            <span class="badge bg-secondary">OFF</span>
-                                        {% elif shift == 'earlies' %}
-                                            <span class="badge bg-warning">E</span>
-                                        {% elif shift == 'days' %}
-                                            <span class="badge bg-success">D</span>
-                                        {% elif shift == 'lates' %}
-                                            <span class="badge bg-info">L</span>
-                                        {% elif shift == 'nights' %}
-                                            <span class="badge bg-dark">N</span>
+                                    {% for day_entry in pattern_data[:show_count] %}
+                                        {% set day_shifts = day_entry if day_entry is sequence and day_entry is not string else [day_entry] %}
+                                        {% set working_shifts = day_shifts|reject('equalto', 'day_off')|list %}
+                                        {% if not working_shifts %}
+                                            <span class="badge bg-secondary" title="Rest Day" style="display: inline-flex; align-items: center; justify-content: center; min-width: 24px; line-height: 1.3; padding: 0.35em 0.5em;">OFF</span>
                                         {% else %}
-                                            <span class="badge bg-primary" title="{{ shift.replace('_', ' ').title() }}">
-                                                {{ shift.replace('_', ' ')[:2].upper() }}
-                                            </span>
+                                            {% if working_shifts|length >= 2 %}<span style="margin-right: 2px; font-weight: bold;">(</span>{% endif %}
+                                            {% for shift in working_shifts %}
+                                                {% set shift_timing = timings.get(shift) %}
+                                                {% set abbrev = shift|shift_abbrev('') %}
+                                                {% set display_name = shift_timing.display_label if shift_timing else (shift|shift_label) %}
+                                                {% if shift_timing %}
+                                                    <span class="badge {{ shift_timing.badge_color }}" title="{{ display_name }}" style="cursor: default; display: inline-flex; align-items: center; justify-content: center; min-width: 24px; line-height: 1.3; padding: 0.35em 0.5em;">
+                                                        {{ abbrev }}
+                                                    </span>
+                                                {% else %}
+                                                    <span class="badge bg-primary" title="{{ display_name }}" style="cursor: default; display: inline-flex; align-items: center; justify-content: center; min-width: 24px; line-height: 1.3; padding: 0.35em 0.5em;">
+                                                        {{ abbrev }}
+                                                    </span>
+                                                {% endif %}
+                                            {% endfor %}
+                                            {% if working_shifts|length >= 2 %}<span style="margin-left: 2px; font-weight: bold;">)</span>{% endif %}
                                         {% endif %}
                                     {% endfor %}
                                     {% if pattern.cycle_length > 14 %}
@@ -159,7 +230,7 @@
                                     {% endif %}
                                 </div>
                                 <small class="text-muted d-block mt-1">
-                                    E=Earlies, D=Days, L=Lates, N=Nights, OFF=Rest Day, Custom=2 letters
+                                    Abbreviations shown, OFF=Rest Day, multiple badges = split shift day
                                 </small>
                             </td>
                             <td>
@@ -174,9 +245,6 @@
                                       title="{% if assigned_lines.items %}{{ assigned_lines.items|join('<br>') }}{% else %}No drivers assigned{% endif %}">
                                     {{ assigned_drivers|length }} drivers
                                 </span>
-                            </td>
-                            <td>
-                                <small class="text-muted">{{ pattern.created_at.strftime('%d/%m/%Y') }}</small>
                             </td>
                             <td>
                                 <div class="btn-group" role="group">
@@ -209,18 +277,31 @@
         <div class="card-header">
             <div class="d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-calendar-week"></i> Shift Patterns</h5>
+                {% if all_timings %}
                 <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createPatternModal">
                     <i class="fas fa-plus"></i> Create Pattern
                 </button>
+                {% else %}
+                <button type="button" class="btn btn-sm btn-secondary" disabled title="Add shift types first">
+                    <i class="fas fa-plus"></i> Create Pattern
+                </button>
+                {% endif %}
             </div>
         </div>
         <div class="card-body text-center py-5">
-            <i class="fas fa-calendar-plus fa-4x text-muted mb-3"></i>
-            <h3 class="text-muted">No Shift Patterns Created</h3>
-            <p class="text-muted mb-4">Create reusable shift patterns that can be assigned to drivers.</p>
-            <button type="button" class="btn btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#createPatternModal">
-                <i class="fas fa-plus"></i> Create First Pattern
-            </button>
+            {% if not all_timings %}
+                <i class="fas fa-clock fa-4x text-muted mb-3"></i>
+                <h3 class="text-muted">No Shift Types Defined</h3>
+                <p class="text-muted mb-4">You need to define at least one shift type before creating patterns.<br>
+                    Use the <strong>Manage Shifts</strong> button above to add your shift types.</p>
+            {% else %}
+                <i class="fas fa-calendar-plus fa-4x text-muted mb-3"></i>
+                <h3 class="text-muted">No Shift Patterns Created</h3>
+                <p class="text-muted mb-4">Create reusable shift patterns that can be assigned to drivers.</p>
+                <button type="button" class="btn btn-primary btn-lg" data-bs-toggle="modal" data-bs-target="#createPatternModal">
+                    <i class="fas fa-plus"></i> Create First Pattern
+                </button>
+            {% endif %}
         </div>
     </div>
 {% endif %}
@@ -259,7 +340,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <form id="editPatternForm">
+                <form id="editPatternForm" action="" method="POST">
                     <input type="hidden" id="editPatternId" name="pattern_id">
                     
                     <div class="row">
@@ -307,50 +388,6 @@
     </div>
 </div>
 
-<!-- Delete Confirmation Modal -->
-<div class="modal fade" id="deleteModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Confirm Deletion</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p>Are you sure you want to delete the shift pattern <strong><span id="patternName"></span></strong>?</p>
-                <p class="text-danger"><i class="fas fa-exclamation-triangle"></i> This will also remove ended driver assignments using this pattern.</p>
-                <div id="deletePatternFeedback" class="alert d-none mt-3" role="alert"></div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <form id="deleteForm" method="POST" style="display: inline;">
-                    <button type="submit" class="btn btn-danger">Delete Pattern</button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Shift Type Delete Confirmation Modal -->
-<div class="modal fade" id="shiftTypeDeleteModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Confirm Deletion</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p>Are you sure you want to delete the shift type <strong><span id="shiftTypeName"></span></strong>?</p>
-                <p class="text-danger"><i class="fas fa-exclamation-triangle"></i> This cannot be undone.</p>
-                <div id="shiftTypeDeleteFeedback" class="alert d-none mt-3" role="alert"></div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-danger" id="confirmShiftTypeDeleteBtn">Delete Shift Type</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- Pattern Detail Modal -->
 <div class="modal fade" id="patternModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -366,80 +403,163 @@
     </div>
 </div>
 
-<!-- Shift Types Management Modal -->
-<div class="modal fade" id="shiftTypesModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
+<!-- Add Shift Type Modal -->
+<div class="modal fade" id="addShiftTypeModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Manage Shift Types & Times</h5>
+                <h5 class="modal-title">Add New Shift Type</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div id="shiftTypesFeedback" class="alert d-none" role="alert"></div>
-                <form id="shiftTypesForm">
-                    <div class="row" id="shiftTypesGrid">
-                        {% for timing in all_timings %}
-                        <div class="col-md-6 col-lg-4 mb-4" id="shift-card-{{ timing.shift_type }}">
-                            <div class="border rounded p-3 h-100">
-                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <h6 class="mb-0">{{ timing.shift_type.replace('_', ' ').title() }}</h6>
-                                    {% if timing.shift_type not in ['earlies', 'days', 'lates', 'nights'] %}
-                                    <button type="button" class="btn btn-sm btn-outline-danger js-delete-shift-type" data-shift-type="{{ timing.shift_type }}">
-                                        <i class="fas fa-trash"></i>
-                                    </button>
-                                    {% endif %}
-                                </div>
-                                <div class="row">
-                                    <div class="col-6">
-                                        <label for="{{ timing.shift_type }}_start" class="form-label">Start</label>
-                                        <input type="time" class="form-control" id="{{ timing.shift_type }}_start"
-                                               name="{{ timing.shift_type }}_start" value="{{ timing.start_time.strftime('%H:%M') }}" required>
-                                    </div>
-                                    <div class="col-6">
-                                        <label for="{{ timing.shift_type }}_end" class="form-label">End</label>
-                                        <input type="time" class="form-control" id="{{ timing.shift_type }}_end"
-                                               name="{{ timing.shift_type }}_end" value="{{ timing.end_time.strftime('%H:%M') }}" required>
-                                    </div>
-                                </div>
-                            </div>
+                <form id="addShiftTypeForm" action="{{ url_for('add_shift_type') }}" method="POST">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="add_shift_type" class="form-label">Shift Name *</label>
+                            <input type="text" class="form-control" id="add_shift_type" name="shift_type" placeholder="e.g., Afternoons" required>
                         </div>
-                        {% endfor %}
+                        <div class="col-md-3 mb-3">
+                            <label for="add_shift_start" class="form-label">Start Time *</label>
+                            <input type="time" class="form-control" id="add_shift_start" name="start_time" required>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="add_shift_end" class="form-label">End Time *</label>
+                            <input type="time" class="form-control" id="add_shift_end" name="end_time" required>
+                        </div>
                     </div>
                     
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="add_shift_color" class="form-label">Badge Color</label>
+                            <select class="form-select" id="add_shift_color" name="badge_color">
+                                <option value="bg-primary" selected>Blue</option>
+                                <option value="bg-success">Green</option>
+                                <option value="bg-danger">Red</option>
+                                <option value="bg-warning">Yellow</option>
+                                <option value="bg-info">Cyan</option>
+                                <option value="bg-secondary">Gray</option>
+                                <option value="bg-dark">Dark</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="add_shift_icon" class="form-label">Icon</label>
+                            <select class="form-select" id="add_shift_icon" name="icon">
+                                <option value="fas fa-sun">☀️ Sun</option>
+                                <option value="fas fa-moon">🌙 Moon</option>
+                                <option value="fas fa-clock" selected>🕐 Clock</option>
+                                <option value="fas fa-briefcase">💼 Briefcase</option>
+                                <option value="fas fa-star">⭐ Star</option>
+                                <option value="fas fa-heart">❤️ Heart</option>
+                                <option value="fas fa-bolt">⚡ Lightning</option>
+                                <option value="fas fa-fire">🔥 Fire</option>
+                                <option value="fas fa-tree">🌳 Tree</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
+                            <label for="add_shift_parent" class="form-label">Group Under (Optional)</label>
+                            <select class="form-select" id="add_shift_parent" name="parent_shift_type">
+                                <option value="_none" selected>Main Shift (Standalone)</option>
+                                {% for timing in all_timings %}
+                                <option value="{{ timing.shift_type }}">{{ timing.display_label }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="text-muted">Sub-shifts appear grouped under their parent on daily sheets</small>
+                        </div>
+                    </div>
+
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle"></i>
-                        <strong>Note:</strong> End time can be next day if it is earlier than start time.
-                    </div>
-                </form>
-
-                <hr>
-
-                <form id="newShiftTypeForm">
-                    <h6><i class="fas fa-plus"></i> Add New Shift Type</h6>
-                    <div class="row align-items-end">
-                        <div class="col-md-4 mb-2">
-                            <label for="new_shift_type" class="form-label">Name</label>
-                            <input type="text" class="form-control" id="new_shift_type" name="shift_type" placeholder="e.g. afternoons" required>
-                        </div>
-                        <div class="col-md-3 mb-2">
-                            <label for="new_shift_start" class="form-label">Start</label>
-                            <input type="time" class="form-control" id="new_shift_start" name="start_time" required>
-                        </div>
-                        <div class="col-md-3 mb-2">
-                            <label for="new_shift_end" class="form-label">End</label>
-                            <input type="time" class="form-control" id="new_shift_end" name="end_time" required>
-                        </div>
-                        <div class="col-md-2 mb-2">
-                            <button type="button" class="btn btn-success w-100" id="addShiftTypeBtn">
-                                <i class="fas fa-plus"></i> Add
-                            </button>
-                        </div>
+                        End time can be next day if earlier than start time.
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" id="shiftTypesCancelBtn" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveShiftTypesBtn">Save Changes</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="submitAddShiftTypeBtn">Add Shift Type</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Shift Type Modal -->
+<div class="modal fade" id="editShiftTypeModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Shift Type</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editShiftTypeForm" method="POST">
+                    <input type="hidden" id="edit_shift_type_original" name="shift_type_original">
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_shift_type" class="form-label">Shift Name *</label>
+                            <input type="text" class="form-control" id="edit_shift_type" name="shift_type" required>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="edit_shift_start" class="form-label">Start Time *</label>
+                            <input type="time" class="form-control" id="edit_shift_start" name="start_time" required>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label for="edit_shift_end" class="form-label">End Time *</label>
+                            <input type="time" class="form-control" id="edit_shift_end" name="end_time" required>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_shift_color" class="form-label">Badge Color</label>
+                            <select class="form-select" id="edit_shift_color" name="badge_color">
+                                <option value="bg-primary">Blue</option>
+                                <option value="bg-success">Green</option>
+                                <option value="bg-danger">Red</option>
+                                <option value="bg-warning">Yellow</option>
+                                <option value="bg-info">Cyan</option>
+                                <option value="bg-secondary">Gray</option>
+                                <option value="bg-dark">Dark</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="edit_shift_icon" class="form-label">Icon</label>
+                            <select class="form-select" id="edit_shift_icon" name="icon">
+                                <option value="fas fa-sun">☀️ Sun</option>
+                                <option value="fas fa-moon">🌙 Moon</option>
+                                <option value="fas fa-clock">🕐 Clock</option>
+                                <option value="fas fa-briefcase">💼 Briefcase</option>
+                                <option value="fas fa-star">⭐ Star</option>
+                                <option value="fas fa-heart">❤️ Heart</option>
+                                <option value="fas fa-bolt">⚡ Lightning</option>
+                                <option value="fas fa-fire">🔥 Fire</option>
+                                <option value="fas fa-tree">🌳 Tree</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
+                            <label for="edit_shift_parent" class="form-label">Group Under (Optional)</label>
+                            <select class="form-select" id="edit_shift_parent" name="parent_shift_type">
+                                <option value="_none">Main Shift (Standalone)</option>
+                                <option id="edit_shift_parent_placeholder" value="" style="display:none;"></option>
+                            </select>
+                            <small class="text-muted">Sub-shifts appear grouped under their parent on daily sheets</small>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        End time can be next day if earlier than start time.
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="submitEditShiftTypeBtn">Update Shift Type</button>
             </div>
         </div>
     </div>
@@ -455,7 +575,7 @@
             </div>
             <div class="modal-body">
                 <p class="text-muted mb-3">Creating a copy of an existing pattern</p>
-                <form id="copyPatternForm">
+                <form id="copyPatternForm" action="{{ url_for('add_shift_pattern') }}" method="POST">
                     <div class="row">
                         <div class="col-md-8">
                             <div class="mb-3">
@@ -499,14 +619,7 @@
                         </div>
                         
                         <div class="mt-3">
-                            <h6 class="small">Shift Types:</h6>
-                            <div class="d-flex flex-wrap gap-2">
-                                <span class="badge bg-warning"><i class="fas fa-sun"></i> Earlies</span>
-                                <span class="badge bg-success"><i class="fas fa-sun"></i> Days</span>
-                                <span class="badge bg-info"><i class="fas fa-moon"></i> Lates</span>
-                                <span class="badge bg-dark"><i class="fas fa-moon"></i> Nights</span>
-                                <span class="badge bg-secondary"><i class="fas fa-bed"></i> Day Off</span>
-                            </div>
+                            <p class="text-muted small"><i class="fas fa-info-circle"></i> Pick the main shift; a second option appears only when a sub-shift is selected.</p>
                         </div>
                     </div>
                 </form>
@@ -528,7 +641,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <form id="createPatternForm">
+                <form id="createPatternForm" action="{{ url_for('add_shift_pattern') }}" method="POST">
                     <div class="row">
                         <div class="col-md-8">
                             <div class="mb-3">
@@ -572,14 +685,7 @@
                         </div>
                         
                         <div class="mt-3">
-                            <h6 class="small">Shift Types:</h6>
-                            <div class="d-flex flex-wrap gap-2">
-                                <span class="badge bg-warning"><i class="fas fa-sun"></i> Earlies</span>
-                                <span class="badge bg-success"><i class="fas fa-sun"></i> Days</span>
-                                <span class="badge bg-info"><i class="fas fa-moon"></i> Lates</span>
-                                <span class="badge bg-dark"><i class="fas fa-moon"></i> Nights</span>
-                                <span class="badge bg-secondary"><i class="fas fa-bed"></i> Day Off</span>
-                            </div>
+                            <p class="text-muted small"><i class="fas fa-info-circle"></i> Pick the main shift; a second option appears only when a sub-shift is selected.</p>
                         </div>
                     </div>
                 </form>
@@ -591,10 +697,14 @@
         </div>
     </div>
 </div>
+
+<!-- Notification Alert Banner Container -->
+<div id="alertBannerContainer"></div>
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/shared.core.js') }}"></script>
 <script src="{{ url_for('static', filename='js/shifts.core.js') }}"></script>
-<script src="{{ url_for('static', filename='js/shifts.features.js') }}"></script>
-<script src="{{ url_for('static', filename='js/shifts.bindings.js') }}"></script>
+<script src="{{ url_for('static', filename='js/shifts.form-handlers.js') }}"></script>
+<script src="{{ url_for('static', filename='js/shifts.event-bindings.js') }}"></script>
 {% endblock %}

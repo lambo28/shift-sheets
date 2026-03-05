@@ -39,11 +39,30 @@
 </div>
 
 <script>
-// Set default date to today
+// Set default date to today and restrict past dates based on time
 document.addEventListener('DOMContentLoaded', function() {
     const dateInput = document.getElementById('target_date');
-    const today = new Date().toISOString().split('T')[0];
-    dateInput.value = today;
+    const today = new Date();
+    const todayString = today.toISOString().split('T')[0];
+    
+    // Set default date to today
+    dateInput.value = todayString;
+    
+    // Determine minimum selectable date based on current time
+    const currentHour = today.getHours();
+    let minDate;
+    
+    if (currentHour >= 12) {
+        // After 12:00: only today and future
+        minDate = todayString;
+    } else {
+        // Before 12:00: yesterday, today, and future
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        minDate = yesterday.toISOString().split('T')[0];
+    }
+    
+    dateInput.min = minDate;
 });
 </script>
 {% endblock %}
