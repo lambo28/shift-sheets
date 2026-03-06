@@ -71,12 +71,20 @@
                                         </div>
                                     </td>
                                     <td>
-                                        <strong>{{ timing.start_time.strftime('%H:%M') }}</strong>
+                                        {% if timing.start_time %}
+                                            <strong>{{ timing.start_time.strftime('%H:%M') }}</strong>
+                                        {% else %}
+                                            <span class="text-muted fst-italic">Default</span>
+                                        {% endif %}
                                     </td>
                                     <td>
-                                        <strong>{{ timing.end_time.strftime('%H:%M') }}</strong>
-                                        {% if timing.end_time < timing.start_time %}
-                                            <small class="text-muted">(next day)</small>
+                                        {% if timing.end_time %}
+                                            <strong>{{ timing.end_time.strftime('%H:%M') }}</strong>
+                                            {% if timing.start_time and timing.end_time < timing.start_time %}
+                                                <small class="text-muted">(next day)</small>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted fst-italic">Default</span>
                                         {% endif %}
                                     </td>
                                     <td>
