@@ -103,6 +103,7 @@ def migrate_database():
                     shift_type VARCHAR(50),
                     day_of_cycle INTEGER,
                     day_of_week INTEGER,
+                    override_shift VARCHAR(50),
                     start_time TIME,
                     end_time TIME,
                     priority INTEGER,
@@ -112,7 +113,8 @@ def migrate_database():
 
                 INSERT INTO driver_custom_timing_new
                     SELECT id, driver_id, assignment_id, shift_type,
-                           day_of_cycle, day_of_week, start_time, end_time,
+                           day_of_cycle, day_of_week,
+                           NULL as override_shift, start_time, end_time,
                            priority, notes, created_at
                     FROM driver_custom_timing;
 
@@ -127,6 +129,22 @@ def migrate_database():
             print("✓ start_time and end_time are now nullable in driver_custom_timing")
         else:
             print("✓ driver_custom_timing columns already nullable")
+
+        # ---------------------------------------------------------------
+        # Phase 3: Add override_shift column for day-of-week shift overrides
+        # ---------------------------------------------------------------
+        cursor.execute("PRAGMA table_info(driver_custom_timing)")
+        ct_columns_after = [row[1] for row in cursor.fetchall()]
+        if 'override_shift' not in ct_columns_after:
+            print("Adding override_shift column to driver_custom_timing...")
+            cursor.execute("""
+                ALTER TABLE driver_custom_timing
+                ADD COLUMN override_shift VARCHAR(50)
+            """)
+            changes_made = True
+            print("✓ Added override_shift column")
+        else:
+            print("✓ override_shift column already exists")
 
         if changes_made:
             conn.commit()

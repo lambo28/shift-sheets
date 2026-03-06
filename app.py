@@ -184,13 +184,14 @@ class DriverCustomTiming(db.Model):
     shift_type = db.Column(db.String(50), nullable=True)  # shift type name or NULL for any
     day_of_cycle = db.Column(db.Integer, nullable=True)   # 0-based day in cycle, NULL for any
     day_of_week = db.Column(db.Integer, nullable=True)    # 0=Monday, 6=Sunday, NULL for any
+    override_shift = db.Column(db.String(50), nullable=True)  # shift type to work instead on day_of_week
     
     # Times (NULL means "use the default shift time for this field")
     start_time = db.Column(db.Time, nullable=True)
     end_time = db.Column(db.Time, nullable=True)
     
     # Priority (lower number = higher priority)
-    priority = db.Column(db.Integer, default=100)
+    priority = db.Column(db.Integer, default=4)
     
     # Metadata
     notes = db.Column(db.Text)
@@ -446,12 +447,11 @@ def get_drivers_for_date(target_date):
     all_timings = ShiftTiming.query.all()
     timings_dict = {t.shift_type: t for t in all_timings}
 
-    # Build an empty list for every main shift type (those without parent)
-    # Sub-shifts will be grouped under their parent
+    # Build an empty list for every shift type (both parent and sub-shifts)
+    # This ensures all shift types are present in the result dictionary
     drivers_working = {}
     for t in all_timings:
-        if not t.parent_shift_type:
-            drivers_working[t.shift_type] = []
+        drivers_working[t.shift_type] = []
     
     # Get all active driver assignments for the target date
     assignments = get_active_assignments_for_date(target_date)
@@ -479,9 +479,13 @@ def get_drivers_for_date(target_date):
                 weekday
             )
 
+            effective_shift_type = shift_type
+            if custom_timing and custom_timing.override_shift and custom_timing.override_shift in timings_dict:
+                effective_shift_type = custom_timing.override_shift
+
             # Get start and end times
             if custom_timing:
-                default_timing = timings_dict.get(shift_type)
+                default_timing = timings_dict.get(effective_shift_type)
                 if custom_timing.start_time is not None:
                     start_time = custom_timing.start_time
                 elif default_timing:
@@ -494,7 +498,7 @@ def get_drivers_for_date(target_date):
                     end_time = default_timing.end_time
                 else:
                     end_time = None
-                timing_note = custom_timing.notes or "Custom timing"
+                timing_note = custom_timing.notes or ("Shift override" if custom_timing.override_shift else "Custom timing")
                 is_custom = True
             else:
                 timing = timings_dict[shift_type]
@@ -510,11 +514,11 @@ def get_drivers_for_date(target_date):
                 'end_time': end_time,
                 'is_custom': is_custom,
                 'timing_note': timing_note,
-                'shift_type': shift_type  # Keep track of actual shift type
+                'shift_type': effective_shift_type
             }
 
             # Determine where to group this driver
-            current_timing = timings_dict.get(shift_type)
+            current_timing = timings_dict.get(effective_shift_type)
             if current_timing and current_timing.parent_shift_type:
                 # This is a sub-shift, group under parent
                 parent = current_timing.parent_shift_type
@@ -523,11 +527,89 @@ def get_drivers_for_date(target_date):
                 drivers_working[parent].append(driver_info)
             else:
                 # This is a main shift or has no parent
-                if shift_type not in drivers_working:
-                    drivers_working[shift_type] = []
-                drivers_working[shift_type].append(driver_info)
+                if effective_shift_type not in drivers_working:
+                    drivers_working[effective_shift_type] = []
+                drivers_working[effective_shift_type].append(driver_info)
     
     return drivers_working
+
+
+def get_driver_shifts_for_date(driver, target_date, timings_dict=None):
+    if timings_dict is None:
+        all_timings = ShiftTiming.query.all()
+        timings_dict = {timing.shift_type: timing for timing in all_timings}
+
+    assignments = DriverAssignment.query.filter(
+        DriverAssignment.driver_id == driver.id,
+        DriverAssignment.start_date <= target_date,
+        db.or_(
+            DriverAssignment.end_date.is_(None),
+            DriverAssignment.end_date >= target_date
+        )
+    ).all()
+
+    entries = []
+    for assignment in assignments:
+        shift_types = assignment.get_shifts_for_date(target_date) or []
+        if not shift_types:
+            continue
+
+        days_since_start = (target_date - assignment.start_date).days
+        cycle_day = days_since_start % assignment.shift_pattern.cycle_length
+        weekday = target_date.weekday()
+
+        for base_shift_type in shift_types:
+            custom_timing = DriverCustomTiming.get_custom_timing(
+                assignment.driver_id,
+                assignment.id,
+                base_shift_type,
+                cycle_day,
+                weekday
+            )
+
+            effective_shift_type = base_shift_type
+            if custom_timing and custom_timing.override_shift and custom_timing.override_shift in timings_dict:
+                effective_shift_type = custom_timing.override_shift
+
+            default_timing = timings_dict.get(effective_shift_type) or timings_dict.get(base_shift_type)
+
+            if custom_timing and custom_timing.start_time is not None:
+                start_time = custom_timing.start_time
+            elif default_timing:
+                start_time = default_timing.start_time
+            else:
+                start_time = None
+
+            if custom_timing and custom_timing.end_time is not None:
+                end_time = custom_timing.end_time
+            elif default_timing:
+                end_time = default_timing.end_time
+            else:
+                end_time = None
+
+            timing_meta = timings_dict.get(effective_shift_type)
+            if effective_shift_type == 'day_off':
+                label = 'OFF'
+                badge_color = 'bg-secondary'
+            elif timing_meta:
+                label = timing_meta.display_label
+                badge_color = timing_meta.badge_color or 'bg-primary'
+            else:
+                label = shift_label(effective_shift_type)
+                badge_color = 'bg-primary'
+
+            entries.append({
+                'shift_type': effective_shift_type,
+                'label': label,
+                'badge_color': badge_color,
+                'start_time': start_time,
+                'end_time': end_time,
+                'is_override': bool(custom_timing and custom_timing.override_shift),
+                'is_custom_time': bool(custom_timing and (custom_timing.start_time is not None or custom_timing.end_time is not None)),
+            })
+
+    entries.sort(key=lambda item: (item['start_time'] is None, item['start_time'] or datetime.min.time(), item['label']))
+    return entries
 
 def get_week_dates(date_str):
     """Get Monday and Sunday for the week containing the given date"""
@@ -685,18 +767,64 @@ def drivers():
 
     all_drivers = sorted(Driver.query.all(), key=driver_sort_key)
     all_patterns = ShiftPattern.query.all()
+    all_shift_types = ShiftTiming.query.all()
+    shift_timings = {
+        st.shift_type: {
+            "label": st.display_label,
+            "badgeColor": st.badge_color or "bg-primary",
+            "startTime": st.start_time.strftime("%H:%M") if st.start_time else None,
+            "endTime": st.end_time.strftime("%H:%M") if st.end_time else None,
+        }
+        for st in all_shift_types
+    }
 
     driver_assignments = {}
+    custom_timing_pattern_ids = {}
     for driver in all_drivers:
         driver_assignments[driver.id] = serialize_driver_assignment_items(driver)
+        custom_timing_pattern_ids[driver.id] = sorted(get_custom_timing_affected_pattern_ids(driver))
 
     return render_template(
         "drivers.html",
         drivers=all_drivers,
         patterns=all_patterns,
+        shift_types=all_shift_types,
+        shift_timings=shift_timings,
         datetime=datetime,
         driver_assignments=driver_assignments,
+        custom_timing_pattern_ids=custom_timing_pattern_ids,
     )
+
+
+def get_custom_timing_affected_pattern_ids(driver):
+    pattern_ids = {
+        assignment.shift_pattern_id
+        for assignment in driver.assignments
+        if assignment.shift_pattern_id is not None
+    }
+
+    if not pattern_ids:
+        return set()
+
+    timings = list(driver.custom_timings or [])
+    if not timings:
+        return set()
+
+    affected = set()
+
+    # Any-assignment custom timing affects all patterns assigned to this driver
+    if any(timing.assignment_id is None for timing in timings):
+        affected.update(pattern_ids)
+
+    assignment_by_id = {assignment.id: assignment for assignment in driver.assignments}
+    for timing in timings:
+        if timing.assignment_id is None:
+            continue
+        assignment = assignment_by_id.get(timing.assignment_id)
+        if assignment and assignment.shift_pattern_id is not None:
+            affected.add(assignment.shift_pattern_id)
+
+    return affected
 
 
 def serialize_driver_assignment_items(driver):
@@ -714,6 +842,8 @@ def serialize_driver_assignment_items(driver):
             "id": assignment.id,
             "patternId": assignment.shift_pattern_id,
             "patternName": assignment.shift_pattern.name,
+            "cycleLength": assignment.shift_pattern.cycle_length,
+            "patternData": assignment.shift_pattern.get_pattern_data(),
             "startDate": assignment.start_date.strftime("%Y-%m-%d"),
             "endDate": assignment.end_date.strftime("%Y-%m-%d") if assignment.end_date else None,
             "startDayOfCycle": assignment.start_day_of_cycle,
@@ -843,6 +973,9 @@ def update_shift_types():
                 DriverCustomTiming.query.filter_by(shift_type=old_shift_type).update(
                     {'shift_type': new_shift_type}, synchronize_session=False
                 )
+                DriverCustomTiming.query.filter_by(override_shift=old_shift_type).update(
+                    {'override_shift': new_shift_type}, synchronize_session=False
+                )
                 ShiftTiming.query.filter_by(parent_shift_type=old_shift_type).update(
                     {'parent_shift_type': new_shift_type}, synchronize_session=False
                 )
@@ -858,7 +991,7 @@ def add_shift_type():
     """Add a new shift type"""
     try:
         raw_shift_name = request.form.get("shift_type", "").strip()
-        shift_type = raw_shift_name.lower().replace(" ", "_")
+        base_shift_type = raw_shift_name.lower().replace(" ", "_")
         display_name = request.form.get("display_name", "").strip() or raw_shift_name
         start_time_str = request.form.get("start_time")
         end_time_str = request.form.get("end_time")
@@ -869,15 +1002,28 @@ def add_shift_type():
         if parent_shift_type == '_none':
             parent_shift_type = None
 
-        if not shift_type or not start_time_str or not end_time_str:
+        if not base_shift_type or not start_time_str or not end_time_str:
             return json_error('All fields are required')
 
-        if not shift_type.replace("_", "").isalnum():
+        if not base_shift_type.replace("_", "").isalnum():
             return json_error('Shift type can only use letters, numbers, and underscores')
 
-        existing = ShiftTiming.query.filter_by(shift_type=shift_type).first()
-        if existing:
-            return json_error('Shift type already exists')
+        # Check if display name already exists (prevent duplicate user-facing names)
+        existing_display = ShiftTiming.query.filter_by(display_name=display_name).first()
+        if existing_display:
+            existing_start = existing_display.start_time.strftime('%H:%M') if existing_display.start_time else 'N/A'
+            existing_end = existing_display.end_time.strftime('%H:%M') if existing_display.end_time else 'N/A'
+            return json_error(
+                f"A shift type with display name '{display_name}' already exists ({existing_start}-{existing_end}). "
+                f"Please use a different name."
+            )
+        
+        # Find unique internal shift_type name by appending numbers if needed
+        shift_type = base_shift_type
+        counter = 2
+        while ShiftTiming.query.filter_by(shift_type=shift_type).first():
+            shift_type = f"{base_shift_type}_{counter}"
+            counter += 1
         
         # Validate parent exists if specified
         if parent_shift_type:
@@ -920,7 +1066,12 @@ def delete_shift_type(shift_type):
             return json_error(message)
 
         # Check if used in custom driver timings
-        custom_timing = DriverCustomTiming.query.filter_by(shift_type=shift_type).first()
+        custom_timing = DriverCustomTiming.query.filter(
+            db.or_(
+                DriverCustomTiming.shift_type == shift_type,
+                DriverCustomTiming.override_shift == shift_type
+            )
+        ).first()
         if custom_timing:
             return json_error('Cannot delete shift type while it is used in custom driver timings')
 
@@ -1556,6 +1707,7 @@ def get_driver_data(driver_id):
             "created_at": driver.created_at.strftime('%d/%m/%Y'),
         },
         "current_assignment": {
+            "pattern_id": current_assignment.shift_pattern_id if current_assignment else None,
             "pattern_name": current_assignment.shift_pattern.name if current_assignment else None,
             "start_date": current_assignment.start_date.strftime('%Y-%m-%d') if current_assignment else None,
             "end_date": current_assignment.end_date.strftime('%Y-%m-%d') if current_assignment and current_assignment.end_date else None,
@@ -1563,6 +1715,7 @@ def get_driver_data(driver_id):
         } if current_assignment else None,
         "future_assignments": [
             {
+                "pattern_id": a.shift_pattern_id,
                 "pattern_name": a.shift_pattern.name,
                 "start_date": a.start_date.strftime('%Y-%m-%d'),
             }
@@ -1755,9 +1908,13 @@ def get_cars_working_at_time(target_date, target_time):
                 weekday
             )
 
+            effective_shift_type = shift_type
+            if custom_timing and custom_timing.override_shift and custom_timing.override_shift in timings_dict:
+                effective_shift_type = custom_timing.override_shift
+
             if custom_timing:
                 # Use custom timing, falling back to default for any null fields
-                default_timing = timings_dict.get(shift_type)
+                default_timing = timings_dict.get(effective_shift_type)
                 if custom_timing.start_time is not None:
                     start_time = custom_timing.start_time
                 elif default_timing:
@@ -1923,9 +2080,19 @@ def delete_custom_timing(timing_id):
     try:
         db.session.delete(timing)
         db.session.commit()
+        
+        # Return JSON if AJAX request
+        if is_ajax_request():
+            return json_success()
+        
         flash("Custom timing deleted successfully!", "success")
     except Exception as e:
         db.session.rollback()
+        
+        # Return JSON error if AJAX request
+        if is_ajax_request():
+            return json_error(f"Error deleting timing: {str(e)}")
+        
         flash(f"Error deleting timing: {str(e)}", "error")
     
     if modal:
@@ -1942,43 +2109,287 @@ def edit_custom_timing(timing_id):
     try:
         assignment_id = parse_optional_int(request.form.get("assignment_id"))
         shift_type = request.form.get("shift_type") or None
+        override_shift = request.form.get("override_shift") or None
         day_of_cycle = parse_optional_int(request.form.get("day_of_cycle"))
         day_of_week = parse_optional_int(request.form.get("day_of_week"))
         start_time_str = request.form.get("start_time")
         end_time_str = request.form.get("end_time")
-        priority = parse_optional_int(request.form.get("priority")) or 100
+        priority = parse_optional_int(request.form.get("priority")) or 4
         notes = request.form.get("notes") or None
+        assignment = None
+        if assignment_id is not None:
+            assignment = DriverAssignment.query.filter_by(id=assignment_id, driver_id=driver_id).first()
 
         start_time = parse_time_string(start_time_str)
         end_time = parse_time_string(end_time_str)
 
-        if not start_time or not end_time:
-            flash("Invalid start or end time", "error")
+        if day_of_week is None:
+            override_shift = None
+
+        # Validate times: logic depends on day_of_week and shift_type
+        if start_time_str and not start_time:
+            error_msg = "Invalid start time format"
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
+        elif end_time_str and not end_time:
+            error_msg = "Invalid end time format"
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
+        elif day_of_week is not None and override_shift and (start_time or end_time):
+            error_msg = "Choose either Override Shift or Custom Times for a day-of-week rule, not both"
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
+        elif (day_of_week is None or not override_shift) and not start_time and not end_time:
+            if day_of_week is not None and not override_shift:
+                error_msg = "When selecting a day of week with custom times, you must enter at least one time"
+            else:
+                error_msg = "You must enter either a start time, end time, or both"
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
         elif priority is None:
-            flash("Priority must be a number between 1 and 999", "error")
+            error_msg = "Priority must be a number between 1 and 7"
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
+        elif priority < 1 or priority > 7:
+            error_msg = "Priority must be between 1 and 7"
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
         elif day_of_week is not None and (day_of_week < 0 or day_of_week > 6):
-            flash("Day of week must be between 0 and 6", "error")
+            error_msg = "Day of week must be between 0 and 6"
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
         elif day_of_cycle is not None and day_of_cycle < 0:
-            flash("Day of cycle must be 0 or greater", "error")
+            error_msg = "Day of cycle must be 0 or greater"
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
+        elif assignment_id is not None and not assignment:
+            error_msg = "Invalid assignment selected"
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
+        elif assignment is not None and day_of_week is None and day_of_cycle is not None and shift_type:
+            error_msg = "When an assignment is selected, choose either Cycle Day or Shift Type, not both."
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
         else:
             timing.assignment_id = assignment_id
             timing.shift_type = shift_type
             timing.day_of_cycle = day_of_cycle
             timing.day_of_week = day_of_week
+            timing.override_shift = override_shift
             timing.start_time = start_time
             timing.end_time = end_time
             timing.priority = priority
             timing.notes = notes
             db.session.commit()
+            
+            if is_ajax_request():
+                return json_success()
+            
             flash("Custom timing updated successfully!", "success")
 
     except Exception as e:
         db.session.rollback()
-        flash(f"Error updating custom timing: {str(e)}", "error")
+        error_msg = f"Error updating custom timing: {str(e)}"
+        if is_ajax_request():
+            return json_error(error_msg)
+        flash(error_msg, "error")
 
     if modal:
         return redirect(url_for("driver_custom_timings", driver_id=driver_id, modal="1"))
     return redirect(url_for("driver_custom_timings", driver_id=driver_id))
+
+@app.route("/driver/<int:driver_id>/custom-timings/list")
+def get_driver_custom_timings_list(driver_id):
+    """Get list of custom timings for a driver (AJAX)"""
+    driver = Driver.query.get_or_404(driver_id)
+    timings = DriverCustomTiming.query.filter_by(driver_id=driver_id).order_by(
+        DriverCustomTiming.priority.asc(),
+        DriverCustomTiming.id.asc()
+    ).all()
+    
+    return jsonify({
+        "success": True,
+        "driver_name": driver.formatted_name(),
+        "timings": [
+            {
+                "id": t.id,
+                "assignment_id": t.assignment_id,
+                "assignment_name": t.assignment.shift_pattern.name if t.assignment else None,
+                "shift_type": t.shift_type,
+                "day_of_cycle": t.day_of_cycle,
+                "day_of_week": t.day_of_week,
+                                "override_shift": t.override_shift,
+                "day_cycle_shifts": (
+                    t.assignment.shift_pattern.get_shifts_for_day(t.day_of_cycle)
+                    if t.assignment and t.assignment.shift_pattern and t.day_of_cycle is not None
+                    else []
+                ),
+                "start_time": t.start_time.strftime("%H:%M") if t.start_time else None,
+                "end_time": t.end_time.strftime("%H:%M") if t.end_time else None,
+                "notes": t.notes,
+                "priority": t.priority
+            }
+            for t in timings
+        ]
+    })
+
+
+@app.route("/driver/<int:driver_id>/calendar-data")
+def get_driver_calendar_data(driver_id):
+    driver = Driver.query.get_or_404(driver_id)
+
+    month_param = request.args.get("month", "").strip()
+    if month_param:
+        try:
+            month_start = datetime.strptime(month_param, "%Y-%m").date().replace(day=1)
+        except ValueError:
+            return json_error("Invalid month format. Use YYYY-MM")
+    else:
+        today = datetime.now().date()
+        month_start = today.replace(day=1)
+
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    month_days = (next_month - month_start).days
+
+    all_timings = ShiftTiming.query.all()
+    timings_dict = {timing.shift_type: timing for timing in all_timings}
+
+    today = datetime.now().date()
+    days = []
+    for day_offset in range(month_days):
+        current_date = month_start + timedelta(days=day_offset)
+        day_entries = get_driver_shifts_for_date(driver, current_date, timings_dict)
+
+        days.append({
+            "date": current_date.strftime("%Y-%m-%d"),
+            "day": current_date.day,
+            "is_today": current_date == today,
+            "shifts": [
+                {
+                    "shift_type": entry["shift_type"],
+                    "label": entry["label"],
+                    "badge_color": entry["badge_color"],
+                    "start_time": entry["start_time"].strftime("%H:%M") if entry["start_time"] else None,
+                    "end_time": entry["end_time"].strftime("%H:%M") if entry["end_time"] else None,
+                    "is_override": entry["is_override"],
+                    "is_custom_time": entry["is_custom_time"],
+                }
+                for entry in day_entries
+            ]
+        })
+
+    return jsonify({
+        "success": True,
+        "driver_name": driver.formatted_name(),
+        "month": month_start.strftime("%Y-%m"),
+        "month_label": month_start.strftime("%B %Y"),
+        "first_weekday": month_start.weekday(),
+        "days": days,
+    })
+
+@app.route("/custom-timing/<int:timing_id>/get")
+def get_custom_timing(timing_id):
+    """Get a specific custom timing (AJAX)"""
+    timing = DriverCustomTiming.query.get_or_404(timing_id)
+    
+    return jsonify({
+        "success": True,
+        "timing": {
+            "id": timing.id,
+            "assignment_id": timing.assignment_id,
+            "shift_type": timing.shift_type,
+            "day_of_cycle": timing.day_of_cycle,
+            "day_of_week": timing.day_of_week,
+            "override_shift": timing.override_shift,
+            "start_time": timing.start_time.strftime("%H:%M") if timing.start_time else None,
+            "end_time": timing.end_time.strftime("%H:%M") if timing.end_time else None,
+            "notes": timing.notes,
+            "priority": timing.priority
+        }
+    })
+
+@app.route("/driver/<int:driver_id>/custom-timing/add", methods=["POST"])
+def add_custom_timing_ajax(driver_id):
+    """Add custom timing via AJAX"""
+    driver = Driver.query.get_or_404(driver_id)
+    
+    try:
+        assignment_id = parse_optional_int(request.form.get("assignment_id"))
+        shift_type = request.form.get("shift_type") or None
+        override_shift = request.form.get("override_shift") or None
+        day_of_cycle = parse_optional_int(request.form.get("day_of_cycle"))
+        day_of_week = parse_optional_int(request.form.get("day_of_week"))
+        start_time_str = request.form.get("start_time")
+        end_time_str = request.form.get("end_time")
+        priority = parse_optional_int(request.form.get("priority")) or 4
+        notes = request.form.get("notes") or None
+        assignment = None
+        
+        start_time = parse_time_string(start_time_str)
+        end_time = parse_time_string(end_time_str)
+
+        if day_of_week is None:
+            override_shift = None
+        
+        if start_time_str and not start_time:
+            return json_error("Invalid start time format")
+        if end_time_str and not end_time:
+            return json_error("Invalid end time format")
+        if day_of_week is not None and override_shift and (start_time or end_time):
+            return json_error("Choose either Override Shift or Custom Times for a day-of-week rule, not both")
+        # Time requirement logic:
+        # - If day_of_week + override_shift set: times optional (override mode)
+        # - Otherwise: at least one time required
+        if day_of_week is None or not override_shift:
+            if not start_time and not end_time:
+                if day_of_week is not None and not override_shift:
+                    return json_error("When selecting a day of week with custom times, you must enter at least one time")
+                elif day_of_week is None:
+                    return json_error("You must enter either a start time, end time, or both")
+        if priority is None or priority < 1 or priority > 7:
+            return json_error("Priority must be between 1 and 7")
+        if day_of_week is not None and (day_of_week < 0 or day_of_week > 6):
+            return json_error("Day of week must be 0-6")
+        if day_of_cycle is not None and day_of_cycle < 0:
+            return json_error("Day of cycle must be >= 0")
+        if assignment_id is not None:
+            assignment = DriverAssignment.query.filter_by(id=assignment_id, driver_id=driver_id).first()
+            if not assignment:
+                return json_error("Invalid assignment selected")
+        # Mutual exclusion: without day_of_week, can't have both shift_type and day_of_cycle
+        # With day_of_week selected, shift_type remains a filter and can combine with day_of_cycle
+        if assignment is not None and day_of_week is None and day_of_cycle is not None and shift_type:
+            return json_error("When an assignment is selected, choose either Cycle Day or Shift Type, not both.")
+        timing = DriverCustomTiming(
+            driver_id=driver_id,
+            assignment_id=assignment_id,
+            shift_type=shift_type,
+            day_of_cycle=day_of_cycle,
+            day_of_week=day_of_week,
+            override_shift=override_shift,
+            start_time=start_time,
+            end_time=end_time,
+            priority=priority,
+            notes=notes
+        )
+        
+        db.session.add(timing)
+        db.session.commit()
+        return json_success(timing_id=timing.id)
+        
+    except Exception as e:
+        db.session.rollback()
+        return json_error(str(e))
 
     # -----------------------------------------------------------------------------
     # Entrypoint

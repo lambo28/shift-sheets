@@ -40,8 +40,35 @@ async function refreshDriverRow(driverId) {
 
         // Update assignment history data
         driverAssignments[driverId] = result.assignments || [];
+
+        // Recompute custom timing indicators on refreshed pattern badges
+        refreshPatternIndicatorsForDriver(driverId);
     } catch (error) {
         console.error('Error refreshing driver data:', error);
+    }
+}
+
+async function refreshPatternIndicatorsForDriver(driverId) {
+    try {
+        const response = await fetch(`/driver/${driverId}/custom-timings/list`, {
+            method: 'GET',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+
+        if (!response.ok) {
+            return;
+        }
+
+        const result = await response.json();
+        if (!result.success) {
+            return;
+        }
+
+        if (typeof updateDriverPatternTimingIndicators === 'function') {
+            updateDriverPatternTimingIndicators(driverId, result.timings || []);
+        }
+    } catch (error) {
+        console.error('Error refreshing pattern indicators:', error);
     }
 }
 
@@ -63,8 +90,11 @@ function buildPatternHtml(currentAssignment, futureAssignments) {
         const endDate = currentAssignment.end_date ? new Date(currentAssignment.end_date) : null;
         const hasEndDate = currentAssignment.has_end_date;
 
-        html += `<span class="badge ${hasEndDate ? 'bg-warning text-dark' : 'bg-success'} mb-1">
+        html += `<span class="badge ${hasEndDate ? 'bg-warning text-dark' : 'bg-success'} mb-1" data-pattern-id="${currentAssignment.pattern_id || ''}">
             ${currentAssignment.pattern_name}
+            <span class="badge bg-success border border-white ms-1 px-1 py-0 custom-timing-indicator d-none" title="Affected by custom timing">
+                <i class="fas fa-clock text-white"></i>
+            </span>
         </span>`;
 
         const startDateFormatted = new Date(currentAssignment.start_date).toLocaleDateString('en-GB');
@@ -74,16 +104,9 @@ function buildPatternHtml(currentAssignment, futureAssignments) {
 
         html += '<small class="text-muted">';
         if (hasEndDate) {
-            const daysToEnd = Math.ceil((endDate - today) / (1000 * 60 * 60 * 24));
-            if (daysToEnd === 0) {
-                html += `Ending Today · Started ${startDateFormatted}`;
-            } else if (daysToEnd === 1) {
-                html += `Ending Tomorrow · Started ${startDateFormatted}`;
-            } else {
-                html += `Ending ${endDateFormatted} · Started ${startDateFormatted}`;
-            }
+            html += `From ${startDateFormatted} until ${endDateFormatted}`;
         } else {
-            html += `Active · Since ${startDateFormatted}`;
+            html += `From ${startDateFormatted} onward`;
         }
         html += '</small>';
     }
@@ -95,7 +118,12 @@ function buildPatternHtml(currentAssignment, futureAssignments) {
         startDate.setHours(0, 0, 0, 0);
         const daysUntilStart = Math.ceil((startDate - today) / (1000 * 60 * 60 * 24));
 
-        html += `<span class="badge bg-primary mb-1">${assignment.pattern_name}</span>`;
+        html += `<span class="badge bg-primary mb-1" data-pattern-id="${assignment.pattern_id || ''}">
+            ${assignment.pattern_name}
+            <span class="badge bg-success border border-white ms-1 px-1 py-0 custom-timing-indicator d-none" title="Affected by custom timing">
+                <i class="fas fa-clock text-white"></i>
+            </span>
+        </span>`;
         html += `<small class="text-muted">
             Scheduled · Starts in ${daysUntilStart} day${daysUntilStart !== 1 ? 's' : ''} 
             (${startDate.toLocaleDateString('en-GB')})

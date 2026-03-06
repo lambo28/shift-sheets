@@ -270,7 +270,7 @@ function getParentShiftType(shiftType) {
         return null;
     }
 
-    const input = document.querySelector(`#shiftTypesForm select[name="${shiftType}_parent"]`);
+    const input = document.querySelector(`#shiftTypesForm input[name="${shiftType}_parent"]`);
     if (!input) {
         return null;
     }
