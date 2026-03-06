@@ -185,9 +185,9 @@ class DriverCustomTiming(db.Model):
     day_of_cycle = db.Column(db.Integer, nullable=True)   # 0-based day in cycle, NULL for any
     day_of_week = db.Column(db.Integer, nullable=True)    # 0=Monday, 6=Sunday, NULL for any
     
-    # Times
-    start_time = db.Column(db.Time, nullable=False)
-    end_time = db.Column(db.Time, nullable=False)
+    # Times (NULL means "use the default shift time for this field")
+    start_time = db.Column(db.Time, nullable=True)
+    end_time = db.Column(db.Time, nullable=True)
     
     # Priority (lower number = higher priority)
     priority = db.Column(db.Integer, default=100)
@@ -481,8 +481,19 @@ def get_drivers_for_date(target_date):
 
             # Get start and end times
             if custom_timing:
-                start_time = custom_timing.start_time
-                end_time = custom_timing.end_time
+                default_timing = timings_dict.get(shift_type)
+                if custom_timing.start_time is not None:
+                    start_time = custom_timing.start_time
+                elif default_timing:
+                    start_time = default_timing.start_time
+                else:
+                    start_time = None
+                if custom_timing.end_time is not None:
+                    end_time = custom_timing.end_time
+                elif default_timing:
+                    end_time = default_timing.end_time
+                else:
+                    end_time = None
                 timing_note = custom_timing.notes or "Custom timing"
                 is_custom = True
             else:
@@ -1745,9 +1756,20 @@ def get_cars_working_at_time(target_date, target_time):
             )
 
             if custom_timing:
-                # Use custom timing
-                start_time = custom_timing.start_time
-                end_time = custom_timing.end_time
+                # Use custom timing, falling back to default for any null fields
+                default_timing = timings_dict.get(shift_type)
+                if custom_timing.start_time is not None:
+                    start_time = custom_timing.start_time
+                elif default_timing:
+                    start_time = default_timing.start_time
+                else:
+                    start_time = None
+                if custom_timing.end_time is not None:
+                    end_time = custom_timing.end_time
+                elif default_timing:
+                    end_time = default_timing.end_time
+                else:
+                    end_time = None
             else:
                 # Use default timing
                 timing = timings_dict[shift_type]
@@ -1755,6 +1777,8 @@ def get_cars_working_at_time(target_date, target_time):
                 end_time = timing.end_time
 
             # Handle overnight shifts (when end time is before start time)
+            if start_time is None or end_time is None:
+                continue  # Skip if timing could not be resolved
             if end_time < start_time:  # Night shift case
                 # Check if target time is after start OR before end (next day)
                 if target_time >= start_time or target_time < end_time:
@@ -1836,8 +1860,13 @@ def add_custom_timing(driver_id):
             day_of_cycle = parse_optional_int(day_of_cycle)
             day_of_week = parse_optional_int(day_of_week)
 
-            if not start_time or not end_time:
-                flash("Invalid start or end time", "error")
+            # Validate that at least one time override is provided, or a notes entry is given
+            if start_time_str and not start_time:
+                flash("Invalid start time format", "error")
+                return redirect(url_for("drivers"))
+
+            if end_time_str and not end_time:
+                flash("Invalid end time format", "error")
                 return redirect(url_for("drivers"))
 
             if priority is None:
