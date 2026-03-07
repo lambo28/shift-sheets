@@ -8,6 +8,9 @@ import os
 import json
 from config import config
 
+# Minimum rest hours required between consecutive shifts (used in swap validation)
+MIN_REST_HOURS = 8
+
 # -----------------------------------------------------------------------------
 # App Setup
 # -----------------------------------------------------------------------------
@@ -297,6 +300,51 @@ class DriverAssignment(db.Model):
         cycle_day = (days_since_start + (self.start_day_of_cycle - 1)) % self.shift_pattern.cycle_length
         
         return self.shift_pattern.get_shifts_for_day(cycle_day)
+
+# -----------------------------------------------------------------------------
+# Scheduling Models (Holidays, One-off Adjustments, Shift Swaps)
+# -----------------------------------------------------------------------------
+
+class DriverHoliday(db.Model):
+    """Records holiday dates for a driver."""
+    id = db.Column(db.Integer, primary_key=True)
+    driver_id = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=False)
+    holiday_date = db.Column(db.Date, nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    driver = db.relationship('Driver', backref=db.backref('holidays', lazy=True, cascade='all, delete-orphan'))
+
+    __table_args__ = (
+        db.UniqueConstraint('driver_id', 'holiday_date', name='uq_driver_holiday_date'),
+    )
+
+
+class ShiftAdjustment(db.Model):
+    """One-off late start or early finish for a scheduled shift date."""
+    id = db.Column(db.Integer, primary_key=True)
+    driver_id = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=False)
+    adjustment_date = db.Column(db.Date, nullable=False)
+    adjustment_type = db.Column(db.String(20), nullable=False)  # 'late_start' or 'early_finish'
+    adjusted_time = db.Column(db.Time, nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    driver = db.relationship('Driver', backref=db.backref('shift_adjustments', lazy=True, cascade='all, delete-orphan'))
+
+
+class ShiftSwap(db.Model):
+    """Records a swap between two driver assignments on specific dates."""
+    id = db.Column(db.Integer, primary_key=True)
+    driver_a_id = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=False)
+    driver_b_id = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=False)
+    date_a = db.Column(db.Date, nullable=False)  # Date driver_a is giving up their shift
+    date_b = db.Column(db.Date, nullable=False)  # Date driver_b is giving up their shift
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    driver_a = db.relationship('Driver', foreign_keys=[driver_a_id], backref=db.backref('swaps_as_a', lazy=True, cascade='all, delete-orphan'))
+    driver_b = db.relationship('Driver', foreign_keys=[driver_b_id], backref=db.backref('swaps_as_b', lazy=True, cascade='all, delete-orphan'))
 
 # -----------------------------------------------------------------------------
 # Initialization
@@ -2390,6 +2438,421 @@ def add_custom_timing_ajax(driver_id):
     except Exception as e:
         db.session.rollback()
         return json_error(str(e))
+
+# -----------------------------------------------------------------------------
+# Scheduling Helpers
+# -----------------------------------------------------------------------------
+
+def _get_shift_datetime(driver, target_date, timings_dict=None):
+    """Return (start_datetime, end_datetime) for a driver on a date, or (None, None)."""
+    if timings_dict is None:
+        timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
+
+    shifts = get_driver_shifts_for_date(driver, target_date, timings_dict)
+    # shifts is a list of dicts with 'start_time', 'end_time'
+    if not shifts:
+        return None, None
+
+    earliest_start = None
+    latest_end = None
+    for s in shifts:
+        st = s.get('start_time')
+        et = s.get('end_time')
+        if st and et:
+            start_dt = datetime.combine(target_date, st)
+            end_dt = datetime.combine(target_date, et)
+            if et < st:
+                end_dt += timedelta(days=1)
+            if earliest_start is None or start_dt < earliest_start:
+                earliest_start = start_dt
+            if latest_end is None or end_dt > latest_end:
+                latest_end = end_dt
+
+    return earliest_start, latest_end
+
+
+def validate_swap(driver_a, driver_b, date_a, date_b):
+    """
+    Validate a swap between driver_a on date_a and driver_b on date_b.
+    Returns a list of error strings (empty list means valid).
+    """
+    errors = []
+    timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
+
+    # Shifts each driver is giving up
+    a_start, a_end = _get_shift_datetime(driver_a, date_a, timings_dict)
+    b_start, b_end = _get_shift_datetime(driver_b, date_b, timings_dict)
+
+    # If either driver has no shift on the given date, cannot swap
+    if not a_start:
+        errors.append(f"{driver_a.formatted_name()} has no shift on {date_a.strftime('%d/%m/%Y')}.")
+    if not b_start:
+        errors.append(f"{driver_b.formatted_name()} has no shift on {date_b.strftime('%d/%m/%Y')}.")
+
+    if errors:
+        return errors
+
+    # After swap:
+    # driver_a will work date_b's shift; driver_b will work date_a's shift.
+    # Check rest rules and overlaps for driver_a (picking up date_b shift)
+    def _get_adjacent_shifts(driver, swap_date, swap_start, swap_end):
+        inner_errors = []
+        # Check previous day
+        prev_date = swap_date - timedelta(days=1)
+        prev_start, prev_end = _get_shift_datetime(driver, prev_date, timings_dict)
+        if prev_end and swap_start:
+            rest = (swap_start - prev_end).total_seconds() / 3600
+            if rest < MIN_REST_HOURS:
+                inner_errors.append(
+                    f"{driver.formatted_name()} would have only {rest:.1f}h rest before the swapped shift "
+                    f"on {swap_date.strftime('%d/%m/%Y')} (minimum {MIN_REST_HOURS} hours required)."
+                )
+        # Check next day
+        next_date = swap_date + timedelta(days=1)
+        next_start, next_end = _get_shift_datetime(driver, next_date, timings_dict)
+        if swap_end and next_start:
+            rest = (next_start - swap_end).total_seconds() / 3600
+            if rest < MIN_REST_HOURS:
+                inner_errors.append(
+                    f"{driver.formatted_name()} would have only {rest:.1f}h rest after the swapped shift "
+                    f"on {swap_date.strftime('%d/%m/%Y')} (minimum {MIN_REST_HOURS} hours required)."
+                )
+        # Check same-day overlap (driver may have other shifts on that date in a split pattern)
+        existing_start, existing_end = _get_shift_datetime(driver, swap_date, timings_dict)
+        if existing_start and swap_start:
+            # They overlap if the new shift overlaps the existing one on that day
+            overlap_start = max(existing_start, swap_start)
+            overlap_end = min(existing_end, swap_end) if existing_end and swap_end else None
+            if overlap_end and overlap_start < overlap_end:
+                inner_errors.append(
+                    f"{driver.formatted_name()} already has a shift on {swap_date.strftime('%d/%m/%Y')} "
+                    f"that overlaps with the swapped shift."
+                )
+        return inner_errors
+
+    # driver_a takes driver_b's shift on date_b
+    errors += _get_adjacent_shifts(driver_a, date_b, b_start, b_end)
+    # driver_b takes driver_a's shift on date_a
+    errors += _get_adjacent_shifts(driver_b, date_a, a_start, a_end)
+
+    # Assignment limit check: count how many shifts each driver works in the relevant week
+    def _weekly_shift_count(driver, ref_date):
+        start_of_week = ref_date - timedelta(days=ref_date.weekday())
+        count = 0
+        for i in range(7):
+            d = start_of_week + timedelta(days=i)
+            shifts = get_driver_shifts_for_date(driver, d, timings_dict)
+            # Filter out day_off
+            working = [s for s in shifts if s.get('shift_type') != 'day_off' and s.get('start_time')]
+            if working:
+                count += 1
+        return count
+
+    # Assign limit: the driver's current pattern cycle determines expected days; use a
+    # simple heuristic – if after the swap a driver works MORE days that week than their
+    # assignment would normally give them, reject it.
+    a_current_week_count = _weekly_shift_count(driver_a, date_b)
+    b_current_week_count = _weekly_shift_count(driver_b, date_a)
+
+    # driver_a is picking up an extra day (date_b) while losing their date_a day
+    # Net change is zero within the same week only if dates are in same week; otherwise
+    # check against their normal weekly work count derived from pattern cycle_length.
+    def _get_expected_weekly_shifts(driver):
+        assignment = driver.get_current_assignment()
+        if not assignment:
+            return None
+        pattern = assignment.shift_pattern
+        data = pattern.get_pattern_data()
+        working_days = sum(
+            1 for entry in data
+            if entry != 'day_off' and entry != ['day_off'] and entry != []
+        )
+        # Proportion of cycle that are working days
+        if pattern.cycle_length == 0:
+            return None
+        # Round to nearest integer expected working days per 7-day week
+        expected = round(working_days / pattern.cycle_length * 7)
+        return expected
+
+    def _check_assignment_limit(driver, gaining_date, losing_date):
+        inner_errors = []
+        expected = _get_expected_weekly_shifts(driver)
+        if expected is None:
+            return inner_errors  # No assignment – skip check
+        # Count working days in the week of the gaining date (before swap)
+        week_count = _weekly_shift_count(driver, gaining_date)
+        gaining_week_start = gaining_date - timedelta(days=gaining_date.weekday())
+        gaining_week_end = gaining_week_start + timedelta(days=6)
+        losing_in_same_week = gaining_week_start <= losing_date <= gaining_week_end
+        net_change = 1 if not losing_in_same_week else 0
+        if week_count + net_change > expected:
+            inner_errors.append(
+                f"Swap would give {driver.formatted_name()} {week_count + net_change} working days "
+                f"in the week of {gaining_date.strftime('%d/%m/%Y')}, exceeding their assignment "
+                f"limit of {expected} days."
+            )
+        return inner_errors
+
+    errors += _check_assignment_limit(driver_a, date_b, date_a)
+    errors += _check_assignment_limit(driver_b, date_a, date_b)
+
+    return errors
+
+
+# -----------------------------------------------------------------------------
+# Routes: Scheduling (Holidays, Adjustments, Swaps)
+# -----------------------------------------------------------------------------
+
+@app.route("/scheduling")
+def scheduling():
+    """Scheduling management: holidays, one-off adjustments, shift swaps."""
+    all_drivers = Driver.query.order_by(Driver.driver_number).all()
+    holidays = (
+        DriverHoliday.query
+        .join(Driver)
+        .order_by(DriverHoliday.holiday_date.desc())
+        .all()
+    )
+    adjustments = (
+        ShiftAdjustment.query
+        .join(Driver)
+        .order_by(ShiftAdjustment.adjustment_date.desc())
+        .all()
+    )
+    swaps = (
+        ShiftSwap.query
+        .order_by(ShiftSwap.date_a.desc())
+        .all()
+    )
+    return render_template(
+        "scheduling.html",
+        drivers=all_drivers,
+        holidays=holidays,
+        adjustments=adjustments,
+        swaps=swaps,
+    )
+
+
+@app.route("/scheduling/holiday/add", methods=["POST"])
+def add_holiday():
+    """Add a holiday date for a driver."""
+    driver_id = parse_positive_int(request.form.get("driver_id"))
+    date_str = request.form.get("holiday_date", "").strip()
+    notes = request.form.get("notes", "").strip()
+
+    if not driver_id:
+        flash("Please select a driver.", "error")
+        return redirect(url_for("scheduling"))
+
+    driver = Driver.query.get_or_404(driver_id)
+
+    try:
+        holiday_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        flash("Invalid date format.", "error")
+        return redirect(url_for("scheduling"))
+
+    existing = DriverHoliday.query.filter_by(driver_id=driver_id, holiday_date=holiday_date).first()
+    if existing:
+        flash(f"{driver.formatted_name()} already has holiday recorded on {holiday_date.strftime('%d/%m/%Y')}.", "warning")
+        return redirect(url_for("scheduling"))
+
+    holiday = DriverHoliday(driver_id=driver_id, holiday_date=holiday_date, notes=notes or None)
+    db.session.add(holiday)
+    db.session.commit()
+    flash(f"Holiday on {holiday_date.strftime('%d/%m/%Y')} added for {driver.formatted_name()}.", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/holiday/<int:holiday_id>/delete", methods=["POST"])
+def delete_holiday(holiday_id):
+    """Delete a holiday record."""
+    holiday = DriverHoliday.query.get_or_404(holiday_id)
+    driver_name = holiday.driver.formatted_name()
+    date_str = holiday.holiday_date.strftime('%d/%m/%Y')
+    db.session.delete(holiday)
+    db.session.commit()
+    flash(f"Holiday on {date_str} for {driver_name} removed.", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/adjustment/add", methods=["POST"])
+def add_adjustment():
+    """Add a one-off shift adjustment (late start or early finish)."""
+    driver_id = parse_positive_int(request.form.get("driver_id"))
+    date_str = request.form.get("adjustment_date", "").strip()
+    adjustment_type = request.form.get("adjustment_type", "").strip()
+    time_str = request.form.get("adjusted_time", "").strip()
+    notes = request.form.get("notes", "").strip()
+
+    if not driver_id:
+        flash("Please select a driver.", "error")
+        return redirect(url_for("scheduling"))
+
+    Driver.query.get_or_404(driver_id)
+
+    if adjustment_type not in ("late_start", "early_finish"):
+        flash("Adjustment type must be 'late_start' or 'early_finish'.", "error")
+        return redirect(url_for("scheduling"))
+
+    try:
+        adj_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        flash("Invalid date format.", "error")
+        return redirect(url_for("scheduling"))
+
+    adjusted_time = parse_time_string(time_str)
+    if adjusted_time is None:
+        flash("Invalid time format. Use HH:MM.", "error")
+        return redirect(url_for("scheduling"))
+
+    adjustment = ShiftAdjustment(
+        driver_id=driver_id,
+        adjustment_date=adj_date,
+        adjustment_type=adjustment_type,
+        adjusted_time=adjusted_time,
+        notes=notes or None,
+    )
+    db.session.add(adjustment)
+    db.session.commit()
+    driver = Driver.query.get(driver_id)
+    label = "Late Start" if adjustment_type == "late_start" else "Early Finish"
+    flash(f"{label} on {adj_date.strftime('%d/%m/%Y')} added for {driver.formatted_name()}.", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/adjustment/<int:adjustment_id>/edit", methods=["POST"])
+def edit_adjustment(adjustment_id):
+    """Edit a shift adjustment."""
+    adjustment = ShiftAdjustment.query.get_or_404(adjustment_id)
+    date_str = request.form.get("adjustment_date", "").strip()
+    adjustment_type = request.form.get("adjustment_type", "").strip()
+    time_str = request.form.get("adjusted_time", "").strip()
+    notes = request.form.get("notes", "").strip()
+
+    if adjustment_type not in ("late_start", "early_finish"):
+        flash("Adjustment type must be 'late_start' or 'early_finish'.", "error")
+        return redirect(url_for("scheduling"))
+
+    try:
+        adj_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        flash("Invalid date format.", "error")
+        return redirect(url_for("scheduling"))
+
+    adjusted_time = parse_time_string(time_str)
+    if adjusted_time is None:
+        flash("Invalid time format. Use HH:MM.", "error")
+        return redirect(url_for("scheduling"))
+
+    adjustment.adjustment_date = adj_date
+    adjustment.adjustment_type = adjustment_type
+    adjustment.adjusted_time = adjusted_time
+    adjustment.notes = notes or None
+    db.session.commit()
+    flash("Adjustment updated.", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/adjustment/<int:adjustment_id>/delete", methods=["POST"])
+def delete_adjustment(adjustment_id):
+    """Delete a shift adjustment."""
+    adjustment = ShiftAdjustment.query.get_or_404(adjustment_id)
+    db.session.delete(adjustment)
+    db.session.commit()
+    flash("Adjustment removed.", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/swap/validate", methods=["POST"])
+def validate_swap_ajax():
+    """AJAX endpoint to validate a proposed swap before confirming."""
+    data = request.get_json(silent=True) or request.form
+    driver_a_id = parse_positive_int(data.get("driver_a_id"))
+    driver_b_id = parse_positive_int(data.get("driver_b_id"))
+    date_a_str = (data.get("date_a") or "").strip()
+    date_b_str = (data.get("date_b") or "").strip()
+
+    if not driver_a_id or not driver_b_id:
+        return json_error("Please select both drivers.")
+    if driver_a_id == driver_b_id:
+        return json_error("Drivers must be different.")
+
+    driver_a = Driver.query.get(driver_a_id)
+    driver_b = Driver.query.get(driver_b_id)
+    if not driver_a or not driver_b:
+        return json_error("One or both drivers not found.")
+
+    try:
+        date_a = datetime.strptime(date_a_str, "%Y-%m-%d").date()
+        date_b = datetime.strptime(date_b_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return json_error("Invalid date format.")
+
+    errors = validate_swap(driver_a, driver_b, date_a, date_b)
+    if errors:
+        return jsonify({"success": False, "errors": errors})
+    return jsonify({"success": True, "errors": []})
+
+
+@app.route("/scheduling/swap/add", methods=["POST"])
+def add_swap():
+    """Add a confirmed shift swap."""
+    driver_a_id = parse_positive_int(request.form.get("driver_a_id"))
+    driver_b_id = parse_positive_int(request.form.get("driver_b_id"))
+    date_a_str = request.form.get("date_a", "").strip()
+    date_b_str = request.form.get("date_b", "").strip()
+    notes = request.form.get("notes", "").strip()
+
+    if not driver_a_id or not driver_b_id:
+        flash("Please select both drivers.", "error")
+        return redirect(url_for("scheduling"))
+
+    if driver_a_id == driver_b_id:
+        flash("Drivers must be different.", "error")
+        return redirect(url_for("scheduling"))
+
+    driver_a = Driver.query.get_or_404(driver_a_id)
+    driver_b = Driver.query.get_or_404(driver_b_id)
+
+    try:
+        date_a = datetime.strptime(date_a_str, "%Y-%m-%d").date()
+        date_b = datetime.strptime(date_b_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        flash("Invalid date format.", "error")
+        return redirect(url_for("scheduling"))
+
+    errors = validate_swap(driver_a, driver_b, date_a, date_b)
+    if errors:
+        for err in errors:
+            flash(err, "error")
+        return redirect(url_for("scheduling"))
+
+    swap = ShiftSwap(
+        driver_a_id=driver_a_id,
+        driver_b_id=driver_b_id,
+        date_a=date_a,
+        date_b=date_b,
+        notes=notes or None,
+    )
+    db.session.add(swap)
+    db.session.commit()
+    flash(
+        f"Swap recorded: {driver_a.formatted_name()} on {date_a.strftime('%d/%m/%Y')} "
+        f"↔ {driver_b.formatted_name()} on {date_b.strftime('%d/%m/%Y')}.",
+        "success",
+    )
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/swap/<int:swap_id>/delete", methods=["POST"])
+def delete_swap(swap_id):
+    """Delete a swap record."""
+    swap = ShiftSwap.query.get_or_404(swap_id)
+    db.session.delete(swap)
+    db.session.commit()
+    flash("Swap removed.", "success")
+    return redirect(url_for("scheduling"))
 
     # -----------------------------------------------------------------------------
     # Entrypoint

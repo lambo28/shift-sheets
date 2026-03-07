@@ -1,0 +1,592 @@
+{% extends "base.html" %}
+
+{% block title %}Scheduling - Driver Shift Sheets{% endblock %}
+
+{% block extra_head %}
+<style>
+/* Calendar grid for holiday picker */
+.holiday-calendar {
+    user-select: none;
+}
+
+.holiday-calendar .cal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.holiday-calendar table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 3px;
+}
+
+.holiday-calendar th {
+    text-align: center;
+    font-size: 0.75rem;
+    color: #6c757d;
+    padding-bottom: 4px;
+}
+
+.holiday-calendar td {
+    text-align: center;
+    vertical-align: middle;
+    height: 36px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.15s;
+}
+
+.holiday-calendar td:empty,
+.holiday-calendar td.cal-empty {
+    cursor: default;
+}
+
+.holiday-calendar td.cal-day:hover {
+    background: #e9ecef;
+}
+
+.holiday-calendar td.cal-day.cal-selected {
+    background: #0d6efd;
+    color: #fff;
+    font-weight: 600;
+}
+
+.holiday-calendar td.cal-day.cal-holiday {
+    background: #ffc107;
+    color: #000;
+    font-weight: 600;
+}
+
+.holiday-calendar td.cal-day.cal-today {
+    border: 2px solid #0d6efd;
+}
+
+.scheduling-tabs .nav-link {
+    color: #495057;
+}
+
+.scheduling-tabs .nav-link.active {
+    font-weight: 600;
+}
+
+.badge-late-start {
+    background-color: #fd7e14;
+    color: #fff;
+}
+
+.badge-early-finish {
+    background-color: #6f42c1;
+    color: #fff;
+}
+
+#swapValidationResult .alert {
+    font-size: 0.875rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Embed existing holiday dates for the calendar widget -->
+<div id="holidaysDataEl" style="display:none;"
+     data-holidays="{{ holidays | map(attribute='holiday_date') | map('string') | list | tojson }}">
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>
+        <i class="fas fa-calendar-alt"></i> Scheduling
+    </h1>
+</div>
+
+<!-- Tab Navigation -->
+<ul class="nav nav-tabs scheduling-tabs mb-4" id="schedulingTabs" role="tablist" aria-label="Scheduling tabs">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="holidays-tab" data-bs-toggle="tab" data-bs-target="#holidaysPanel"
+                type="button" role="tab" aria-controls="holidaysPanel" aria-selected="true">
+            <i class="fas fa-umbrella-beach"></i> Holidays
+            {% if holidays %}
+                <span class="badge bg-secondary ms-1">{{ holidays|length }}</span>
+            {% endif %}
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="adjustments-tab" data-bs-toggle="tab" data-bs-target="#adjustmentsPanel"
+                type="button" role="tab" aria-controls="adjustmentsPanel" aria-selected="false">
+            <i class="fas fa-clock"></i> One-off Adjustments
+            {% if adjustments %}
+                <span class="badge bg-secondary ms-1">{{ adjustments|length }}</span>
+            {% endif %}
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="swaps-tab" data-bs-toggle="tab" data-bs-target="#swapsPanel"
+                type="button" role="tab" aria-controls="swapsPanel" aria-selected="false">
+            <i class="fas fa-exchange-alt"></i> Shift Swaps
+            {% if swaps %}
+                <span class="badge bg-secondary ms-1">{{ swaps|length }}</span>
+            {% endif %}
+        </button>
+    </li>
+</ul>
+
+<!-- Tab Content -->
+<div class="tab-content" id="schedulingTabContent">
+
+    <!-- ===================== HOLIDAYS PANEL ===================== -->
+    <div class="tab-pane fade show active" id="holidaysPanel" role="tabpanel" aria-labelledby="holidays-tab">
+        <div class="row g-4">
+            <!-- Add Holiday Form -->
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-plus-circle"></i> Book Holiday</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('add_holiday') }}" id="addHolidayForm">
+                            <div class="mb-3">
+                                <label for="holidayDriverSelect" class="form-label">Driver</label>
+                                <select class="form-select" id="holidayDriverSelect" name="driver_id" required>
+                                    <option value="">— Select driver —</option>
+                                    {% for driver in drivers %}
+                                        <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <!-- Calendar widget -->
+                            <div class="mb-3">
+                                <label class="form-label">Date</label>
+                                <div class="holiday-calendar border rounded p-2 bg-white">
+                                    <div class="cal-header">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="calPrev">
+                                            <i class="fas fa-chevron-left"></i>
+                                        </button>
+                                        <strong id="calMonthLabel"></strong>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="calNext">
+                                            <i class="fas fa-chevron-right"></i>
+                                        </button>
+                                    </div>
+                                    <table id="calTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Mo</th><th>Tu</th><th>We</th><th>Th</th><th>Fr</th><th>Sa</th><th>Su</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="calBody"></tbody>
+                                    </table>
+                                </div>
+                                <input type="hidden" name="holiday_date" id="holidayDateInput" required>
+                                <div class="form-text" id="holidayDateDisplay">No date selected.</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="holidayNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                                <input type="text" class="form-control" id="holidayNotes" name="notes" maxlength="200" placeholder="e.g. Annual leave">
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100" id="saveHolidayBtn" disabled>
+                                <i class="fas fa-save"></i> Save Holiday
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Holiday Records Table -->
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-list"></i> Holiday Records</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        {% if holidays %}
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Driver</th>
+                                            <th>Date</th>
+                                            <th>Notes</th>
+                                            <th class="text-end">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for h in holidays %}
+                                        <tr>
+                                            <td>
+                                                <span class="badge bg-primary me-1">{{ h.driver.formatted_driver_number() }}</span>
+                                                {{ h.driver.formatted_name() }}
+                                            </td>
+                                            <td>
+                                                <i class="fas fa-umbrella-beach text-warning me-1"></i>
+                                                {{ h.holiday_date.strftime('%d/%m/%Y') }}
+                                            </td>
+                                            <td>
+                                                {% if h.notes %}
+                                                    <span class="text-muted">{{ h.notes }}</span>
+                                                {% else %}
+                                                    <span class="text-muted">—</span>
+                                                {% endif %}
+                                            </td>
+                                            <td class="text-end">
+                                                <button type="button" class="btn btn-sm btn-danger"
+                                                        onclick="showGlobalDeleteConfirm({
+                                                            title: 'Remove Holiday',
+                                                            message: 'Remove the holiday on {{ h.holiday_date.strftime('%d/%m/%Y') }} for',
+                                                            name: '{{ h.driver.formatted_name() }}',
+                                                            action: '{{ url_for('delete_holiday', holiday_id=h.id) }}'
+                                                        })">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="p-4 text-center text-muted">
+                                <i class="fas fa-umbrella-beach fa-2x mb-2 d-block"></i>
+                                No holiday records yet. Use the form to book holiday days.
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== ADJUSTMENTS PANEL ===================== -->
+    <div class="tab-pane fade" id="adjustmentsPanel" role="tabpanel" aria-labelledby="adjustments-tab">
+        <div class="row g-4">
+            <!-- Add Adjustment Form -->
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-plus-circle"></i> Add Adjustment</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('add_adjustment') }}" id="addAdjustmentForm">
+                            <div class="mb-3">
+                                <label for="adjDriverSelect" class="form-label">Driver</label>
+                                <select class="form-select" id="adjDriverSelect" name="driver_id" required>
+                                    <option value="">— Select driver —</option>
+                                    {% for driver in drivers %}
+                                        <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="adjDate" class="form-label">Date</label>
+                                <input type="date" class="form-control" id="adjDate" name="adjustment_date" required>
+                            </div>
+                            <div class="mb-3">
+                                <label for="adjType" class="form-label">Type</label>
+                                <select class="form-select" id="adjType" name="adjustment_type" required>
+                                    <option value="">— Select type —</option>
+                                    <option value="late_start">Late Start</option>
+                                    <option value="early_finish">Early Finish</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="adjTime" class="form-label" id="adjTimeLabel">Adjusted Time</label>
+                                <input type="time" class="form-control" id="adjTime" name="adjusted_time" required>
+                                <div class="form-text" id="adjTimeHint">Enter the new start or finish time.</div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="adjNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                                <input type="text" class="form-control" id="adjNotes" name="notes" maxlength="200">
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="fas fa-save"></i> Save Adjustment
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Adjustments Table -->
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-list"></i> Adjustment Records</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        {% if adjustments %}
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Driver</th>
+                                            <th>Date</th>
+                                            <th>Type</th>
+                                            <th>Adjusted Time</th>
+                                            <th>Notes</th>
+                                            <th class="text-end">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for adj in adjustments %}
+                                        <tr id="adj-row-{{ adj.id }}">
+                                            <td>
+                                                <span class="badge bg-primary me-1">{{ adj.driver.formatted_driver_number() }}</span>
+                                                {{ adj.driver.formatted_name() }}
+                                            </td>
+                                            <td>{{ adj.adjustment_date.strftime('%d/%m/%Y') }}</td>
+                                            <td>
+                                                {% if adj.adjustment_type == 'late_start' %}
+                                                    <span class="badge badge-late-start"><i class="fas fa-hourglass-start me-1"></i>Late Start</span>
+                                                {% else %}
+                                                    <span class="badge badge-early-finish"><i class="fas fa-hourglass-end me-1"></i>Early Finish</span>
+                                                {% endif %}
+                                            </td>
+                                            <td><strong>{{ adj.adjusted_time.strftime('%H:%M') }}</strong></td>
+                                            <td>
+                                                {% if adj.notes %}
+                                                    <span class="text-muted">{{ adj.notes }}</span>
+                                                {% else %}
+                                                    <span class="text-muted">—</span>
+                                                {% endif %}
+                                            </td>
+                                            <td class="text-end">
+                                                <div class="btn-group">
+                                                    <button type="button" class="btn btn-sm btn-outline-primary edit-adj-btn"
+                                                            data-adj-id="{{ adj.id }}"
+                                                            data-driver-id="{{ adj.driver_id }}"
+                                                            data-date="{{ adj.adjustment_date.strftime('%Y-%m-%d') }}"
+                                                            data-type="{{ adj.adjustment_type }}"
+                                                            data-time="{{ adj.adjusted_time.strftime('%H:%M') }}"
+                                                            data-notes="{{ adj.notes or '' }}"
+                                                            title="Edit">
+                                                        <i class="fas fa-edit"></i>
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-danger"
+                                                            onclick="showGlobalDeleteConfirm({
+                                                                title: 'Remove Adjustment',
+                                                                message: 'Remove this adjustment for',
+                                                                name: '{{ adj.driver.formatted_name() }} on {{ adj.adjustment_date.strftime('%d/%m/%Y') }}',
+                                                                action: '{{ url_for('delete_adjustment', adjustment_id=adj.id) }}'
+                                                            })"
+                                                            title="Delete">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="p-4 text-center text-muted">
+                                <i class="fas fa-clock fa-2x mb-2 d-block"></i>
+                                No adjustments recorded yet. Use the form to add late starts or early finishes.
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================== SWAPS PANEL ===================== -->
+    <div class="tab-pane fade" id="swapsPanel" role="tabpanel" aria-labelledby="swaps-tab">
+        <div class="row g-4">
+            <!-- Add Swap Form -->
+            <div class="col-lg-5">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-plus-circle"></i> Request Shift Swap</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            Select two drivers and the dates they each give up. Their shifts will be swapped.
+                            Validation is applied before saving.
+                        </p>
+                        <form method="POST" action="{{ url_for('add_swap') }}" id="addSwapForm">
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label for="swapDriverA" class="form-label">Driver A</label>
+                                    <select class="form-select" id="swapDriverA" name="driver_a_id" required>
+                                        <option value="">— Select driver —</option>
+                                        {% for driver in drivers %}
+                                            <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="swapDateA" class="form-label">Date A gives up</label>
+                                    <input type="date" class="form-control" id="swapDateA" name="date_a" required>
+                                </div>
+                            </div>
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label for="swapDriverB" class="form-label">Driver B</label>
+                                    <select class="form-select" id="swapDriverB" name="driver_b_id" required>
+                                        <option value="">— Select driver —</option>
+                                        {% for driver in drivers %}
+                                            <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="swapDateB" class="form-label">Date B gives up</label>
+                                    <input type="date" class="form-control" id="swapDateB" name="date_b" required>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="swapNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                                <input type="text" class="form-control" id="swapNotes" name="notes" maxlength="200">
+                            </div>
+
+                            <!-- Validation result area -->
+                            <div id="swapValidationResult" class="mb-3" style="display:none;"></div>
+
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-outline-secondary flex-fill" id="validateSwapBtn">
+                                    <i class="fas fa-check-circle"></i> Validate
+                                </button>
+                                <button type="submit" class="btn btn-primary flex-fill" id="confirmSwapBtn" disabled>
+                                    <i class="fas fa-exchange-alt"></i> Confirm Swap
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Validation rules info -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h6 class="mb-0"><i class="fas fa-info-circle text-info"></i> Validation Rules</h6>
+                    </div>
+                    <div class="card-body py-2">
+                        <ul class="mb-0 small text-muted">
+                            <li>Both drivers must have a shift on their respective dates.</li>
+                            <li>No overlapping shifts after the swap.</li>
+                            <li>Minimum <strong>8 hours rest</strong> between consecutive shifts.</li>
+                            <li>Swap must not exceed each driver's <strong>weekly assignment limit</strong>.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Swaps Table -->
+            <div class="col-lg-7">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-list"></i> Swap Records</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        {% if swaps %}
+                            <div class="table-responsive">
+                                <table class="table table-hover table-sm mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Driver A</th>
+                                            <th>Date A</th>
+                                            <th></th>
+                                            <th>Driver B</th>
+                                            <th>Date B</th>
+                                            <th>Notes</th>
+                                            <th class="text-end">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for swap in swaps %}
+                                        <tr>
+                                            <td>
+                                                <span class="badge bg-primary me-1">{{ swap.driver_a.formatted_driver_number() }}</span>
+                                                {{ swap.driver_a.formatted_name() }}
+                                            </td>
+                                            <td>{{ swap.date_a.strftime('%d/%m/%Y') }}</td>
+                                            <td class="text-center text-muted">
+                                                <i class="fas fa-exchange-alt"></i>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-success me-1">{{ swap.driver_b.formatted_driver_number() }}</span>
+                                                {{ swap.driver_b.formatted_name() }}
+                                            </td>
+                                            <td>{{ swap.date_b.strftime('%d/%m/%Y') }}</td>
+                                            <td>
+                                                {% if swap.notes %}
+                                                    <span class="text-muted">{{ swap.notes }}</span>
+                                                {% else %}
+                                                    <span class="text-muted">—</span>
+                                                {% endif %}
+                                            </td>
+                                            <td class="text-end">
+                                                <button type="button" class="btn btn-sm btn-danger"
+                                                        onclick="showGlobalDeleteConfirm({
+                                                            title: 'Remove Swap',
+                                                            message: 'Remove swap between',
+                                                            name: '{{ swap.driver_a.formatted_name() }} ↔ {{ swap.driver_b.formatted_name() }}',
+                                                            action: '{{ url_for('delete_swap', swap_id=swap.id) }}'
+                                                        })"
+                                                        title="Delete">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="p-4 text-center text-muted">
+                                <i class="fas fa-exchange-alt fa-2x mb-2 d-block"></i>
+                                No shift swaps recorded yet. Use the form to request a swap.
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div><!-- end tab-content -->
+
+<!-- Edit Adjustment Modal -->
+<div class="modal fade" id="editAdjustmentModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Edit Adjustment</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" id="editAdjustmentForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="editAdjDate" class="form-label">Date</label>
+                        <input type="date" class="form-control" id="editAdjDate" name="adjustment_date" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editAdjType" class="form-label">Type</label>
+                        <select class="form-select" id="editAdjType" name="adjustment_type" required>
+                            <option value="late_start">Late Start</option>
+                            <option value="early_finish">Early Finish</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editAdjTime" class="form-label">Adjusted Time</label>
+                        <input type="time" class="form-control" id="editAdjTime" name="adjusted_time" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editAdjNotes" class="form-label">Notes</label>
+                        <input type="text" class="form-control" id="editAdjNotes" name="notes" maxlength="200">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/scheduling.core.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scheduling.event-bindings.js') }}"></script>
+{% endblock %}
