@@ -10,7 +10,8 @@ from app import app as flask_app, db as _db
 from app import (
     Driver, ShiftPattern, ShiftTiming, DriverAssignment,
     DriverHoliday, ShiftAdjustment, ShiftSwap,
-    validate_swap,
+    validate_swap, get_driver_shifts_for_date, get_cars_working_at_time,
+    group_consecutive_holidays,
 )
 from tests.conftest import make_driver, make_shift_timing, make_pattern, make_assignment
 
@@ -57,7 +58,8 @@ class TestHolidayRoutes:
         driver = make_driver(db, driver_number='10', name='Alice Smith')
         resp = client.post('/scheduling/holiday/add', data={
             'driver_id': driver.id,
-            'holiday_date': '2026-08-01',
+            'start_date': '2026-08-01',
+            'end_date': '2026-08-01',
             'notes': 'Summer leave',
         }, follow_redirects=True)
         assert resp.status_code == 200
@@ -106,6 +108,199 @@ class TestHolidayRoutes:
         resp = client.get('/scheduling')
         assert resp.status_code == 200
         assert b'05/09/2026' in resp.data
+
+    def test_add_holiday_date_range(self, client, db):
+        driver = make_driver(db, driver_number='10', name='Alice Smith')
+        resp = client.post('/scheduling/holiday/add', data={
+            'driver_id': driver.id,
+            'start_date': '2026-08-01',
+            'end_date': '2026-08-05',
+            'notes': 'Summer holiday',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        # Should create 5 holiday records (Aug 1-5)
+        assert DriverHoliday.query.filter_by(driver_id=driver.id).count() == 5
+        
+        # Verify each date
+        for day in range(1, 6):
+            h = DriverHoliday.query.filter_by(driver_id=driver.id, holiday_date=date(2026, 8, day)).first()
+            assert h is not None
+            assert h.notes == 'Summer holiday'
+
+    def test_add_holiday_single_day_via_range(self, client, db):
+        driver = make_driver(db, driver_number='11', name='Jane Doe')
+        resp = client.post('/scheduling/holiday/add', data={
+            'driver_id': driver.id,
+            'start_date': '2026-08-10',
+            'end_date': '2026-08-10',
+            'notes': 'Single day off',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        assert DriverHoliday.query.filter_by(driver_id=driver.id).count() == 1
+
+    def test_add_holiday_range_skips_existing(self, client, db):
+        driver = make_driver(db, driver_number='12', name='Bob Wilson')
+        # Pre-create one holiday
+        existing = DriverHoliday(driver_id=driver.id, holiday_date=date(2026, 8, 3))
+        db.session.add(existing)
+        db.session.commit()
+        
+        # Try to add range that includes existing date
+        resp = client.post('/scheduling/holiday/add', data={
+            'driver_id': driver.id,
+            'start_date': '2026-08-01',
+            'end_date': '2026-08-05',
+            'notes': 'Holiday week',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        # Should have 5 total: 1 existing + 4 new (skipping Aug 3)
+        assert DriverHoliday.query.filter_by(driver_id=driver.id).count() == 5
+
+    def test_add_holiday_overwrites_overlapping_time_off_types(self, client, db):
+        driver = make_driver(db, driver_number='13', name='Overlap Driver')
+
+        # Existing holiday 5th-15th
+        current = date(2026, 8, 5)
+        while current <= date(2026, 8, 15):
+            db.session.add(DriverHoliday(driver_id=driver.id, holiday_date=current, time_off_type='holiday'))
+            current += timedelta(days=1)
+        db.session.commit()
+
+        # Add VOR 12th-20th, should replace overlap (12th-15th)
+        resp = client.post('/scheduling/holiday/add', data={
+            'driver_id': driver.id,
+            'start_date': '2026-08-12',
+            'end_date': '2026-08-20',
+            'time_off_type': 'vor',
+            'notes': 'Vehicle issue',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+        # 5th-11th remain holiday
+        for day in range(5, 12):
+            rec = DriverHoliday.query.filter_by(driver_id=driver.id, holiday_date=date(2026, 8, day)).first()
+            assert rec is not None
+            assert rec.time_off_type == 'holiday'
+
+        # 12th-20th become VOR
+        for day in range(12, 21):
+            rec = DriverHoliday.query.filter_by(driver_id=driver.id, holiday_date=date(2026, 8, day)).first()
+            assert rec is not None
+            assert rec.time_off_type == 'vor'
+
+    def test_update_holiday_overwrites_existing_overlap(self, client, db):
+        driver = make_driver(db, driver_number='14', name='Update Overlap Driver')
+
+        # Existing holiday block 5th-11th
+        for day in range(5, 12):
+            db.session.add(DriverHoliday(driver_id=driver.id, holiday_date=date(2026, 8, day), time_off_type='holiday'))
+
+        # Existing VOR block 12th-20th
+        for day in range(12, 21):
+            db.session.add(DriverHoliday(driver_id=driver.id, holiday_date=date(2026, 8, day), time_off_type='vor'))
+
+        db.session.commit()
+
+        # Edit holiday back to 5th-15th; should overwrite 12th-15th VOR
+        resp = client.post('/scheduling/holiday/update',
+            json={
+                'driver_id': driver.id,
+                'old_start_date': '2026-08-05',
+                'old_end_date': '2026-08-11',
+                'new_start_date': '2026-08-05',
+                'new_end_date': '2026-08-15',
+                'time_off_type': 'holiday',
+                'notes': ''
+            })
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        assert payload['success'] is True
+
+        for day in range(5, 16):
+            rec = DriverHoliday.query.filter_by(driver_id=driver.id, holiday_date=date(2026, 8, day)).first()
+            assert rec is not None
+            assert rec.time_off_type == 'holiday'
+
+        for day in range(16, 21):
+            rec = DriverHoliday.query.filter_by(driver_id=driver.id, holiday_date=date(2026, 8, day)).first()
+            assert rec is not None
+            assert rec.time_off_type == 'vor'
+
+    def test_group_consecutive_holidays_keeps_drivers_and_notes_separate(self, db):
+        driver_a = make_driver(db, driver_number='10', name='Alice Smith')
+        driver_b = make_driver(db, driver_number='11', name='Bob Jones')
+
+        records = [
+            DriverHoliday(driver_id=driver_a.id, holiday_date=date(2026, 8, 1), time_off_type='holiday', notes='Trip A'),
+            DriverHoliday(driver_id=driver_a.id, holiday_date=date(2026, 8, 2), time_off_type='holiday', notes='Trip A'),
+            DriverHoliday(driver_id=driver_a.id, holiday_date=date(2026, 8, 3), time_off_type='holiday', notes='Trip B'),
+            DriverHoliday(driver_id=driver_b.id, holiday_date=date(2026, 8, 2), time_off_type='holiday', notes='Trip A'),
+        ]
+        db.session.add_all(records)
+        db.session.commit()
+
+        grouped = group_consecutive_holidays(DriverHoliday.query.order_by(DriverHoliday.holiday_date).all())
+
+        # Expected groups:
+        # 1) driver_a: 01-02 Aug (Trip A)
+        # 2) driver_a: 03 Aug (Trip B)
+        # 3) driver_b: 02 Aug (Trip A)
+        assert len(grouped) == 3
+        assert [len(group) for group in grouped] == [2, 1, 1]
+        assert grouped[0][0].driver_id == driver_a.id
+        assert grouped[1][0].driver_id == driver_a.id
+        assert grouped[2][0].driver_id == driver_b.id
+
+    def test_delete_holiday_group_only_deletes_matching_group(self, client, db):
+        driver_a = make_driver(db, driver_number='10', name='Alice Smith')
+        driver_b = make_driver(db, driver_number='11', name='Bob Jones')
+
+        target_1 = DriverHoliday(driver_id=driver_a.id, holiday_date=date(2026, 8, 1), time_off_type='holiday', notes='Trip A')
+        target_2 = DriverHoliday(driver_id=driver_a.id, holiday_date=date(2026, 8, 2), time_off_type='holiday', notes='Trip A')
+        different_notes = DriverHoliday(driver_id=driver_a.id, holiday_date=date(2026, 8, 3), time_off_type='holiday', notes='Trip B')
+        other_driver = DriverHoliday(driver_id=driver_b.id, holiday_date=date(2026, 8, 2), time_off_type='holiday', notes='Trip A')
+        db.session.add_all([target_1, target_2, different_notes, other_driver])
+        db.session.commit()
+
+        resp = client.post(f'/scheduling/holiday/{target_1.id}/delete-group', follow_redirects=True)
+        assert resp.status_code == 200
+
+        remaining = DriverHoliday.query.order_by(DriverHoliday.driver_id, DriverHoliday.holiday_date).all()
+        assert len(remaining) == 2
+        assert remaining[0].driver_id == driver_a.id
+        assert remaining[0].holiday_date == date(2026, 8, 3)
+        assert remaining[0].notes == 'Trip B'
+        assert remaining[1].driver_id == driver_b.id
+        assert remaining[1].holiday_date == date(2026, 8, 2)
+
+
+class TestHolidayEffects:
+
+    def test_holiday_removes_driver_shift_for_date(self, db):
+        driver = make_driver(db, driver_number='10', name='Alice Smith')
+        make_shift_timing(db, 'morning', '06:00', '14:00')
+        pattern = make_pattern(db, 'Working Pattern', 7, ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+        make_assignment(db, driver, pattern, date(2026, 6, 1), start_day_of_cycle=1)
+
+        holiday = DriverHoliday(driver_id=driver.id, holiday_date=date(2026, 6, 1), notes='Annual leave')
+        db.session.add(holiday)
+        db.session.commit()
+
+        shifts = get_driver_shifts_for_date(driver, date(2026, 6, 1))
+        assert shifts == []
+
+    def test_holiday_excludes_driver_from_cars_working_count(self, db):
+        driver = make_driver(db, driver_number='20', name='Bob Jones')
+        make_shift_timing(db, 'morning', '06:00', '14:00')
+        pattern = make_pattern(db, 'Working Pattern 2', 7, ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+        make_assignment(db, driver, pattern, date(2026, 6, 1), start_day_of_cycle=1)
+
+        holiday = DriverHoliday(driver_id=driver.id, holiday_date=date(2026, 6, 1), notes='Annual leave')
+        db.session.add(holiday)
+        db.session.commit()
+
+        count = get_cars_working_at_time(date(2026, 6, 1), time(9, 0))
+        assert count == 0
 
 
 # ===========================================================================

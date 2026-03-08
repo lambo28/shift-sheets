@@ -441,7 +441,7 @@ function showAssignPatternPreview() {
 }
 
 /**
- * Create a shift badge element
+ * Create a shift badge element using real shift timing data
  */
 function createShiftBadge(shift, nonOffShifts) {
     const badge = document.createElement('span');
@@ -452,39 +452,63 @@ function createShiftBadge(shift, nonOffShifts) {
     badge.style.minWidth = '24px';
     badge.style.lineHeight = '1.3';
     badge.style.padding = '0.35em 0.5em';
+    badge.style.cursor = 'default';
 
-    const shiftColorMap = {
-        'day_off': { color: 'bg-secondary', text: 'OFF', label: 'Rest Day' },
-        'earlies': { color: 'bg-warning', label: 'Earlies' },
-        'days': { color: 'bg-success', label: 'Days' },
-        'lates': { color: 'bg-info', label: 'Lates' },
-        'nights': { color: 'bg-dark', label: 'Nights' }
-    };
-
-    const shiftInfo = shiftColorMap[shift];
-
+    // Handle day_off
     if (shift === 'day_off') {
-        badge.className += ' ' + shiftInfo.color;
-        badge.textContent = shiftInfo.text;
-        badge.title = shiftInfo.label;
-    } else if (shiftInfo) {
-        badge.className += ' ' + shiftInfo.color;
-        badge.textContent = shiftInfo.label[0].toUpperCase();
-        badge.title = shiftInfo.label;
+        badge.className += ' bg-secondary';
+        badge.textContent = 'OFF';
+        badge.title = 'Rest Day';
+        return badge;
+    }
+
+    // Use real shift timing data if available
+    const shiftTiming = window.shiftTimings && window.shiftTimings[shift];
+    
+    if (shiftTiming) {
+        // Use actual badge color and label from shift timing
+        badge.className += ' ' + (shiftTiming.badgeColor || 'bg-primary');
+        badge.title = shiftTiming.label || formatShiftName(shift);
+        
+        // Generate abbreviation (matching shift_abbrev filter logic)
+        const words = shift.replace(/_/g, ' ').split(/\s+/);
+        let abbrev;
+        
+        if (words.length > 1) {
+            // Multi-word: first letter of each word
+            abbrev = words.map(w => w[0].toUpperCase()).join('');
+        } else {
+            // Single word: check if initial is unique
+            const initial = shift[0].toUpperCase();
+            const conflicts = nonOffShifts.filter(s => 
+                s !== 'day_off' && s[0].toUpperCase() === initial && s !== shift
+            );
+            abbrev = conflicts.length > 0 ? shift[0].toUpperCase() : initial;
+        }
+        
+        badge.textContent = abbrev;
     } else {
+        // Fallback for shift types without timing data
         badge.className += ' bg-primary';
-        const formatted = shift.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        const conflicts = nonOffShifts.filter(s => 
-            s.charAt(0).toUpperCase() === formatted[0] && s !== shift
-        );
-        const initials = conflicts.length > 0 ? 
-            formatted.split(/\s+/).map(w => w[0]).join('') :
-            formatted.charAt(0);
-        badge.textContent = initials;
+        const formatted = formatShiftName(shift);
+        const words = shift.replace(/_/g, ' ').split(/\s+/);
+        
+        const abbrev = words.length > 1 ?
+            words.map(w => w[0].toUpperCase()).join('') :
+            shift[0].toUpperCase();
+        
+        badge.textContent = abbrev;
         badge.title = formatted;
     }
 
     return badge;
+}
+
+/**
+ * Format shift name for display
+ */
+function formatShiftName(shift) {
+    return shift.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 // Initialize on DOM ready

@@ -32,8 +32,10 @@
 
 .holiday-calendar td {
     text-align: center;
-    vertical-align: middle;
-    height: 36px;
+    vertical-align: top;
+    min-height: 60px;
+    height: auto;
+    padding: 4px 2px;
     border-radius: 6px;
     cursor: pointer;
     font-size: 0.85rem;
@@ -45,24 +47,37 @@
     cursor: default;
 }
 
+.holiday-calendar .cal-day {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+}
+
 .holiday-calendar td.cal-day:hover {
     background: #e9ecef;
 }
 
 .holiday-calendar td.cal-day.cal-selected {
-    background: #0d6efd;
-    color: #fff;
+    background: #0d6efd !important;
+    color: #fff !important;
     font-weight: 600;
+    border: 2px solid #0a58ca;
+}
+
+.holiday-calendar td.cal-day.cal-in-range {
+    background: #cfe2ff !important;
+    color: #084298;
+    font-weight: 500;
 }
 
 .holiday-calendar td.cal-day.cal-holiday {
-    background: #ffc107;
+    background: #ffc107 !important;
     color: #000;
     font-weight: 600;
 }
 
 .holiday-calendar td.cal-day.cal-today {
     border: 2px solid #0d6efd;
+    box-shadow: 0 0 0 1px #0d6efd;
 }
 
 .scheduling-tabs .nav-link {
@@ -86,6 +101,11 @@
 #swapValidationResult .alert {
     font-size: 0.875rem;
 }
+
+.badge-sm {
+    font-size: 0.65rem !important;
+    padding: 1px 3px !important;
+}
 </style>
 {% endblock %}
 
@@ -106,28 +126,19 @@
     <li class="nav-item" role="presentation">
         <button class="nav-link active" id="holidays-tab" data-bs-toggle="tab" data-bs-target="#holidaysPanel"
                 type="button" role="tab" aria-controls="holidaysPanel" aria-selected="true">
-            <i class="fas fa-umbrella-beach"></i> Holidays
-            {% if holidays %}
-                <span class="badge bg-secondary ms-1">{{ holidays|length }}</span>
-            {% endif %}
+            <i class="fas fa-umbrella-beach"></i> Time Off
         </button>
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="adjustments-tab" data-bs-toggle="tab" data-bs-target="#adjustmentsPanel"
                 type="button" role="tab" aria-controls="adjustmentsPanel" aria-selected="false">
             <i class="fas fa-clock"></i> One-off Adjustments
-            {% if adjustments %}
-                <span class="badge bg-secondary ms-1">{{ adjustments|length }}</span>
-            {% endif %}
         </button>
     </li>
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="swaps-tab" data-bs-toggle="tab" data-bs-target="#swapsPanel"
                 type="button" role="tab" aria-controls="swapsPanel" aria-selected="false">
             <i class="fas fa-exchange-alt"></i> Shift Swaps
-            {% if swaps %}
-                <span class="badge bg-secondary ms-1">{{ swaps|length }}</span>
-            {% endif %}
         </button>
     </li>
 </ul>
@@ -139,115 +150,328 @@
     <div class="tab-pane fade show active" id="holidaysPanel" role="tabpanel" aria-labelledby="holidays-tab">
         <div class="row g-4">
             <!-- Add Holiday Form -->
-            <div class="col-lg-4">
+            <div class="col-12">
                 <div class="card">
                     <div class="card-header">
-                        <h5 class="mb-0"><i class="fas fa-plus-circle"></i> Book Holiday</h5>
+                        <h5 class="mb-0"><i class="fas fa-plus-circle"></i> Book Time Off</h5>
                     </div>
                     <div class="card-body">
                         <form method="POST" action="{{ url_for('add_holiday') }}" id="addHolidayForm">
-                            <div class="mb-3">
-                                <label for="holidayDriverSelect" class="form-label">Driver</label>
-                                <select class="form-select" id="holidayDriverSelect" name="driver_id" required>
-                                    <option value="">— Select driver —</option>
-                                    {% for driver in drivers %}
-                                        <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
-                                    {% endfor %}
-                                </select>
+                            <div class="alert alert-info py-2 mb-3" role="note">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Time Off overrides shift swaps, early/late adjustments, assigned patterns, and custom timings on selected dates.
                             </div>
-                            <!-- Calendar widget -->
-                            <div class="mb-3">
-                                <label class="form-label">Date</label>
-                                <div class="holiday-calendar border rounded p-2 bg-white">
-                                    <div class="cal-header">
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="calPrev">
-                                            <i class="fas fa-chevron-left"></i>
-                                        </button>
-                                        <strong id="calMonthLabel"></strong>
-                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="calNext">
-                                            <i class="fas fa-chevron-right"></i>
+                            <div class="row g-3">
+                                <!-- Left Column: Form Fields -->
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="holidayDriverSelect" class="form-label">Driver</label>
+                                        <select class="form-select" id="holidayDriverSelect" name="driver_id" required>
+                                            <option value="">— Select driver —</option>
+                                            {% for driver in drivers %}
+                                                <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="timeOffType" class="form-label">Type</label>
+                                        <select class="form-select" id="timeOffType" name="time_off_type" required>
+                                            <option value="holiday">Holiday</option>
+                                            <option value="sickness">Sickness</option>
+                                            <option value="vor">VOR (Vehicle Off Road)</option>
+                                            <option value="other">Other</option>
+                                        </select>
+                                        <div class="form-text" id="holidayDateDisplay">Click a date to start selecting a range.</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="holidayNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                                        <input type="text" class="form-control" id="holidayNotes" name="notes" maxlength="200" placeholder="e.g. Annual leave">
+                                    </div>
+                                    <button type="submit" class="btn btn-primary w-100" id="saveHolidayBtn" disabled>
+                                        <i class="fas fa-save"></i> Save Time Off
+                                    </button>
+                                </div>
+
+                                <!-- Right Column: Calendar widget -->
+                                <div class="col-md-6">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <label class="form-label mb-0">Date Range <small class="text-muted">(click start, then end date)</small></label>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="clearHolidaySelection">
+                                            <i class="fas fa-times"></i> Clear Selection
                                         </button>
                                     </div>
-                                    <table id="calTable">
-                                        <thead>
-                                            <tr>
-                                                <th>Mo</th><th>Tu</th><th>We</th><th>Th</th><th>Fr</th><th>Sa</th><th>Su</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="calBody"></tbody>
-                                    </table>
+                                    <div class="holiday-calendar border rounded p-2 bg-white">
+                                        <div class="cal-header">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="calPrev">
+                                                <i class="fas fa-chevron-left"></i>
+                                            </button>
+                                            <strong id="calMonthLabel"></strong>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="calNext">
+                                                <i class="fas fa-chevron-right"></i>
+                                            </button>
+                                        </div>
+                                        <table id="calTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>Mo</th><th>Tu</th><th>We</th><th>Th</th><th>Fr</th><th>Sa</th><th>Su</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="calBody"></tbody>
+                                        </table>
+                                    </div>
+                                    <input type="hidden" name="start_date" id="holidayStartDate" required>
+                                    <input type="hidden" name="end_date" id="holidayEndDate" required>
                                 </div>
-                                <input type="hidden" name="holiday_date" id="holidayDateInput" required>
-                                <div class="form-text" id="holidayDateDisplay">No date selected.</div>
                             </div>
-                            <div class="mb-3">
-                                <label for="holidayNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
-                                <input type="text" class="form-control" id="holidayNotes" name="notes" maxlength="200" placeholder="e.g. Annual leave">
-                            </div>
-                            <button type="submit" class="btn btn-primary w-100" id="saveHolidayBtn" disabled>
-                                <i class="fas fa-save"></i> Save Holiday
-                            </button>
                         </form>
                     </div>
                 </div>
             </div>
 
-            <!-- Holiday Records Table -->
-            <div class="col-lg-8">
+            <!-- Time Off Records Table -->
+            <div class="col-12">
                 <div class="card">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="fas fa-list"></i> Holiday Records</h5>
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-list"></i> Time Off Records</h5>
+                        <div class="d-flex gap-2">
+                            {% if finished_time_off_days and finished_time_off_days > 0 %}
+                            <button type="button" class="btn btn-sm btn-outline-danger"
+                                    onclick="showGlobalDeleteConfirm({
+                                        title: 'Delete All Finished Time Off',
+                                        message: 'Delete all finished time off records for all drivers?',
+                                        warning: 'This removes past time off records only and cannot be undone.',
+                                        action: '{{ url_for('delete_all_finished_holidays') }}',
+                                        submitLabel: 'Delete All Finished'
+                                    })">
+                                <i class="fas fa-trash-alt"></i> Delete All Finished
+                            </button>
+                            {% endif %}
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#calendarViewModal">
+                                <i class="fas fa-calendar-alt"></i> Calendar View
+                            </button>
+                        </div>
                     </div>
                     <div class="card-body p-0">
-                        {% if holidays %}
+                        {% if time_off_by_driver %}
                             <div class="table-responsive">
                                 <table class="table table-hover table-sm mb-0">
                                     <thead class="table-light">
                                         <tr>
                                             <th>Driver</th>
                                             <th>Date</th>
+                                            <th>Type</th>
                                             <th>Notes</th>
                                             <th class="text-end">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {% for h in holidays %}
+                                        {% set type_map = {'holiday': 'Holiday', 'sickness': 'Sickness', 'vor': 'VOR', 'other': 'Other'} %}
+                                        {% set type_icon_map = {'holiday': 'umbrella-beach', 'sickness': 'notes-medical', 'vor': 'wrench', 'other': 'question-circle'} %}
+                                        {% set type_color_map = {'holiday': 'warning', 'sickness': 'danger', 'vor': 'secondary', 'other': 'info'} %}
+
+                                        {% for entry in time_off_by_driver %}
+                                            {% set driver = entry.driver %}
+                                            {% set blocks = entry.current_future_blocks %}
+                                            {% set finished_blocks = entry.finished_blocks %}
+                                            {% set latest_group = blocks[0] %}
+                                            {% set first_holiday = latest_group[0] %}
+                                            {% set last_holiday = latest_group[-1] %}
                                         <tr>
                                             <td>
-                                                <span class="badge bg-primary me-1">{{ h.driver.formatted_driver_number() }}</span>
-                                                {{ h.driver.formatted_name() }}
+                                                <span class="badge bg-primary me-1">{{ driver.formatted_driver_number() }}</span>
+                                                {{ driver.formatted_name() }}
                                             </td>
                                             <td>
                                                 <i class="fas fa-umbrella-beach text-warning me-1"></i>
-                                                {{ h.holiday_date.strftime('%d/%m/%Y') }}
+                                                {% if latest_group|length == 1 %}
+                                                    {{ first_holiday.holiday_date.strftime('%d/%m/%Y') }}
+                                                {% else %}
+                                                    <strong>{{ first_holiday.holiday_date.strftime('%d/%m/%Y') }} – {{ last_holiday.holiday_date.strftime('%d/%m/%Y') }}</strong>
+                                                    <br><small class="text-muted">({{ latest_group|length }} days)</small>
+                                                {% endif %}
                                             </td>
                                             <td>
-                                                {% if h.notes %}
-                                                    <span class="text-muted">{{ h.notes }}</span>
+                                                <i class="fas fa-{{ type_icon_map.get(first_holiday.time_off_type, 'question-circle') }} text-{{ type_color_map.get(first_holiday.time_off_type, 'info') }} me-1"></i>
+                                                <span class="badge bg-{{ type_color_map.get(first_holiday.time_off_type, 'info') }}">{{ type_map.get(first_holiday.time_off_type, first_holiday.time_off_type|capitalize) }}</span>
+                                            </td>
+                                            <td>
+                                                {% if first_holiday.notes %}
+                                                    <span class="text-muted">{{ first_holiday.notes }}</span>
                                                 {% else %}
                                                     <span class="text-muted">—</span>
                                                 {% endif %}
                                             </td>
                                             <td class="text-end">
+                                                {% if finished_blocks|length > 0 %}
+                                                    <button type="button" class="btn btn-sm btn-outline-dark me-2"
+                                                            data-bs-toggle="modal" data-bs-target="#finishedBlocksModal{{ driver.id }}"
+                                                            title="View finished time off blocks">
+                                                        <i class="fas fa-history"></i>
+                                                    </button>
+                                                {% endif %}
+                                                {% if blocks|length > 1 %}
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary me-2 toggle-driver-blocks-btn"
+                                                            data-bs-toggle="collapse" data-bs-target=".driverBlocks{{ driver.id }}"
+                                                            aria-expanded="false"
+                                                            title="Show more current/future time off blocks">
+                                                        <i class="fas fa-chevron-down"></i>
+                                                    </button>
+                                                {% endif %}
+                                                <button type="button" class="btn btn-sm btn-primary me-2"
+                                                        onclick="loadHolidayGroupForEdit({{ first_holiday.driver_id }}, '{{ first_holiday.holiday_date.strftime('%Y-%m-%d') }}', '{{ last_holiday.holiday_date.strftime('%Y-%m-%d') }}', '{{ first_holiday.time_off_type }}', `{{ first_holiday.notes | default('', true) }}`)"
+                                                        data-bs-toggle="modal" data-bs-target="#editHolidayModal">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
                                                 <button type="button" class="btn btn-sm btn-danger"
                                                         onclick="showGlobalDeleteConfirm({
-                                                            title: 'Remove Holiday',
-                                                            message: 'Remove the holiday on {{ h.holiday_date.strftime('%d/%m/%Y') }} for',
-                                                            name: '{{ h.driver.formatted_name() }}',
-                                                            action: '{{ url_for('delete_holiday', holiday_id=h.id) }}'
+                                                            title: 'Remove Time Off',
+                                                            message: 'Remove {{ (latest_group|length ~ ' days ') if latest_group|length > 1 else '' }}time off for',
+                                                            name: '{{ driver.formatted_name() }}',
+                                                            action: '{{ url_for('delete_holiday_group', holiday_id=first_holiday.id) }}'
                                                         })">
                                                     <i class="fas fa-trash"></i>
                                                 </button>
                                             </td>
                                         </tr>
+
+                                        {% if blocks|length > 1 %}
+                                            {% for group in blocks[1:] %}
+                                                {% set first_holiday = group[0] %}
+                                                {% set last_holiday = group[-1] %}
+                                            <tr class="collapse driverBlocks{{ driver.id }}">
+                                                <td></td>
+                                                <td>
+                                                    <i class="fas fa-umbrella-beach text-warning me-1"></i>
+                                                    {% if group|length == 1 %}
+                                                        {{ first_holiday.holiday_date.strftime('%d/%m/%Y') }}
+                                                    {% else %}
+                                                        <strong>{{ first_holiday.holiday_date.strftime('%d/%m/%Y') }} – {{ last_holiday.holiday_date.strftime('%d/%m/%Y') }}</strong>
+                                                        <br><small class="text-muted">({{ group|length }} days)</small>
+                                                    {% endif %}
+                                                </td>
+                                                <td>
+                                                    <i class="fas fa-{{ type_icon_map.get(first_holiday.time_off_type, 'question-circle') }} text-{{ type_color_map.get(first_holiday.time_off_type, 'info') }} me-1"></i>
+                                                    <span class="badge bg-{{ type_color_map.get(first_holiday.time_off_type, 'info') }}">{{ type_map.get(first_holiday.time_off_type, first_holiday.time_off_type|capitalize) }}</span>
+                                                </td>
+                                                <td>
+                                                    {% if first_holiday.notes %}
+                                                        <span class="text-muted">{{ first_holiday.notes }}</span>
+                                                    {% else %}
+                                                        <span class="text-muted">—</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td class="text-end">
+                                                    <button type="button" class="btn btn-sm btn-primary me-2"
+                                                            onclick="loadHolidayGroupForEdit({{ first_holiday.driver_id }}, '{{ first_holiday.holiday_date.strftime('%Y-%m-%d') }}', '{{ last_holiday.holiday_date.strftime('%Y-%m-%d') }}', '{{ first_holiday.time_off_type }}', `{{ first_holiday.notes | default('', true) }}`)"
+                                                            data-bs-toggle="modal" data-bs-target="#editHolidayModal">
+                                                        <i class="fas fa-edit"></i>
+                                                    </button>
+                                                    <button type="button" class="btn btn-sm btn-danger"
+                                                            onclick="showGlobalDeleteConfirm({
+                                                                title: 'Remove Time Off',
+                                                                message: 'Remove {{ (group|length ~ ' days ') if group|length > 1 else '' }}time off for',
+                                                                name: '{{ driver.formatted_name() }}',
+                                                                action: '{{ url_for('delete_holiday_group', holiday_id=first_holiday.id) }}'
+                                                            })">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        {% endif %}
+
                                         {% endfor %}
                                     </tbody>
                                 </table>
                             </div>
+
+                            {% for entry in time_off_by_driver %}
+                                {% set driver = entry.driver %}
+                                {% set finished_blocks = entry.finished_blocks %}
+                                {% if finished_blocks|length > 0 %}
+                                <div class="modal fade" id="finishedBlocksModal{{ driver.id }}" tabindex="-1" aria-hidden="true">
+                                    <div class="modal-dialog modal-lg">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title"><i class="fas fa-history"></i> Finished Time Off - {{ driver.formatted_driver_number() }} {{ driver.formatted_name() }}</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <div class="table-responsive">
+                                                    <table class="table table-sm table-hover mb-0">
+                                                        <thead class="table-light">
+                                                            <tr>
+                                                                <th>Date</th>
+                                                                <th>Type</th>
+                                                                <th>Notes</th>
+                                                                <th class="text-end">Actions</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {% for group in finished_blocks %}
+                                                                {% set first_holiday = group[0] %}
+                                                                {% set last_holiday = group[-1] %}
+                                                            <tr>
+                                                                <td>
+                                                                    {% if group|length == 1 %}
+                                                                        {{ first_holiday.holiday_date.strftime('%d/%m/%Y') }}
+                                                                    {% else %}
+                                                                        <strong>{{ first_holiday.holiday_date.strftime('%d/%m/%Y') }} – {{ last_holiday.holiday_date.strftime('%d/%m/%Y') }}</strong>
+                                                                        <br><small class="text-muted">({{ group|length }} days)</small>
+                                                                    {% endif %}
+                                                                </td>
+                                                                <td>
+                                                                    {% set type_map = {'holiday': 'Holiday', 'sickness': 'Sickness', 'vor': 'VOR', 'other': 'Other'} %}
+                                                                    {% set type_color_map = {'holiday': 'warning', 'sickness': 'danger', 'vor': 'secondary', 'other': 'info'} %}
+                                                                    <span class="badge bg-{{ type_color_map.get(first_holiday.time_off_type, 'info') }}">{{ type_map.get(first_holiday.time_off_type, first_holiday.time_off_type|capitalize) }}</span>
+                                                                </td>
+                                                                <td>
+                                                                    {% if first_holiday.notes %}
+                                                                        <span class="text-muted">{{ first_holiday.notes }}</span>
+                                                                    {% else %}
+                                                                        <span class="text-muted">—</span>
+                                                                    {% endif %}
+                                                                </td>
+                                                                <td class="text-end">
+                                                                    <button type="button" class="btn btn-sm btn-danger"
+                                                                            onclick="showGlobalDeleteConfirm({
+                                                                                title: 'Remove Finished Time Off',
+                                                                                message: 'Remove {{ (group|length ~ ' days ') if group|length > 1 else '' }}finished time off for',
+                                                                                name: '{{ driver.formatted_name() }}',
+                                                                                action: '{{ url_for('delete_holiday_group', holiday_id=first_holiday.id) }}'
+                                                                            })">
+                                                                        <i class="fas fa-trash"></i>
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                            {% endfor %}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-danger"
+                                                        onclick="showGlobalDeleteConfirm({
+                                                            title: 'Delete Finished Time Off',
+                                                            message: 'Delete all finished time off records for',
+                                                            name: '{{ driver.formatted_name() }}',
+                                                            warning: 'This removes past time off records only and cannot be undone.',
+                                                            action: '{{ url_for('delete_finished_holidays_for_driver', driver_id=driver.id) }}',
+                                                            submitLabel: 'Delete All Finished'
+                                                        })">
+                                                    <i class="fas fa-trash-alt"></i> Delete All Finished
+                                                </button>
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            {% endfor %}
                         {% else %}
                             <div class="p-4 text-center text-muted">
                                 <i class="fas fa-umbrella-beach fa-2x mb-2 d-block"></i>
-                                No holiday records yet. Use the form to book holiday days.
+                                No time off records yet. Use the form to book time off.
                             </div>
                         {% endif %}
                     </div>
@@ -545,6 +769,58 @@
 
 </div><!-- end tab-content -->
 
+<!-- Edit Time Off Modal -->
+<div class="modal fade" id="editHolidayModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Edit Time Off</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" id="editHolidayForm">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="editHolDriver" class="form-label">Driver</label>
+                        <input type="text" class="form-control" id="editHolDriver" readonly>
+                        <input type="hidden" id="editHolDriverId" name="driver_id">
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="editHolStartDate" class="form-label">Start Date</label>
+                                <input type="date" class="form-control" id="editHolStartDate" name="start_date" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="editHolEndDate" class="form-label">End Date</label>
+                                <input type="date" class="form-control" id="editHolEndDate" name="end_date" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editTimeOffType" class="form-label">Type</label>
+                        <select class="form-select" id="editTimeOffType" name="time_off_type" required>
+                            <option value="holiday">Holiday</option>
+                            <option value="sickness">Sickness</option>
+                            <option value="vor">VOR (Vehicle Off Road)</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editHolNotes" class="form-label">Notes</label>
+                        <input type="text" class="form-control" id="editHolNotes" name="notes" maxlength="500" placeholder="Optional">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- Edit Adjustment Modal -->
 <div class="modal fade" id="editAdjustmentModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
@@ -584,9 +860,81 @@
     </div>
 </div>
 
+<!-- Calendar View Modal -->
+<div class="modal fade" id="calendarViewModal" tabindex="-1" aria-labelledby="calendarViewLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="calendarViewLabel"><i class="fas fa-calendar-alt"></i> Time Off Calendar View</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="calViewPrev">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <strong id="calViewMonthLabel"></strong>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="calViewNext">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+                <div class="calendar-view-container table-responsive">
+                    <table class="table table-bordered mb-0" id="calendarViewTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 60px;">Mo</th>
+                                <th style="width: 60px;">Tu</th>
+                                <th style="width: 60px;">We</th>
+                                <th style="width: 60px;">Th</th>
+                                <th style="width: 60px;">Fr</th>
+                                <th style="width: 60px;">Sa</th>
+                                <th style="width: 60px;">Su</th>
+                            </tr>
+                        </thead>
+                        <tbody id="calendarViewBody">
+                        </tbody>
+                    </table>
+                </div>
+                <div class="mt-3">
+                    <small class="text-muted">
+                        <strong>Legend:</strong> Driver numbers shown in colored boxes indicate time off. 
+                        Hover over boxes for details.
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="alertBannerContainer"></div>
+
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/shared.core.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (typeof window.showAlertBanner !== 'function') {
+        return;
+    }
+
+    const flashAlerts = document.querySelectorAll('main > .alert.alert-dismissible');
+    flashAlerts.forEach(function (alertEl) {
+        let level = 'info';
+        if (alertEl.classList.contains('alert-success')) level = 'success';
+        else if (alertEl.classList.contains('alert-danger')) level = 'error';
+        else if (alertEl.classList.contains('alert-warning')) level = 'warning';
+
+        const cloned = alertEl.cloneNode(true);
+        const closeBtn = cloned.querySelector('.btn-close');
+        if (closeBtn) closeBtn.remove();
+
+        const messageHtml = cloned.innerHTML.trim();
+        window.showAlertBanner(level, messageHtml, true, 4000);
+        alertEl.remove();
+    });
+});
+</script>
 <script src="{{ url_for('static', filename='js/scheduling.core.js') }}"></script>
 <script src="{{ url_for('static', filename='js/scheduling.event-bindings.js') }}"></script>
 {% endblock %}

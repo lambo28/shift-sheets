@@ -6,6 +6,22 @@
 (function () {
     'use strict';
 
+    function showPageAlert(message, level = 'danger') {
+        if (typeof window.showAlertBanner === 'function') {
+            window.showAlertBanner(level, message, true, 4000);
+            return;
+        }
+
+        const main = document.querySelector('main');
+        if (!main) return;
+
+        const alert = document.createElement('div');
+        alert.className = `alert alert-${level} alert-dismissible fade show`;
+        alert.setAttribute('role', 'alert');
+        alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+        main.prepend(alert);
+    }
+
     // -----------------------------------------------------------------------
     // Initialise calendar widget once DOM is ready
     // -----------------------------------------------------------------------
@@ -55,7 +71,39 @@
                 bsTab.show();
             }
         }
+
+        initDriverBlockToggleButtons();
     });
+
+    function initDriverBlockToggleButtons() {
+        const buttons = document.querySelectorAll('.toggle-driver-blocks-btn');
+        buttons.forEach(function (btn) {
+            const targetSelector = btn.getAttribute('data-bs-target');
+            const icon = btn.querySelector('i');
+            if (!targetSelector || !icon) return;
+
+            const targets = document.querySelectorAll(targetSelector);
+            if (!targets.length) return;
+
+            const updateIcon = function (expanded) {
+                icon.classList.toggle('fa-chevron-down', !expanded);
+                icon.classList.toggle('fa-chevron-up', expanded);
+                btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+            };
+
+            updateIcon(Array.from(targets).some(el => el.classList.contains('show')));
+
+            targets.forEach(function (target) {
+                target.addEventListener('shown.bs.collapse', function () {
+                    updateIcon(true);
+                });
+                target.addEventListener('hidden.bs.collapse', function () {
+                    const anyOpen = Array.from(targets).some(el => el.classList.contains('show'));
+                    updateIcon(anyOpen);
+                });
+            });
+        });
+    }
 
     // -----------------------------------------------------------------------
     // Adjustment type label
@@ -148,4 +196,70 @@
         }
     });
 
+    // Edit Holiday modal
+    const editHolidayForm = document.getElementById('editHolidayForm');
+    if (editHolidayForm) {
+        editHolidayForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            const startDate = document.getElementById('editHolStartDate').value;
+            const endDate = document.getElementById('editHolEndDate').value;
+            const timeOffType = document.getElementById('editTimeOffType').value;
+            const notes = document.getElementById('editHolNotes').value;
+            const driverId = document.getElementById('editHolDriverId').value;
+            const oldStart = document.getElementById('editHolStartDate').dataset.oldStart;
+            const oldEnd = document.getElementById('editHolEndDate').dataset.oldEnd;
+            
+            // Update time off
+            fetch('/scheduling/holiday/update', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    driver_id: driverId,
+                    old_start_date: oldStart,
+                    old_end_date: oldEnd,
+                    new_start_date: startDate,
+                    new_end_date: endDate,
+                    time_off_type: timeOffType,
+                    notes: notes
+                })
+            }).then(response => response.json()).then(data => {
+                if (data.success) {
+                    const bootstrapModal = bootstrap.Modal.getInstance(document.getElementById('editHolidayModal'));
+                    if (bootstrapModal) bootstrapModal.hide();
+                    location.reload();
+                } else {
+                    showPageAlert(data.message || 'Failed to update time off', 'warning');
+                }
+            }).catch(err => {
+                console.error('Error:', err);
+                showPageAlert('Could not update time off. Please try again.', 'danger');
+            });
+        });
+    }
+
 })();
+
+/**
+ * Load holiday group data into edit modal
+ */
+function loadHolidayGroupForEdit(driverId, startDate, endDate, timeOffType, notes) {
+    document.getElementById('editHolDriverId').value = driverId;
+    document.getElementById('editHolStartDate').value = startDate;
+    document.getElementById('editHolEndDate').value = endDate;
+    document.getElementById('editHolStartDate').dataset.oldStart = startDate;
+    document.getElementById('editHolEndDate').dataset.oldEnd = endDate;
+    document.getElementById('editTimeOffType').value = timeOffType || 'holiday';
+    document.getElementById('editHolNotes').value = notes;
+    
+    // Fetch driver name
+    fetch('/api/driver/' + driverId)
+        .then(response => response.json())
+        .then(data => {
+            if (data.formatted_name) {
+                document.getElementById('editHolDriver').value = data.formatted_name;
+            }
+        })
+        .catch(err => console.error('Error fetching driver:', err));
+}

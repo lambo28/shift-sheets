@@ -306,10 +306,11 @@ class DriverAssignment(db.Model):
 # -----------------------------------------------------------------------------
 
 class DriverHoliday(db.Model):
-    """Records holiday dates for a driver."""
+    """Records time off dates for a driver (holiday, sickness, VOR, etc)."""
     id = db.Column(db.Integer, primary_key=True)
     driver_id = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=False)
     holiday_date = db.Column(db.Date, nullable=False)
+    time_off_type = db.Column(db.String(20), nullable=False, default='holiday')  # holiday, sickness, vor, other
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -410,6 +411,46 @@ def shift_label(shift_type):
     return ' '.join(p.upper() if p.lower() in {'am', 'pm'} else p.capitalize() for p in parts)
 
 
+@app.template_filter('group_consecutive_holidays')
+def group_consecutive_holidays(holidays_list):
+    """Group consecutive holiday dates into ranges for display."""
+    if not holidays_list:
+        return []
+
+    # Keep groups isolated by driver + type + notes so records from different
+    # drivers (or different time off categories) never get merged into one row.
+    sorted_holidays = sorted(
+        holidays_list,
+        key=lambda h: (
+            h.driver_id,
+            h.time_off_type or "holiday",
+            h.notes or "",
+            h.holiday_date,
+        ),
+    )
+    groups = []
+    current_group = [sorted_holidays[0]]
+
+    for holiday in sorted_holidays[1:]:
+        # Check if this holiday belongs to the same logical group
+        last = current_group[-1]
+        same_driver = holiday.driver_id == last.driver_id
+        same_type = (holiday.time_off_type or "holiday") == (last.time_off_type or "holiday")
+        same_notes = (holiday.notes or "") == (last.notes or "")
+        is_consecutive = (holiday.holiday_date - last.holiday_date).days == 1
+
+        if same_driver and same_type and same_notes and is_consecutive:
+            current_group.append(holiday)
+        else:
+            groups.append(current_group)
+            current_group = [holiday]
+
+    if current_group:
+        groups.append(current_group)
+
+    return groups
+
+
 @app.template_filter('shift_abbrev')
 def shift_abbrev(shift_type, all_shifts_str=''):
     """
@@ -489,6 +530,14 @@ def get_drivers_count_by_shift(target_date):
     drivers_by_shift = get_drivers_for_date(target_date)
     return {shift_type: len(drivers_list) for shift_type, drivers_list in drivers_by_shift.items()}
 
+
+def is_driver_on_holiday(driver_id, target_date):
+    """Return True when the driver has an approved holiday on target_date."""
+    return (
+        DriverHoliday.query.filter_by(driver_id=driver_id, holiday_date=target_date).first()
+        is not None
+    )
+
 def get_drivers_for_date(target_date):
     """Get all drivers working on a specific date with their shift assignments and timing info"""
     # Get all user-defined shift types
@@ -505,6 +554,9 @@ def get_drivers_for_date(target_date):
     assignments = get_active_assignments_for_date(target_date)
     
     for assignment in assignments:
+        if is_driver_on_holiday(assignment.driver_id, target_date):
+            continue
+
         shift_types = assignment.get_shifts_for_date(target_date)
         if not shift_types:
             continue
@@ -586,6 +638,9 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None):
     if timings_dict is None:
         all_timings = ShiftTiming.query.all()
         timings_dict = {timing.shift_type: timing for timing in all_timings}
+
+    if is_driver_on_holiday(driver.id, target_date):
+        return []
 
     assignments = DriverAssignment.query.filter(
         DriverAssignment.driver_id == driver.id,
@@ -1931,6 +1986,9 @@ def get_cars_working_at_time(target_date, target_time):
     
     cars_working = 0
     for assignment in assignments:
+        if is_driver_on_holiday(assignment.driver_id, target_date):
+            continue
+
         # Get all shift types for this date
         shift_types = assignment.get_shifts_for_date(target_date)
 
@@ -2312,16 +2370,31 @@ def get_driver_calendar_data(driver_id):
     all_timings = ShiftTiming.query.all()
     timings_dict = {timing.shift_type: timing for timing in all_timings}
 
+    # Get holidays for this driver in the month
+    holidays_in_month = DriverHoliday.query.filter(
+        DriverHoliday.driver_id == driver_id,
+        DriverHoliday.holiday_date >= month_start,
+        DriverHoliday.holiday_date < next_month
+    ).all()
+    holiday_dates = {h.holiday_date.strftime("%Y-%m-%d"): h for h in holidays_in_month}
+
     today = datetime.now().date()
     days = []
     for day_offset in range(month_days):
         current_date = month_start + timedelta(days=day_offset)
-        day_entries = get_driver_shifts_for_date(driver, current_date, timings_dict)
+        date_str = current_date.strftime("%Y-%m-%d")
+        holiday_record = holiday_dates.get(date_str)
+        is_holiday = holiday_record is not None
+        
+        # If on holiday, show no shifts (holiday overrides)
+        day_entries = [] if is_holiday else get_driver_shifts_for_date(driver, current_date, timings_dict)
 
         days.append({
-            "date": current_date.strftime("%Y-%m-%d"),
+            "date": date_str,
             "day": current_date.day,
             "is_today": current_date == today,
+            "is_holiday": is_holiday,
+            "time_off_type": holiday_record.time_off_type if holiday_record else None,
             "shifts": [
                 {
                     "shift_type": entry["shift_type"],
@@ -2344,6 +2417,51 @@ def get_driver_calendar_data(driver_id):
         "first_weekday": month_start.weekday(),
         "days": days,
     })
+
+
+@app.route("/scheduling/calendar-view")
+def scheduling_calendar_view():
+    """Get all drivers' time off for calendar view (AJAX)"""
+    month_param = request.args.get("month", "").strip()
+    if month_param:
+        try:
+            month_start = datetime.strptime(month_param, "%Y-%m").date().replace(day=1)
+        except ValueError:
+            return json_error("Invalid month format. Use YYYY-MM")
+    else:
+        today = datetime.now().date()
+        month_start = today.replace(day=1)
+
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+
+    # Get all holidays in this month
+    holidays = DriverHoliday.query.filter(
+        DriverHoliday.holiday_date >= month_start,
+        DriverHoliday.holiday_date < next_month
+    ).all()
+
+    driver_ids = {holiday.driver_id for holiday in holidays}
+    drivers = Driver.query.filter(Driver.id.in_(driver_ids)).all() if driver_ids else []
+    driver_number_map = {driver.id: driver.driver_number for driver in drivers}
+
+    # Group by date for easy calendar rendering
+    days_data = {}
+    for holiday in holidays:
+        date_str = holiday.holiday_date.strftime("%Y-%m-%d")
+        if date_str not in days_data:
+            days_data[date_str] = []
+        days_data[date_str].append({
+            "driver_id": holiday.driver_id,
+            "driver_number": driver_number_map.get(holiday.driver_id, holiday.driver_id),
+            "time_off_type": holiday.time_off_type or "holiday",
+        })
+
+    return jsonify({
+        "success": True,
+        "month": month_start.strftime("%Y-%m"),
+        "days": days_data,
+    })
+
 
 @app.route("/custom-timing/<int:timing_id>/get")
 def get_custom_timing(timing_id):
@@ -2607,12 +2725,56 @@ def validate_swap(driver_a, driver_b, date_a, date_b):
 def scheduling():
     """Scheduling management: holidays, one-off adjustments, shift swaps."""
     all_drivers = Driver.query.order_by(Driver.driver_number).all()
+    today = datetime.now().date()
     holidays = (
         DriverHoliday.query
         .join(Driver)
         .order_by(DriverHoliday.holiday_date.desc())
         .all()
     )
+
+    holiday_groups = group_consecutive_holidays(holidays)
+    grouped_by_driver = {}
+    for group in holiday_groups:
+        first = group[0]
+        last = group[-1]
+        driver_id = first.driver_id
+        if driver_id not in grouped_by_driver:
+            grouped_by_driver[driver_id] = {
+                "driver": first.driver,
+                "current_future_blocks": [],
+                "finished_blocks": [],
+            }
+        if last.holiday_date < today:
+            grouped_by_driver[driver_id]["finished_blocks"].append(group)
+        else:
+            grouped_by_driver[driver_id]["current_future_blocks"].append(group)
+
+    for entry in grouped_by_driver.values():
+        entry["current_future_blocks"] = sorted(
+            entry["current_future_blocks"],
+            key=lambda block: block[0].holiday_date,
+        )
+        entry["finished_blocks"] = sorted(
+            entry["finished_blocks"],
+            key=lambda block: block[-1].holiday_date,
+            reverse=True,
+        )
+
+    def _driver_sort_key(entry):
+        number = str(entry["driver"].driver_number)
+        return (0, int(number)) if number.isdigit() else (1, number.lower())
+
+    time_off_by_driver = sorted(
+        [entry for entry in grouped_by_driver.values() if entry["current_future_blocks"]],
+        key=_driver_sort_key,
+    )
+    finished_time_off_days = sum(
+        len(group)
+        for entry in grouped_by_driver.values()
+        for group in entry["finished_blocks"]
+    )
+
     adjustments = (
         ShiftAdjustment.query
         .join(Driver)
@@ -2628,6 +2790,8 @@ def scheduling():
         "scheduling.html",
         drivers=all_drivers,
         holidays=holidays,
+        time_off_by_driver=time_off_by_driver,
+        finished_time_off_days=finished_time_off_days,
         adjustments=adjustments,
         swaps=swaps,
     )
@@ -2635,9 +2799,11 @@ def scheduling():
 
 @app.route("/scheduling/holiday/add", methods=["POST"])
 def add_holiday():
-    """Add a holiday date for a driver."""
+    """Add time off date(s) for a driver - supports date ranges."""
     driver_id = parse_positive_int(request.form.get("driver_id"))
-    date_str = request.form.get("holiday_date", "").strip()
+    start_date_str = request.form.get("start_date", "").strip()
+    end_date_str = request.form.get("end_date", "").strip()
+    time_off_type = request.form.get("time_off_type", "holiday").strip()
     notes = request.form.get("notes", "").strip()
 
     if not driver_id:
@@ -2647,33 +2813,221 @@ def add_holiday():
     driver = Driver.query.get_or_404(driver_id)
 
     try:
-        holiday_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+        end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
     except (ValueError, TypeError):
         flash("Invalid date format.", "error")
         return redirect(url_for("scheduling"))
 
-    existing = DriverHoliday.query.filter_by(driver_id=driver_id, holiday_date=holiday_date).first()
-    if existing:
-        flash(f"{driver.formatted_name()} already has holiday recorded on {holiday_date.strftime('%d/%m/%Y')}.", "warning")
+    if end_date < start_date:
+        flash("End date must be on or after start date.", "error")
         return redirect(url_for("scheduling"))
 
-    holiday = DriverHoliday(driver_id=driver_id, holiday_date=holiday_date, notes=notes or None)
-    db.session.add(holiday)
+    replaced_count = DriverHoliday.query.filter(
+        DriverHoliday.driver_id == driver_id,
+        DriverHoliday.holiday_date >= start_date,
+        DriverHoliday.holiday_date <= end_date,
+    ).delete(synchronize_session=False)
+
+    current_date = start_date
+    days_added = 0
+    while current_date <= end_date:
+        holiday = DriverHoliday(
+            driver_id=driver_id,
+            holiday_date=current_date,
+            time_off_type=time_off_type,
+            notes=notes or None,
+        )
+        db.session.add(holiday)
+        days_added += 1
+        current_date += timedelta(days=1)
+
     db.session.commit()
-    flash(f"Holiday on {holiday_date.strftime('%d/%m/%Y')} added for {driver.formatted_name()}.", "success")
+
+    if days_added == 1:
+        success_msg = f"Time off on {start_date.strftime('%d/%m/%Y')} added for {driver.formatted_name()}."
+    else:
+        success_msg = (
+            f"{days_added} time off days added for {driver.formatted_name()} "
+            f"({start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')})."
+        )
+
+    if replaced_count:
+        success_msg += f" Replaced {replaced_count} overlapping day(s) to keep time off types non-overlapping."
+
+    flash(success_msg, "success")
     return redirect(url_for("scheduling"))
 
 
 @app.route("/scheduling/holiday/<int:holiday_id>/delete", methods=["POST"])
 def delete_holiday(holiday_id):
-    """Delete a holiday record."""
+    """Delete a time off record."""
     holiday = DriverHoliday.query.get_or_404(holiday_id)
     driver_name = holiday.driver.formatted_name()
     date_str = holiday.holiday_date.strftime('%d/%m/%Y')
     db.session.delete(holiday)
     db.session.commit()
-    flash(f"Holiday on {date_str} for {driver_name} removed.", "success")
+    flash(f"Time off on {date_str} for {driver_name} removed.", "success")
     return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/holiday/<int:holiday_id>/delete-group", methods=["POST"])
+def delete_holiday_group(holiday_id):
+    """Delete all time off in a group (consecutive dates) identified by first record."""
+    first_holiday = DriverHoliday.query.get_or_404(holiday_id)
+    driver_id = first_holiday.driver_id
+    time_off_type = first_holiday.time_off_type or "holiday"
+    notes = first_holiday.notes or ""
+    start_date = first_holiday.holiday_date
+
+    # Find the group - collect all consecutive time off
+    holidays_to_delete = [first_holiday]
+    next_date = start_date + timedelta(days=1)
+    while True:
+        next_holiday = DriverHoliday.query.filter_by(driver_id=driver_id, holiday_date=next_date).first()
+        if not next_holiday:
+            break
+
+        next_type = next_holiday.time_off_type or "holiday"
+        next_notes = next_holiday.notes or ""
+        if next_type != time_off_type or next_notes != notes:
+            break
+
+        holidays_to_delete.append(next_holiday)
+        next_date += timedelta(days=1)
+
+    end_date = holidays_to_delete[-1].holiday_date
+    driver_name = first_holiday.driver.formatted_name()
+
+    for holiday in holidays_to_delete:
+        db.session.delete(holiday)
+
+    db.session.commit()
+
+    if len(holidays_to_delete) == 1:
+        flash(f"Time off on {start_date.strftime('%d/%m/%Y')} for {driver_name} removed.", "success")
+    else:
+        flash(f"Time off block ({start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')}) for {driver_name} removed.", "success")
+
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/holiday/<int:driver_id>/delete-finished", methods=["POST"])
+def delete_finished_holidays_for_driver(driver_id):
+    """Delete all finished time off records (past dates) for a driver."""
+    driver = Driver.query.get_or_404(driver_id)
+    today = datetime.now().date()
+
+    deleted_count = DriverHoliday.query.filter(
+        DriverHoliday.driver_id == driver_id,
+        DriverHoliday.holiday_date < today,
+    ).delete(synchronize_session=False)
+
+    db.session.commit()
+
+    if deleted_count:
+        flash(f"Removed {deleted_count} finished time off day(s) for {driver.formatted_name()}.", "success")
+    else:
+        flash(f"No finished time off to remove for {driver.formatted_name()}.", "warning")
+
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/holiday/delete-finished-all", methods=["POST"])
+def delete_all_finished_holidays():
+    """Delete all finished time off records for all drivers."""
+    today = datetime.now().date()
+
+    deleted_count = DriverHoliday.query.filter(
+        DriverHoliday.holiday_date < today,
+    ).delete(synchronize_session=False)
+
+    db.session.commit()
+
+    if deleted_count:
+        flash(f"Removed {deleted_count} finished time off day(s).", "success")
+    else:
+        flash("No finished time off to remove.", "warning")
+
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/holiday/update", methods=["POST"])
+def update_holiday():
+    """Update a holiday group - delete old dates and create new range."""
+    data = request.get_json() or {}
+    
+    driver_id = data.get("driver_id")
+    old_start_str = data.get("old_start_date")
+    old_end_str = data.get("old_end_date")
+    new_start_str = data.get("new_start_date")
+    new_end_str = data.get("new_end_date")
+    time_off_type = data.get("time_off_type", "holiday").strip()
+    notes = data.get("notes", "").strip()
+    
+    try:
+        driver = Driver.query.get_or_404(driver_id)
+        old_start = datetime.strptime(old_start_str, "%Y-%m-%d").date()
+        old_end = datetime.strptime(old_end_str, "%Y-%m-%d").date()
+        new_start = datetime.strptime(new_start_str, "%Y-%m-%d").date()
+        new_end = datetime.strptime(new_end_str, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        flash("Invalid date format.", "warning")
+        return jsonify({"success": False, "message": "Invalid date format"}), 400
+    
+    if new_end < new_start:
+        flash("End date must be on or after start date.", "warning")
+        return jsonify({"success": False, "message": "End date must be on or after start date"}), 400
+    
+    try:
+        # Remove the original edited block
+        DriverHoliday.query.filter(
+            DriverHoliday.driver_id == driver_id,
+            DriverHoliday.holiday_date >= old_start,
+            DriverHoliday.holiday_date <= old_end,
+        ).delete(synchronize_session=False)
+
+        # Enforce non-overlap by clearing any remaining records in target range
+        replaced_count = DriverHoliday.query.filter(
+            DriverHoliday.driver_id == driver_id,
+            DriverHoliday.holiday_date >= new_start,
+            DriverHoliday.holiday_date <= new_end,
+        ).delete(synchronize_session=False)
+
+        # Write updated block
+        current_date = new_start
+        while current_date <= new_end:
+            holiday = DriverHoliday(
+                driver_id=driver_id,
+                holiday_date=current_date,
+                time_off_type=time_off_type,
+                notes=notes or None,
+            )
+            db.session.add(holiday)
+            current_date += timedelta(days=1)
+
+        db.session.commit()
+        success_msg = f"Time off updated for {driver.formatted_name()}."
+        if replaced_count:
+            success_msg += f" Replaced {replaced_count} overlapping day(s) to keep time off types non-overlapping."
+        flash(success_msg, "success")
+        return jsonify({"success": True, "message": f"Time off updated for {driver.formatted_name()}"})
+    except Exception:
+        db.session.rollback()
+        flash("Could not update time off. Please try again.", "error")
+        return jsonify({"success": False, "message": "Could not update time off"}), 500
+
+
+@app.route("/api/driver/<int:driver_id>", methods=["GET"])
+def api_get_driver(driver_id):
+    """Get basic driver info for AJAX endpoints."""
+    driver = Driver.query.get_or_404(driver_id)
+    return jsonify({
+        "id": driver.id,
+        "formatted_name": driver.formatted_name(),
+        "name": driver.name,
+        "formatted_driver_number": driver.formatted_driver_number()
+    })
 
 
 @app.route("/scheduling/adjustment/add", methods=["POST"])

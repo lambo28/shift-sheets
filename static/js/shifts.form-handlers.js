@@ -4,8 +4,9 @@
  * Dependencies: shifts.core.js
  */
 
-// Pattern day names - used by all pattern form handlers
-const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+function getCycleDayLabel(index) {
+    return `Cycle Day ${index + 1}`;
+}
 
 /**
  * Initialize all form event handlers
@@ -51,7 +52,7 @@ function updateCreatePatternDays() {
         dayDiv.className = 'col-md-3 mb-3';
         
         dayDiv.innerHTML = `
-            <label for="create_day_${i}_shift" class="form-label">${dayNames[i]}</label>
+            <label for="create_day_${i}_shift" class="form-label">${getCycleDayLabel(i)}</label>
             ${renderDayShiftSelect(`create_day_${i}_shift`, `day_${i}_shift`, ['day_off'])}
         `;
         
@@ -409,7 +410,7 @@ function updateEditPatternDays() {
         const dayShifts = currentPattern.data && currentPattern.data[i] ? currentPattern.data[i] : ['day_off'];
         
         dayDiv.innerHTML = `
-            <label for="edit_day_${i}_shift" class="form-label">${dayNames[i]}</label>
+            <label for="edit_day_${i}_shift" class="form-label">${getCycleDayLabel(i)}</label>
             ${renderDayShiftSelect(`edit_day_${i}_shift`, `day_${i}_shift`, dayShifts)}
         `;
         
@@ -507,7 +508,7 @@ function updateCopyPatternDays() {
         const dayShifts = currentPattern.data && currentPattern.data[i] ? currentPattern.data[i] : ['day_off'];
         
         dayDiv.innerHTML = `
-            <label for="copy_day_${i}_shift" class="form-label">${dayNames[i]}</label>
+            <label for="copy_day_${i}_shift" class="form-label">${getCycleDayLabel(i)}</label>
             ${renderDayShiftSelect(`copy_day_${i}_shift`, `day_${i}_shift`, dayShifts)}
         `;
         

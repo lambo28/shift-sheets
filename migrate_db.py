@@ -6,6 +6,9 @@ Migrations included:
   1. Add pause/resume tracking columns to DriverAssignment table.
   2. Make start_time and end_time nullable in DriverCustomTiming table so that
      users can leave timing fields blank (falling back to the default shift time).
+  3. Add override_shift column for day-of-week shift overrides.
+  4. Add time_off_type column to DriverHoliday table for categorizing time off
+     (holiday, sickness, VOR, other).
 
 Run this script to update your existing database with these changes.
 """
@@ -154,6 +157,33 @@ def migrate_database():
             print("  • Blank timing fields fall back to the default shift times")
         else:
             print("\n✅ Phase 2: Database already up to date!")
+        
+        # ---------------------------------------------------------------
+        # Phase 4: Add time_off_type column to driver_holiday
+        # ---------------------------------------------------------------
+        changes_made = False
+        cursor.execute("PRAGMA table_info(driver_holiday)")
+        holiday_columns = [row[1] for row in cursor.fetchall()]
+        
+        if 'time_off_type' not in holiday_columns:
+            print("Adding time_off_type column to driver_holiday...")
+            cursor.execute("""
+                ALTER TABLE driver_holiday
+                ADD COLUMN time_off_type VARCHAR(20) NOT NULL DEFAULT 'holiday'
+            """)
+            changes_made = True
+            print("✓ Added time_off_type column")
+        else:
+            print("✓ time_off_type column already exists")
+        
+        if changes_made:
+            conn.commit()
+            print("\n✅ Phase 4 migrations completed successfully!")
+            print("\nThe system now supports:")
+            print("  • Different time off types: holiday, sickness, VOR, other")
+            print("  • Time off type display in calendar and tables")
+        else:
+            print("\n✅ Phase 4: Database already up to date!")
         
         conn.close()
         return True

@@ -465,7 +465,9 @@
                                 <div class="card-body">
                                     <h6><i class="fas fa-eye"></i> Pattern Preview</h6>
                                     <div id="assignPatternDisplay" class="d-flex flex-wrap gap-1"></div>
-                                    <small class="text-muted d-block mt-2">E=Earlies, D=Days, L=Lates, N=Nights, OFF=Rest Day</small>
+                                    <small class="text-muted d-block mt-2">
+                                        Abbreviations shown, OFF=Rest Day, multiple badges = split shift day
+                                    </small>
                                 </div>
                             </div>
                         </div>
@@ -726,6 +728,8 @@
 // Initialize driver assignments and shift timing display data from JSON embedded in page
 const driverAssignments = JSON.parse(document.getElementById('driverAssignmentsData').textContent || '{}');
 const shiftTimings = JSON.parse(document.getElementById('shiftTimingsData').textContent || '{}');
+// Make shiftTimings globally accessible for pattern preview
+window.shiftTimings = shiftTimings;
 let driverCalendarState = {
     driverId: null,
     driverName: '',
@@ -754,7 +758,12 @@ function renderDriverCalendar(data) {
     }
 
     (data.days || []).forEach((day) => {
-        const shiftsHtml = (day.shifts || []).length
+        const shiftsHtml = day.is_holiday
+            ? `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: white; font-weight: 900; text-align: center;">
+                  <div style="font-size: 1.1rem;">TIME OFF</div>
+                  <div style="font-size: 1.1rem; margin-top: 4px;">${(day.time_off_type || 'holiday').toUpperCase()}</div>
+               </div>`
+            : (day.shifts || []).length
             ? day.shifts.map((shift) => {
                 const timeText = shift.is_custom_time && (shift.start_time || shift.end_time)
                     ? `<span class="driver-calendar-shift-time">${shift.start_time || ''}${shift.start_time && shift.end_time ? '–' : ''}${shift.end_time || ''}</span>`
@@ -763,8 +772,9 @@ function renderDriverCalendar(data) {
             }).join('')
             : '<small class="text-muted">No shift</small>';
 
+        const cellClass = day.is_holiday ? 'table-danger' : day.is_today ? 'table-warning' : '';
         dayCells.push(`
-            <td class="driver-calendar-day ${day.is_today ? 'table-warning' : ''}">
+            <td class="driver-calendar-day ${cellClass}">
                 <div class="fw-bold small mb-1">${day.day}</div>
                 <div class="driver-calendar-shifts">${shiftsHtml}</div>
             </td>
