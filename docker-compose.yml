@@ -6,4 +6,24 @@ services:
       - "5000:5000"
     volumes:
       - ./data:/app/data
-    restart: unless-stopped
+    networks:
+      - lambertnet_proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.shifts.entrypoints=web"
+      - "traefik.http.routers.shifts.rule=Host(`shifts.${DOMAIN}`)"
+      - "traefik.http.middlewares.shifts-auth.basicauth.users=user:$$2y$$05$$sBC45i6FLQTQYQ8nzNiZneAcUy3iNsVbj9sA0NvrwnnxNO4P5JA5S"
+      - "traefik.http.middlewares.shifts-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.shifts.middlewares=shifts-https-redirect"
+      - "traefik.http.routers.shifts-secure.entrypoints=websecure"
+      - "traefik.http.routers.shifts-secure.rule=Host(`shifts.${DOMAIN}`)"
+      - "traefik.http.routers.shifts-secure.middlewares=shifts-auth"
+      - "traefik.http.routers.shifts-secure.tls=true"
+      - "traefik.http.routers.shifts-secure.service=shifts"
+      - "traefik.http.services.shifts.loadbalancer.server.scheme=http"
+      - "traefik.http.services.shifts.loadbalancer.server.port=5000"
+      - "traefik.docker.network=lambertnet_proxy"
+
+networks:
+  lambertnet_proxy:
+    external: true

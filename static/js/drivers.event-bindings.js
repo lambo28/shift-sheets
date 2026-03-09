@@ -32,6 +32,7 @@ function initializeModalCleanup() {
 function initializeGlobalClickHandler() {
     document.addEventListener('click', function(event) {
         handleAssignPatternButton(event) ||
+        handleAddAssignmentButton(event) ||
         handleAssignmentDeleteButton(event) ||
         handleAssignmentEndButton(event) ||
         handleAssignmentEditButton(event) ||
@@ -49,17 +50,36 @@ function handleAssignPatternButton(event) {
 
     const button = event.target.closest('.assign-pattern-btn');
     const driverId = button.getAttribute('data-driver-id');
-    const driverNumber = button.getAttribute('data-driver-number');
-    const driverName = button.getAttribute('data-driver-name');
-    const currentPattern = button.getAttribute('data-current-pattern');
-    const currentStart = button.getAttribute('data-current-start');
+    const panel = document.getElementById(`assignments-panel-${driverId}`);
+    if (!panel) return true;
 
-    // Configure modal
+    const willOpen = panel.classList.contains('d-none');
+
+    if (willOpen) {
+        document.querySelectorAll('.assignments-panel').forEach((row) => row.classList.add('d-none'));
+        document.querySelectorAll('.custom-timings-panel').forEach((row) => row.classList.add('d-none'));
+        document.querySelectorAll('.assign-pattern-btn').forEach((btn) => btn.classList.remove('active'));
+        document.querySelectorAll('.toggle-custom-timings').forEach((btn) => btn.classList.remove('active'));
+    }
+
+    panel.classList.toggle('d-none', !willOpen);
+    button.classList.toggle('active', willOpen);
+    button.blur();
+
+    if (willOpen) {
+        loadAssignmentHistory(driverId);
+    }
+
+    return true;
+}
+
+function openAssignPatternModalForDriver(driverMeta) {
+    const { driverId, driverNumber, driverName, currentPattern, currentStart } = driverMeta;
+
     document.getElementById('assignPatternForm').action = `/driver/${driverId}/assign-pattern`;
     document.getElementById('assignPatternModalTitle').innerHTML =
         `<i class="fas fa-calendar-plus"></i> Assign Shift Pattern - #${driverNumber} ${driverName}`;
 
-    // Set current date as start date
     const today = new Date();
     const todayString = `${today.getFullYear()}-${
         String(today.getMonth() + 1).padStart(2, '0')}-${
@@ -67,7 +87,6 @@ function handleAssignPatternButton(event) {
     document.getElementById('assign_start_date').value = todayString;
     document.getElementById('assign_end_date').value = '';
 
-    // Reset form
     document.getElementById('assign_pattern_id').value = '';
     document.getElementById('assignPatternPreview').style.display = 'none';
     document.getElementById('assign_current_assignment_warning').style.display = 'none';
@@ -75,17 +94,27 @@ function handleAssignPatternButton(event) {
     document.getElementById('assignPatternSubmitBtn').innerHTML =
         '<i class="fas fa-calendar-plus"></i> Assign Pattern';
 
-    // Store current assignment data
     document.getElementById('assignPatternForm').dataset.currentPattern = currentPattern || '';
     document.getElementById('assignPatternForm').dataset.currentStart = currentStart || '';
     document.getElementById('assignPatternForm').dataset.driverId = driverId;
 
-    // Load assignment history
     loadAssignmentHistory(driverId);
 
-    // Show modal
     const assignModal = new bootstrap.Modal(document.getElementById('assignPatternModal'));
     assignModal.show();
+}
+
+function handleAddAssignmentButton(event) {
+    if (!event.target.closest('.add-assignment-btn')) return false;
+
+    const button = event.target.closest('.add-assignment-btn');
+    openAssignPatternModalForDriver({
+        driverId: button.getAttribute('data-driver-id'),
+        driverNumber: button.getAttribute('data-driver-number'),
+        driverName: button.getAttribute('data-driver-name'),
+        currentPattern: button.getAttribute('data-current-pattern') || '',
+        currentStart: button.getAttribute('data-current-start') || '',
+    });
 
     return true;
 }
@@ -145,6 +174,9 @@ function handleAssignmentEditButton(event) {
     const button = event.target.closest('.edit-assignment-btn');
     const assignmentId = button.getAttribute('data-assignment-id');
     const driverId = button.getAttribute('data-driver-id');
+    const assignToggleBtn = document.querySelector(`.assign-pattern-btn[data-driver-id="${driverId}"]`);
+    const driverNumber = assignToggleBtn?.getAttribute('data-driver-number') || '';
+    const driverName = assignToggleBtn?.getAttribute('data-driver-name') || '';
 
     const assignments = driverAssignments[driverId] || [];
     const assignment = assignments.find(a => String(a.id) === String(assignmentId));
@@ -157,17 +189,22 @@ function handleAssignmentEditButton(event) {
     }
 
     // Populate form with assignment data
+    document.getElementById('assignPatternForm').dataset.driverId = driverId;
     document.getElementById('assignPatternForm').action =
         `/driver/${driverId}/assignment/${assignmentId}/edit`;
     document.getElementById('assign_pattern_id').value = String(assignment.patternId);
     showAssignPatternPreview();
     document.getElementById('assign_start_day').value = String(assignment.startDayOfCycle || 1);
+    showAssignPatternPreview();
     document.getElementById('assign_start_date').value = assignment.startDate || '';
     document.getElementById('assign_end_date').value = assignment.endDate || '';
     document.getElementById('assign_current_assignment_warning').style.display = 'none';
     document.getElementById('assignPatternSubmitBtn').innerHTML = '<i class="fas fa-save"></i> Update Assignment';
+    const displayDriver = driverNumber && driverName
+        ? ` - #${driverNumber} ${driverName}`
+        : '';
     document.getElementById('assignPatternModalTitle').innerHTML =
-        '<i class="fas fa-edit"></i> Edit Shift Assignment';
+        `<i class="fas fa-edit"></i> Edit Shift Assignment${displayDriver}`;
 
     // Show modal
     const assignModal = new bootstrap.Modal(document.getElementById('assignPatternModal'));
@@ -267,11 +304,16 @@ function initializeStringFormatters() {
  */
 function initializePatternForm() {
     const patternSelect = document.getElementById('assign_pattern_id');
+    const startDaySelect = document.getElementById('assign_start_day');
     const startDateInput = document.getElementById('assign_start_date');
     const endDateInput = document.getElementById('assign_end_date');
 
     if (patternSelect) {
         patternSelect.addEventListener('change', showAssignPatternPreview);
+    }
+
+    if (startDaySelect) {
+        startDaySelect.addEventListener('change', showAssignPatternPreview);
     }
 
     if (startDateInput) {
@@ -392,7 +434,8 @@ function showAssignPatternPreview() {
         patternData = [];
     }
 
-    // Populate starting day dropdown
+    // Populate starting day dropdown and preserve current selection
+    const existingSelectedDay = parseInt(startDaySelect.value || '1', 10) || 1;
     startDaySelect.innerHTML = '';
     for (let i = 1; i <= cycleLength; i++) {
         const opt = document.createElement('option');
@@ -400,6 +443,8 @@ function showAssignPatternPreview() {
         opt.textContent = `Day ${i}`;
         startDaySelect.appendChild(opt);
     }
+    const selectedDay = Math.min(Math.max(existingSelectedDay, 1), cycleLength);
+    startDaySelect.value = String(selectedDay);
     startDaySection.style.display = 'block';
 
     // Build pattern display
@@ -409,8 +454,13 @@ function showAssignPatternPreview() {
     const allShifts = normalizedPattern.flat();
     const nonOffShifts = allShifts.filter(s => s !== 'day_off');
 
+    const startIndex = selectedDay - 1;
+    const orderedPattern = normalizedPattern
+        .slice(startIndex)
+        .concat(normalizedPattern.slice(0, startIndex));
+
     display.innerHTML = '';
-    normalizedPattern.forEach(dayShifts => {
+    orderedPattern.forEach(dayShifts => {
         const workingShifts = dayShifts.filter(s => s !== 'day_off');
 
         if (workingShifts.length >= 2) {

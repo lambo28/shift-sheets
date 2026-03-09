@@ -63,6 +63,8 @@ function initializeAssignPatternForm() {
                 loadAssignmentHistory(driverId);
             }
 
+            hideModalById('assignPatternModal');
+
             // Reset form
             this.action = `/driver/${driverId}/assign-pattern`;
             document.getElementById('assign_pattern_id').value = '';

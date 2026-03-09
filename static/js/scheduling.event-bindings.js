@@ -29,6 +29,9 @@
         if (window.schedulingCalendar) {
             window.schedulingCalendar.init();
         }
+        if (window.schedulingAdjustmentCalendar) {
+            window.schedulingAdjustmentCalendar.init();
+        }
 
         // Update time input hint when adjustment type changes
         const adjTypeSelect = document.getElementById('adjType');
@@ -81,6 +84,10 @@
             const targetSelector = btn.getAttribute('data-bs-target');
             const icon = btn.querySelector('i');
             if (!targetSelector || !icon) return;
+
+            btn.addEventListener('click', function () {
+                btn.blur();
+            });
 
             const targets = document.querySelectorAll(targetSelector);
             if (!targets.length) return;

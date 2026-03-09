@@ -98,7 +98,7 @@
                                     </td>
                                     <td>
                                         <div class="btn-group btn-group-sm">
-                                            <button type="button" class="btn btn-outline-primary edit-timing-btn"
+                                            <button type="button" class="btn btn-primary edit-timing-btn"
                                                     data-timing-id="{{ timing.id }}"
                                                     title="Edit Custom Timing">
                                                 <i class="fas fa-edit"></i>
@@ -344,7 +344,7 @@ document.addEventListener('click', function(event) {
     if (event.target.closest('.delete-timing-btn')) {
         const button = event.target.closest('.delete-timing-btn');
         const timingId = button.getAttribute('data-timing-id');
-        const timingDesc = button.getAttribute('data-timing-desc');
+        const timingDesc = (button.getAttribute('data-timing-desc') || '').trim();
         const isModal = button.getAttribute('data-modal') === '1';
 
         if (isModal) {

@@ -4,6 +4,27 @@
 
 {% block extra_head %}
 <style>
+    .assign-pattern-btn,
+    .toggle-custom-timings {
+        position: relative;
+        overflow: visible;
+    }
+
+    .assign-pattern-btn.active::after,
+    .toggle-custom-timings.active::after {
+        content: "\f0d7";
+        font-family: "Font Awesome 6 Free";
+        font-weight: 900;
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: -9px;
+        font-size: 0.62rem;
+        color: #212529;
+        line-height: 1;
+        pointer-events: none;
+    }
+
     .toggle-custom-timings:focus,
     .toggle-custom-timings:focus-visible,
     .toggle-custom-timings:active,
@@ -12,60 +33,6 @@
         border-color: #ffc107 !important;
         color: #000 !important;
         box-shadow: none !important;
-    }
-
-    .driver-calendar-table {
-        table-layout: fixed;
-        width: 100%;
-    }
-
-    .driver-calendar-day {
-        height: 112px;
-        vertical-align: top;
-    }
-
-    .driver-calendar-day-empty {
-        height: 112px;
-        background-color: #f8f9fa;
-    }
-
-    .driver-calendar-shifts {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-    }
-
-    .driver-calendar-shift-box {
-        display: block;
-        width: 100%;
-        border-radius: 0.5rem;
-        padding: 0.28rem 0.25rem;
-        text-align: center;
-        font-size: 0.7rem;
-        line-height: 1.2;
-    }
-
-    .driver-calendar-shift-time {
-        display: block;
-        margin-top: 2px;
-        font-size: 0.64rem;
-        opacity: 0.95;
-    }
-
-    #driverCalendarModal .modal-dialog {
-        max-width: min(1180px, 95vw);
-    }
-
-    @media (max-width: 1200px) {
-        .driver-calendar-day,
-        .driver-calendar-day-empty {
-            height: 96px;
-        }
-
-        .driver-calendar-shift-box {
-            font-size: 0.66rem;
-            padding: 0.22rem 0.2rem;
-        }
     }
 </style>
 {% endblock %}
@@ -205,6 +172,7 @@
                                                 class="btn btn-sm btn-warning toggle-custom-timings"
                                                 title="Custom Timings"
                                                 data-driver-id="{{ driver.id }}"
+                                                data-driver-number="{{ driver.formatted_driver_number() }}"
                                                 data-driver-name="{{ driver.formatted_name() }}">
                                         <i class="fas fa-clock"></i>
                                             </button>
@@ -212,6 +180,7 @@
                                                 class="btn btn-sm btn-success show-driver-calendar-btn"
                                                 title="Driver Calendar"
                                                 data-driver-id="{{ driver.id }}"
+                                                data-driver-number="{{ driver.formatted_driver_number() }}"
                                                 data-driver-name="{{ driver.formatted_name() }}">
                                         <i class="fas fa-calendar-alt"></i>
                                             </button>
@@ -224,13 +193,37 @@
                                 </div>
                             </td>
                         </tr>
+                        <!-- Assignments Panel Row -->
+                        <tr id="assignments-panel-{{ driver.id }}" class="assignments-panel d-none">
+                            <td colspan="7" class="p-0">
+                                <div class="bg-light border-top p-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-3">
+                                        <h6 class="mb-0"><i class="fas fa-calendar-alt"></i> Pattern Assignments</h6>
+                                        <button type="button"
+                                            class="btn btn-sm btn-primary add-assignment-btn"
+                                                data-driver-id="{{ driver.id }}"
+                                                data-driver-number="{{ driver.formatted_driver_number() }}"
+                                                data-driver-name="{{ driver.formatted_name() }}"
+                                                {% if current_assignment and not current_assignment.end_date %}
+                                                data-current-pattern="{{ current_assignment.shift_pattern.name }}"
+                                                data-current-start="{{ current_assignment.start_date.strftime('%Y-%m-%d') }}"
+                                                {% endif %}>
+                                            <i class="fas fa-plus"></i> Add Assignment
+                                        </button>
+                                    </div>
+                                    <div class="assignments-list" data-driver-id="{{ driver.id }}">
+                                        <p class="text-muted text-center py-4"><i class="fas fa-spinner fa-spin"></i> Loading...</p>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
                         <!-- Custom Timings Panel Row -->
                         <tr id="custom-timings-panel-{{ driver.id }}" class="custom-timings-panel d-none">
                             <td colspan="7" class="p-0">
                                 <div class="bg-light border-top p-3">
                                     <div class="d-flex justify-content-between align-items-center mb-3">
                                         <h6 class="mb-0"><i class="fas fa-clock"></i> Custom Timings</h6>
-                                        <button type="button" class="btn btn-sm btn-primary add-custom-timing-btn" data-driver-id="{{ driver.id }}" data-driver-name="{{ driver.formatted_name() }}">
+                                        <button type="button" class="btn btn-sm btn-primary add-custom-timing-btn" data-driver-id="{{ driver.id }}" data-driver-number="{{ driver.formatted_driver_number() }}" data-driver-name="{{ driver.formatted_name() }}">
                                             <i class="fas fa-plus"></i> Add Timing
                                         </button>
                                     </div>
@@ -502,14 +495,6 @@
                         </div>
                     {% endif %}
 
-                    <!-- Assignment History Section -->
-                    <div id="assignmentHistorySection" style="display: none;">
-                        <hr class="my-4">
-                        <h6 class="mb-3"><i class="fas fa-history"></i> Assignment History</h6>
-                        <div id="assignmentHistoryContent" style="max-height: 300px; overflow-y: auto;">
-                            <!-- Will be populated dynamically -->
-                        </div>
-                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -732,6 +717,7 @@ const shiftTimings = JSON.parse(document.getElementById('shiftTimingsData').text
 window.shiftTimings = shiftTimings;
 let driverCalendarState = {
     driverId: null,
+    driverNumber: '',
     driverName: '',
     monthDate: null,
 };
@@ -740,6 +726,14 @@ function toCalendarMonthParam(dateObj) {
     const year = dateObj.getFullYear();
     const month = String(dateObj.getMonth() + 1).padStart(2, '0');
     return `${year}-${month}`;
+}
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
 }
 
 function renderDriverCalendar(data) {
@@ -754,35 +748,131 @@ function renderDriverCalendar(data) {
     const dayCells = [];
 
     for (let i = 0; i < firstWeekday; i++) {
-        dayCells.push('<td class="driver-calendar-day-empty"></td>');
+        dayCells.push('<td class="cal-empty"></td>');
     }
 
     (data.days || []).forEach((day) => {
-        const shiftsHtml = day.is_holiday
-            ? `<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: white; font-weight: 900; text-align: center;">
-                  <div style="font-size: 1.1rem;">TIME OFF</div>
-                  <div style="font-size: 1.1rem; margin-top: 4px;">${(day.time_off_type || 'holiday').toUpperCase()}</div>
-               </div>`
-            : (day.shifts || []).length
-            ? day.shifts.map((shift) => {
-                const timeText = shift.is_custom_time && (shift.start_time || shift.end_time)
-                    ? `<span class="driver-calendar-shift-time">${shift.start_time || ''}${shift.start_time && shift.end_time ? '–' : ''}${shift.end_time || ''}</span>`
-                    : '';
-                return `<span class="driver-calendar-shift-box text-white fw-bold fs-5 ${shift.badge_color || 'bg-primary'}">${shift.label}${timeText}</span>`;
-            }).join('')
-            : '<small class="text-muted">No shift</small>';
+        const lateStart = Array.isArray(day.adjustments)
+            ? day.adjustments.find((adj) => adj.adjustment_type === 'late_start')
+            : null;
+        const earlyFinish = Array.isArray(day.adjustments)
+            ? day.adjustments.find((adj) => adj.adjustment_type === 'early_finish')
+            : null;
 
-        const cellClass = day.is_holiday ? 'table-danger' : day.is_today ? 'table-warning' : '';
+        const toMinutes = (timeValue) => {
+            if (!timeValue || typeof timeValue !== 'string' || !timeValue.includes(':')) return null;
+            const [hours, mins] = timeValue.split(':').map((v) => parseInt(v, 10));
+            if (Number.isNaN(hours) || Number.isNaN(mins)) return null;
+            return (hours * 60) + mins;
+        };
+
+        const toTimeText = (minutesValue) => {
+            if (minutesValue === null || minutesValue === undefined) return '';
+            const hrs = String(Math.floor(minutesValue / 60)).padStart(2, '0');
+            const mins = String(minutesValue % 60).padStart(2, '0');
+            return `${hrs}:${mins}`;
+        };
+
+        const hasDayOffShift = Array.isArray(day.shifts)
+            ? day.shifts.some((shift) => shift.shift_type === 'day_off' || shift.label === 'OFF')
+            : false;
+
+        const shiftBadges = [];
+        const bottomTimeTokens = [];
+
+        (day.shifts || []).forEach((shift) => {
+                const startMinutes = toMinutes(shift.start_time);
+                const endMinutes = toMinutes(shift.end_time);
+                const defaultStartMinutes = toMinutes(shift.default_start_time) ?? startMinutes;
+                const defaultEndMinutes = toMinutes(shift.default_end_time) ?? endMinutes;
+
+                const effectiveStartMinutes = startMinutes;
+                const effectiveEndMinutes = endMinutes;
+
+                const startText = toTimeText(effectiveStartMinutes);
+                const endText = toTimeText(effectiveEndMinutes);
+                const hasTime = Boolean(startText || endText);
+                const rangeText = hasTime
+                    ? `${startText}${startText && endText ? '–' : ''}${endText}`
+                    : '';
+
+                const isChangedFromDefault =
+                    (effectiveStartMinutes !== null || defaultStartMinutes !== null)
+                        ? effectiveStartMinutes !== defaultStartMinutes
+                        : false
+                    ||
+                    (effectiveEndMinutes !== null || defaultEndMinutes !== null)
+                        ? effectiveEndMinutes !== defaultEndMinutes
+                        : false;
+
+                if (!day.is_holiday && !hasDayOffShift && rangeText && isChangedFromDefault) {
+                    bottomTimeTokens.push(`<span class="cal-shift-time-changed">${rangeText}</span>`);
+                }
+
+                const shiftIconHtml = (shift.shift_type === 'day_off' || shift.label === 'OFF')
+                    ? ''
+                    : `<i class="${shift.icon || 'fas fa-clock'} text-white"></i>`;
+                shiftBadges.push(`<span class="badge ${shift.badge_color || 'bg-primary'} cal-shift-box"><span class="cal-shift-label">${shiftIconHtml}${shift.label}</span></span>`);
+            });
+
+        const shiftsHtml = shiftBadges.join('');
+        const bottomTimesHtml = bottomTimeTokens.join('');
+
+        let timeOffHtml = '';
+        if (day.is_holiday) {
+            const type = day.time_off_type || 'other';
+            const typeLabelMap = {
+                holiday: 'Holiday',
+                sickness: 'Sickness',
+                vor: 'VOR',
+                other: 'Time Off'
+            };
+            const typeIconMap = {
+                holiday: 'fa-umbrella-beach',
+                sickness: 'fa-notes-medical',
+                vor: 'fa-wrench',
+                other: 'fa-user-clock'
+            };
+            const typeBadgeMap = {
+                holiday: 'bg-warning text-dark',
+                sickness: 'bg-danger',
+                vor: 'bg-secondary',
+                other: 'bg-info text-dark'
+            };
+            const label = typeLabelMap[type] || 'Time Off';
+            const icon = typeIconMap[type] || 'fa-user-clock';
+            const badgeClass = typeBadgeMap[type] || 'bg-info text-dark';
+            timeOffHtml = `<span class="badge ${badgeClass} cal-shift-box cal-timeoff" data-bs-toggle="tooltip" data-bs-placement="top" title="Driver marked as ${escapeHtml(label)}"><span class="cal-shift-label"><i class="fas ${icon}"></i>OFF</span></span>`;
+        }
+
+        const lateStartIconHtml = lateStart
+            ? `<span class="cal-adjustment-icon badge-late-start-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${lateStart.label} at ${lateStart.time}${lateStart.notes ? ` — ${lateStart.notes}` : ''}`)}"><i class="fas fa-hourglass-start"></i></span>`
+            : '';
+        const earlyFinishIconHtml = earlyFinish
+            ? `<span class="cal-adjustment-icon badge-early-finish-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${earlyFinish.label} at ${earlyFinish.time}${earlyFinish.notes ? ` — ${earlyFinish.notes}` : ''}`)}"><i class="fas fa-hourglass-end"></i></span>`
+            : '';
+
+        const contentHtml = `${shiftsHtml}${timeOffHtml}` || '<small class="text-muted">No shift</small>';
+
+        const cellClass = day.is_today ? 'table-warning' : '';
+
         dayCells.push(`
-            <td class="driver-calendar-day ${cellClass}">
-                <div class="fw-bold small mb-1">${day.day}</div>
-                <div class="driver-calendar-shifts">${shiftsHtml}</div>
+            <td class="cal-day ${cellClass}">
+                <div class="cal-day-header">
+                    <div class="fw-bold small">${day.day}</div>
+                </div>
+                <div class="cal-day-shifts">${contentHtml}</div>
+                <div class="cal-day-bottom">
+                    <div class="cal-day-bottom-left">${lateStartIconHtml}</div>
+                    <div class="cal-day-bottom-center">${bottomTimesHtml}</div>
+                    <div class="cal-day-bottom-right">${earlyFinishIconHtml}</div>
+                </div>
             </td>
         `);
     });
 
     while (dayCells.length % 7 !== 0) {
-        dayCells.push('<td class="driver-calendar-day-empty"></td>');
+        dayCells.push('<td class="cal-empty"></td>');
     }
 
     const rows = [];
@@ -791,8 +881,8 @@ function renderDriverCalendar(data) {
     }
 
     body.innerHTML = `
-        <div>
-            <table class="table table-bordered align-middle mb-0 driver-calendar-table">
+        <div class="holiday-calendar readonly">
+            <table class="table table-bordered align-middle mb-0">
                 <thead class="table-light">
                     <tr>${weekdays.map((name) => `<th class="text-center">${name}</th>`).join('')}</tr>
                 </thead>
@@ -802,6 +892,12 @@ function renderDriverCalendar(data) {
             </table>
         </div>
     `;
+
+    if (window.bootstrap && window.bootstrap.Tooltip) {
+        body.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
+            window.bootstrap.Tooltip.getOrCreateInstance(el);
+        });
+    }
 }
 
 function loadDriverCalendar() {
@@ -810,7 +906,10 @@ function loadDriverCalendar() {
     const body = document.getElementById('driverCalendarBody');
     const title = document.getElementById('driverCalendarTitle');
     if (title) {
-        title.textContent = `Driver Calendar - ${driverCalendarState.driverName}`;
+        const displayDriver = driverCalendarState.driverNumber
+            ? `#${driverCalendarState.driverNumber} ${driverCalendarState.driverName}`
+            : driverCalendarState.driverName;
+        title.textContent = `Driver Calendar - ${displayDriver}`;
     }
     if (body) {
         body.innerHTML = '<div class="text-center text-muted py-5"><i class="fas fa-spinner fa-spin"></i> Loading calendar...</div>';
@@ -915,11 +1014,24 @@ document.addEventListener('DOMContentLoaded', function() {
             const btn = e.target.closest('.toggle-custom-timings');
             const driverId = btn.getAttribute('data-driver-id');
             const panel = document.getElementById(`custom-timings-panel-${driverId}`);
-            panel.classList.toggle('d-none');
+            if (!panel) return;
+
+            const willOpen = panel.classList.contains('d-none');
+
+            if (willOpen) {
+                document.querySelectorAll('.custom-timings-panel').forEach((row) => row.classList.add('d-none'));
+                document.querySelectorAll('.assignments-panel').forEach((row) => row.classList.add('d-none'));
+                document.querySelectorAll('.toggle-custom-timings').forEach((toggleBtn) => toggleBtn.classList.remove('active'));
+                document.querySelectorAll('.assign-pattern-btn').forEach((assignBtn) => assignBtn.classList.remove('active'));
+            }
+
+            panel.classList.toggle('d-none', !willOpen);
+            btn.classList.toggle('active', willOpen);
+            btn.blur();
             
             // Load custom timings if not already loaded
             const list = panel.querySelector('.custom-timings-list');
-            if (list.querySelector('.fa-spinner')) {
+            if (willOpen && list && list.querySelector('.fa-spinner')) {
                 loadCustomTimings(driverId);
             }
         }
@@ -927,9 +1039,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (e.target.closest('.show-driver-calendar-btn')) {
             const btn = e.target.closest('.show-driver-calendar-btn');
             const driverId = btn.getAttribute('data-driver-id');
+            const driverNumber = btn.getAttribute('data-driver-number') || '';
             const driverName = btn.getAttribute('data-driver-name') || '';
 
             driverCalendarState.driverId = driverId;
+            driverCalendarState.driverNumber = driverNumber;
             driverCalendarState.driverName = driverName;
             driverCalendarState.monthDate = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
@@ -940,16 +1054,18 @@ document.addEventListener('DOMContentLoaded', function() {
         if (e.target.closest('.add-custom-timing-btn')) {
             const btn = e.target.closest('.add-custom-timing-btn');
             const driverId = btn.getAttribute('data-driver-id');
+            const driverNumber = btn.getAttribute('data-driver-number') || '';
             const driverName = btn.getAttribute('data-driver-name');
-            openCustomTimingForm(driverId, driverName);
+            openCustomTimingForm(driverId, driverName, driverNumber);
         }
         
         if (e.target.closest('.edit-custom-timing-inline')) {
             const btn = e.target.closest('.edit-custom-timing-inline');
             const driverId = btn.getAttribute('data-driver-id');
             const timingId = btn.getAttribute('data-timing-id');
+            const driverNumber = btn.getAttribute('data-driver-number') || '';
             const driverName = btn.getAttribute('data-driver-name');
-            editCustomTiming(driverId, timingId, driverName);
+            editCustomTiming(driverId, timingId, driverName, driverNumber);
         }
         
         if (e.target.closest('.delete-custom-timing-inline')) {
@@ -1088,11 +1204,8 @@ function loadCustomTimings(driverId) {
                                                     <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
                                                         <span>Every</span>
                                                         <span class="badge bg-light text-dark border">${weekdayLabel}</span>
-                                                        <span>,</span>
-                                                        ${hasSpecificShiftType ? `<span>that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>,</span>` : ''}
-                                                        <span>override to</span>
-                                                        <span class="badge ${overrideShiftDisplay.badgeColor}">${overrideShiftDisplay.label}</span>
-                                                        <span>.</span>
+                                                        ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, override to</span>` : `<span>, override to</span>`}
+                                                        <span class="d-inline-flex align-items-center gap-0"><span class="badge ${overrideShiftDisplay.badgeColor}">${overrideShiftDisplay.label}</span><span>.</span></span>
                                                     </div>
                                                 `;
                                             } else if (isCustomTimesMode) {
@@ -1108,10 +1221,7 @@ function loadCustomTimings(driverId) {
                                                     <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
                                                         <span>Every</span>
                                                         <span class="badge bg-light text-dark border">${weekdayLabel}</span>
-                                                        <span>,</span>
-                                                        ${hasSpecificShiftType ? `<span>that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>,</span>` : ''}
-                                                        <span>${customTimeSentence}</span>
-                                                        <span>.</span>
+                                                        ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, ${customTimeSentence}.</span>` : `<span>, ${customTimeSentence}.</span>`}
                                                     </div>
                                                 `;
                                             } else if (hasRuleCriteria) {
@@ -1129,7 +1239,6 @@ function loadCustomTimings(driverId) {
                                                                 return `<span class="badge ${display.badgeColor}">${display.label}</span>`;
                                                             }).join('')}`
                                                             : ''}
-                                                        <span>.</span>
                                                     </div>
                                                 `;
                                             }
@@ -1176,7 +1285,7 @@ function loadCustomTimings(driverId) {
                                                     <div class="text-end ms-3 d-flex align-items-center justify-content-end" style="min-width: 320px;">
                                                         ${rightBadgeHtml}
                                                         <div class="btn-group btn-group-sm">
-                                                            <button type="button" class="btn btn-sm btn-primary edit-custom-timing-inline" data-driver-id="${driverId}" data-timing-id="${t.id}" data-driver-name="${data.driver_name}">
+                                                            <button type="button" class="btn btn-sm btn-primary edit-custom-timing-inline" data-driver-id="${driverId}" data-timing-id="${t.id}" data-driver-name="${data.driver_name}" data-driver-number="${(document.querySelector(`.add-custom-timing-btn[data-driver-id="${driverId}"]`)?.getAttribute('data-driver-number') || '').replace(/"/g, '&quot;')}">
                                                                 <i class="fas fa-edit"></i>
                                                             </button>
                                                             <button type="button" class="btn btn-sm btn-danger delete-custom-timing-inline" data-driver-id="${driverId}" data-timing-id="${t.id}">
@@ -1789,7 +1898,7 @@ function setOverrideShiftValue(shiftType) {
     }
 }
 
-function openCustomTimingForm(driverId, driverName) {
+function openCustomTimingForm(driverId, driverName, driverNumber = '') {
     document.getElementById('ctFormDriverId').value = driverId;
     document.getElementById('ctFormTimingId').value = '';
     document.getElementById('customTimingForm').reset();
@@ -1803,11 +1912,12 @@ function openCustomTimingForm(driverId, driverName) {
     renderDayOfCycleMenu('', null);
     updateDayOfWeekModeVisibility();
     updateAssignmentCriteriaMutualExclusion('day');
-    document.getElementById('customTimingFormTitle').textContent = `Add Custom Timing - ${driverName}`;
+    const displayDriver = driverNumber ? `#${driverNumber} ${driverName}` : driverName;
+    document.getElementById('customTimingFormTitle').textContent = `Add Custom Timing - ${displayDriver}`;
     new bootstrap.Modal(document.getElementById('customTimingFormModal')).show();
 }
 
-function editCustomTiming(driverId, timingId, driverName) {
+function editCustomTiming(driverId, timingId, driverName, driverNumber = '') {
     fetch(`/custom-timing/${timingId}/get`, {
         headers: {
             'X-Requested-With': 'XMLHttpRequest'
@@ -1845,7 +1955,8 @@ function editCustomTiming(driverId, timingId, driverName) {
                     document.getElementById('ctFormPriority').value = String(priorityValue);
                 }
                 document.getElementById('ctFormNotes').value = t.notes || '';
-                document.getElementById('customTimingFormTitle').textContent = `Edit Custom Timing - ${driverName}`;
+                const displayDriver = driverNumber ? `#${driverNumber} ${driverName}` : driverName;
+                document.getElementById('customTimingFormTitle').textContent = `Edit Custom Timing - ${displayDriver}`;
                 new bootstrap.Modal(document.getElementById('customTimingFormModal')).show();
             }
         })

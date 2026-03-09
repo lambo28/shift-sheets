@@ -4,82 +4,6 @@
 
 {% block extra_head %}
 <style>
-/* Calendar grid for holiday picker */
-.holiday-calendar {
-    user-select: none;
-}
-
-.holiday-calendar .cal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 0.5rem;
-}
-
-.holiday-calendar table {
-    width: 100%;
-    table-layout: fixed;
-    border-collapse: separate;
-    border-spacing: 3px;
-}
-
-.holiday-calendar th {
-    text-align: center;
-    font-size: 0.75rem;
-    color: #6c757d;
-    padding-bottom: 4px;
-}
-
-.holiday-calendar td {
-    text-align: center;
-    vertical-align: top;
-    min-height: 60px;
-    height: auto;
-    padding: 4px 2px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.85rem;
-    transition: background 0.15s;
-}
-
-.holiday-calendar td:empty,
-.holiday-calendar td.cal-empty {
-    cursor: default;
-}
-
-.holiday-calendar .cal-day {
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
-}
-
-.holiday-calendar td.cal-day:hover {
-    background: #e9ecef;
-}
-
-.holiday-calendar td.cal-day.cal-selected {
-    background: #0d6efd !important;
-    color: #fff !important;
-    font-weight: 600;
-    border: 2px solid #0a58ca;
-}
-
-.holiday-calendar td.cal-day.cal-in-range {
-    background: #cfe2ff !important;
-    color: #084298;
-    font-weight: 500;
-}
-
-.holiday-calendar td.cal-day.cal-holiday {
-    background: #ffc107 !important;
-    color: #000;
-    font-weight: 600;
-}
-
-.holiday-calendar td.cal-day.cal-today {
-    border: 2px solid #0d6efd;
-    box-shadow: 0 0 0 1px #0d6efd;
-}
-
 .scheduling-tabs .nav-link {
     color: #495057;
 }
@@ -105,6 +29,35 @@
 .badge-sm {
     font-size: 0.65rem !important;
     padding: 1px 3px !important;
+}
+
+.adjustments-records-table td {
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+    vertical-align: middle;
+}
+
+.adj-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    line-height: 1.15;
+}
+
+.adj-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.2rem;
+}
+
+.toggle-driver-blocks-btn:focus,
+.toggle-driver-blocks-btn:active:focus {
+    box-shadow: none;
+}
+
+.toggle-driver-blocks-btn:focus-visible {
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
 }
 </style>
 {% endblock %}
@@ -132,7 +85,7 @@
     <li class="nav-item" role="presentation">
         <button class="nav-link" id="adjustments-tab" data-bs-toggle="tab" data-bs-target="#adjustmentsPanel"
                 type="button" role="tab" aria-controls="adjustmentsPanel" aria-selected="false">
-            <i class="fas fa-clock"></i> One-off Adjustments
+            <i class="fas fa-clock"></i> Time Adjustments
         </button>
     </li>
     <li class="nav-item" role="presentation">
@@ -200,7 +153,7 @@
                                             <i class="fas fa-times"></i> Clear Selection
                                         </button>
                                     </div>
-                                    <div class="holiday-calendar border rounded p-2 bg-white">
+                                    <div class="holiday-calendar compact border rounded p-2 bg-white">
                                         <div class="cal-header">
                                             <button type="button" class="btn btn-sm btn-outline-secondary" id="calPrev">
                                                 <i class="fas fa-chevron-left"></i>
@@ -254,7 +207,7 @@
                     <div class="card-body p-0">
                         {% if time_off_by_driver %}
                             <div class="table-responsive">
-                                <table class="table table-hover table-sm mb-0">
+                                <table class="table table-hover table-sm mb-0 adjustments-records-table">
                                     <thead class="table-light">
                                         <tr>
                                             <th>Driver</th>
@@ -302,35 +255,37 @@
                                                 {% endif %}
                                             </td>
                                             <td class="text-end">
-                                                {% if finished_blocks|length > 0 %}
-                                                    <button type="button" class="btn btn-sm btn-outline-dark me-2"
-                                                            data-bs-toggle="modal" data-bs-target="#finishedBlocksModal{{ driver.id }}"
-                                                            title="View finished time off blocks">
-                                                        <i class="fas fa-history"></i>
+                                                <div class="btn-group" role="group">
+                                                    {% if blocks|length > 1 %}
+                                                        <button type="button" class="btn btn-sm btn-secondary toggle-driver-blocks-btn"
+                                                                data-bs-toggle="collapse" data-bs-target=".driverBlocks{{ driver.id }}"
+                                                                aria-expanded="false"
+                                                                title="Show more current/future time off blocks">
+                                                            <i class="fas fa-chevron-down"></i>
+                                                        </button>
+                                                    {% endif %}
+                                                    {% if finished_blocks|length > 0 %}
+                                                        <button type="button" class="btn btn-sm btn-info"
+                                                                data-bs-toggle="modal" data-bs-target="#finishedBlocksModal{{ driver.id }}"
+                                                                title="View finished time off blocks">
+                                                            <i class="fas fa-history"></i>
+                                                        </button>
+                                                    {% endif %}
+                                                    <button type="button" class="btn btn-sm btn-primary"
+                                                            onclick="loadHolidayGroupForEdit({{ first_holiday.driver_id }}, '{{ first_holiday.holiday_date.strftime('%Y-%m-%d') }}', '{{ last_holiday.holiday_date.strftime('%Y-%m-%d') }}', '{{ first_holiday.time_off_type }}', `{{ first_holiday.notes | default('', true) }}`)"
+                                                            data-bs-toggle="modal" data-bs-target="#editHolidayModal">
+                                                        <i class="fas fa-edit"></i>
                                                     </button>
-                                                {% endif %}
-                                                {% if blocks|length > 1 %}
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary me-2 toggle-driver-blocks-btn"
-                                                            data-bs-toggle="collapse" data-bs-target=".driverBlocks{{ driver.id }}"
-                                                            aria-expanded="false"
-                                                            title="Show more current/future time off blocks">
-                                                        <i class="fas fa-chevron-down"></i>
+                                                    <button type="button" class="btn btn-sm btn-danger"
+                                                            onclick="showGlobalDeleteConfirm({
+                                                                title: 'Remove Time Off',
+                                                                message: 'Remove {{ (latest_group|length ~ ' days ') if latest_group|length > 1 else '' }}time off for',
+                                                                name: '{{ driver.formatted_name() }}',
+                                                                action: '{{ url_for('delete_holiday_group', holiday_id=first_holiday.id) }}'
+                                                            })">
+                                                        <i class="fas fa-trash"></i>
                                                     </button>
-                                                {% endif %}
-                                                <button type="button" class="btn btn-sm btn-primary me-2"
-                                                        onclick="loadHolidayGroupForEdit({{ first_holiday.driver_id }}, '{{ first_holiday.holiday_date.strftime('%Y-%m-%d') }}', '{{ last_holiday.holiday_date.strftime('%Y-%m-%d') }}', '{{ first_holiday.time_off_type }}', `{{ first_holiday.notes | default('', true) }}`)"
-                                                        data-bs-toggle="modal" data-bs-target="#editHolidayModal">
-                                                    <i class="fas fa-edit"></i>
-                                                </button>
-                                                <button type="button" class="btn btn-sm btn-danger"
-                                                        onclick="showGlobalDeleteConfirm({
-                                                            title: 'Remove Time Off',
-                                                            message: 'Remove {{ (latest_group|length ~ ' days ') if latest_group|length > 1 else '' }}time off for',
-                                                            name: '{{ driver.formatted_name() }}',
-                                                            action: '{{ url_for('delete_holiday_group', holiday_id=first_holiday.id) }}'
-                                                        })">
-                                                    <i class="fas fa-trash"></i>
-                                                </button>
+                                                </div>
                                             </td>
                                         </tr>
 
@@ -361,20 +316,22 @@
                                                     {% endif %}
                                                 </td>
                                                 <td class="text-end">
-                                                    <button type="button" class="btn btn-sm btn-primary me-2"
-                                                            onclick="loadHolidayGroupForEdit({{ first_holiday.driver_id }}, '{{ first_holiday.holiday_date.strftime('%Y-%m-%d') }}', '{{ last_holiday.holiday_date.strftime('%Y-%m-%d') }}', '{{ first_holiday.time_off_type }}', `{{ first_holiday.notes | default('', true) }}`)"
-                                                            data-bs-toggle="modal" data-bs-target="#editHolidayModal">
-                                                        <i class="fas fa-edit"></i>
-                                                    </button>
-                                                    <button type="button" class="btn btn-sm btn-danger"
-                                                            onclick="showGlobalDeleteConfirm({
-                                                                title: 'Remove Time Off',
-                                                                message: 'Remove {{ (group|length ~ ' days ') if group|length > 1 else '' }}time off for',
-                                                                name: '{{ driver.formatted_name() }}',
-                                                                action: '{{ url_for('delete_holiday_group', holiday_id=first_holiday.id) }}'
-                                                            })">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
+                                                    <div class="btn-group" role="group">
+                                                        <button type="button" class="btn btn-sm btn-primary"
+                                                                onclick="loadHolidayGroupForEdit({{ first_holiday.driver_id }}, '{{ first_holiday.holiday_date.strftime('%Y-%m-%d') }}', '{{ last_holiday.holiday_date.strftime('%Y-%m-%d') }}', '{{ first_holiday.time_off_type }}', `{{ first_holiday.notes | default('', true) }}`)"
+                                                                data-bs-toggle="modal" data-bs-target="#editHolidayModal">
+                                                            <i class="fas fa-edit"></i>
+                                                        </button>
+                                                        <button type="button" class="btn btn-sm btn-danger"
+                                                                onclick="showGlobalDeleteConfirm({
+                                                                    title: 'Remove Time Off',
+                                                                    message: 'Remove {{ (group|length ~ ' days ') if group|length > 1 else '' }}time off for',
+                                                                    name: '{{ driver.formatted_name() }}',
+                                                                    action: '{{ url_for('delete_holiday_group', holiday_id=first_holiday.id) }}'
+                                                                })">
+                                                            <i class="fas fa-trash"></i>
+                                                        </button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                             {% endfor %}
@@ -484,59 +441,113 @@
     <div class="tab-pane fade" id="adjustmentsPanel" role="tabpanel" aria-labelledby="adjustments-tab">
         <div class="row g-4">
             <!-- Add Adjustment Form -->
-            <div class="col-lg-4">
+            <div class="col-12">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="fas fa-plus-circle"></i> Add Adjustment</h5>
                     </div>
                     <div class="card-body">
                         <form method="POST" action="{{ url_for('add_adjustment') }}" id="addAdjustmentForm">
-                            <div class="mb-3">
-                                <label for="adjDriverSelect" class="form-label">Driver</label>
-                                <select class="form-select" id="adjDriverSelect" name="driver_id" required>
-                                    <option value="">— Select driver —</option>
-                                    {% for driver in drivers %}
-                                        <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
-                                    {% endfor %}
-                                </select>
+                            <div class="alert alert-info py-2 mb-3" role="note">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Time Adjustments apply to a selected working day only. You can set one Late Start and one Early Finish per day, and both must stay within that day's valid shift time window.
                             </div>
-                            <div class="mb-3">
-                                <label for="adjDate" class="form-label">Date</label>
-                                <input type="date" class="form-control" id="adjDate" name="adjustment_date" required>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="adjDriverSelect" class="form-label">Driver</label>
+                                        <select class="form-select" id="adjDriverSelect" name="driver_id" required>
+                                            <option value="">— Select driver —</option>
+                                            {% for driver in drivers %}
+                                                <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="row g-2 mb-3">
+                                        <div class="col-md-5">
+                                            <label for="adjType" class="form-label">Type</label>
+                                            <select class="form-select" id="adjType" name="adjustment_type" required>
+                                                <option value="">— Select type —</option>
+                                                <option value="late_start">Late Start</option>
+                                                <option value="early_finish">Early Finish</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-7">
+                                            <label for="adjTime" class="form-label" id="adjTimeLabel">Adjusted Time</label>
+                                            <input type="time" class="form-control" id="adjTime" name="adjusted_time" required>
+                                        </div>
+                                        <div class="col-12">
+                                            <div class="form-text" id="adjTimeHint">Enter the new start or finish time.</div>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="adjNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                                        <input type="text" class="form-control" id="adjNotes" name="notes" maxlength="200">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Date</label>
+                                        <div class="form-text" id="adjDateDisplay">Select a driver, then click a date on the calendar.</div>
+                                        <div class="form-text mt-1" id="adjShiftStatus"></div>
+                                        <input type="hidden" id="adjDate" name="adjustment_date" required>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary w-100" id="saveAdjustmentBtn" disabled>
+                                        <i class="fas fa-save"></i> Save Adjustment
+                                    </button>
+                                </div>
+
+                                <div class="col-md-6">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <label class="form-label mb-0">Adjustment Date <small class="text-muted">(single date)</small></label>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="clearAdjSelection">
+                                            <i class="fas fa-times"></i> Clear Selection
+                                        </button>
+                                    </div>
+                                    <div class="holiday-calendar compact border rounded p-2 bg-white">
+                                        <div class="cal-header">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="adjCalPrev">
+                                                <i class="fas fa-chevron-left"></i>
+                                            </button>
+                                            <strong id="adjCalMonthLabel"></strong>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="adjCalNext">
+                                                <i class="fas fa-chevron-right"></i>
+                                            </button>
+                                        </div>
+                                        <table id="adjCalTable">
+                                            <thead>
+                                                <tr>
+                                                    <th>Mo</th><th>Tu</th><th>We</th><th>Th</th><th>Fr</th><th>Sa</th><th>Su</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="adjCalBody"></tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="mb-3">
-                                <label for="adjType" class="form-label">Type</label>
-                                <select class="form-select" id="adjType" name="adjustment_type" required>
-                                    <option value="">— Select type —</option>
-                                    <option value="late_start">Late Start</option>
-                                    <option value="early_finish">Early Finish</option>
-                                </select>
-                            </div>
-                            <div class="mb-3">
-                                <label for="adjTime" class="form-label" id="adjTimeLabel">Adjusted Time</label>
-                                <input type="time" class="form-control" id="adjTime" name="adjusted_time" required>
-                                <div class="form-text" id="adjTimeHint">Enter the new start or finish time.</div>
-                            </div>
-                            <div class="mb-3">
-                                <label for="adjNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
-                                <input type="text" class="form-control" id="adjNotes" name="notes" maxlength="200">
-                            </div>
-                            <button type="submit" class="btn btn-primary w-100">
-                                <i class="fas fa-save"></i> Save Adjustment
-                            </button>
                         </form>
                     </div>
                 </div>
             </div>
 
             <!-- Adjustments Table -->
-            <div class="col-lg-8">
+            <div class="col-12">
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0"><i class="fas fa-list"></i> Adjustment Records</h5>
+                        {% if finished_adjustment_days and finished_adjustment_days > 0 %}
+                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                onclick="showGlobalDeleteConfirm({
+                                    title: 'Delete All Finished Adjustments',
+                                    message: 'Delete all finished adjustments for all drivers?',
+                                    warning: 'This removes past adjustment records only and cannot be undone.',
+                                    action: '{{ url_for('delete_all_finished_adjustments') }}',
+                                    submitLabel: 'Delete All Finished'
+                                })">
+                            <i class="fas fa-trash-alt"></i> Delete All Finished
+                        </button>
+                        {% endif %}
                     </div>
                     <div class="card-body p-0">
-                        {% if adjustments %}
+                        {% if adjustments_by_driver %}
                             <div class="table-responsive">
                                 <table class="table table-hover table-sm mb-0">
                                     <thead class="table-light">
@@ -550,57 +561,320 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {% for adj in adjustments %}
-                                        <tr id="adj-row-{{ adj.id }}">
+                                        {% for entry in adjustments_by_driver %}
+                                        {% set driver = entry.driver %}
+                                        {% set records = entry.current_future_records %}
+                                        {% set finished_records = entry.finished_records %}
+                                        {% set latest_record = records[0] %}
+                                        <tr id="adj-row-{{ driver.id }}-{{ latest_record.date.strftime('%Y%m%d') }}">
                                             <td>
-                                                <span class="badge bg-primary me-1">{{ adj.driver.formatted_driver_number() }}</span>
-                                                {{ adj.driver.formatted_name() }}
+                                                <span class="badge bg-primary me-1">{{ driver.formatted_driver_number() }}</span>
+                                                {{ driver.formatted_name() }}
                                             </td>
-                                            <td>{{ adj.adjustment_date.strftime('%d/%m/%Y') }}</td>
+                                            <td>{{ latest_record.date.strftime('%d/%m/%Y') }}</td>
                                             <td>
-                                                {% if adj.adjustment_type == 'late_start' %}
-                                                    <span class="badge badge-late-start"><i class="fas fa-hourglass-start me-1"></i>Late Start</span>
-                                                {% else %}
-                                                    <span class="badge badge-early-finish"><i class="fas fa-hourglass-end me-1"></i>Early Finish</span>
-                                                {% endif %}
+                                                <div class="adj-stack">
+                                                    {% if latest_record.late_start %}
+                                                        <span class="badge badge-late-start"><i class="fas fa-hourglass-start me-1"></i>Late Start</span>
+                                                    {% endif %}
+                                                    {% if latest_record.early_finish %}
+                                                        <span class="badge badge-early-finish"><i class="fas fa-hourglass-end me-1"></i>Early Finish</span>
+                                                    {% endif %}
+                                                </div>
                                             </td>
-                                            <td><strong>{{ adj.adjusted_time.strftime('%H:%M') }}</strong></td>
                                             <td>
-                                                {% if adj.notes %}
-                                                    <span class="text-muted">{{ adj.notes }}</span>
+                                                <div class="adj-stack">
+                                                    {% if latest_record.late_start %}
+                                                        <div><strong>{{ latest_record.late_start.adjusted_time.strftime('%H:%M') }}</strong> <small class="text-muted">(late)</small></div>
+                                                    {% endif %}
+                                                    {% if latest_record.early_finish %}
+                                                        <div><strong>{{ latest_record.early_finish.adjusted_time.strftime('%H:%M') }}</strong> <small class="text-muted">(early)</small></div>
+                                                    {% endif %}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                {% if latest_record.notes %}
+                                                    <span class="text-muted">{{ latest_record.notes }}</span>
                                                 {% else %}
                                                     <span class="text-muted">—</span>
                                                 {% endif %}
                                             </td>
                                             <td class="text-end">
-                                                <div class="btn-group">
-                                                    <button type="button" class="btn btn-sm btn-outline-primary edit-adj-btn"
-                                                            data-adj-id="{{ adj.id }}"
-                                                            data-driver-id="{{ adj.driver_id }}"
-                                                            data-date="{{ adj.adjustment_date.strftime('%Y-%m-%d') }}"
-                                                            data-type="{{ adj.adjustment_type }}"
-                                                            data-time="{{ adj.adjusted_time.strftime('%H:%M') }}"
-                                                            data-notes="{{ adj.notes or '' }}"
-                                                            title="Edit">
-                                                        <i class="fas fa-edit"></i>
-                                                    </button>
-                                                    <button type="button" class="btn btn-sm btn-danger"
-                                                            onclick="showGlobalDeleteConfirm({
-                                                                title: 'Remove Adjustment',
-                                                                message: 'Remove this adjustment for',
-                                                                name: '{{ adj.driver.formatted_name() }} on {{ adj.adjustment_date.strftime('%d/%m/%Y') }}',
-                                                                action: '{{ url_for('delete_adjustment', adjustment_id=adj.id) }}'
-                                                            })"
-                                                            title="Delete">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
+                                                <div class="adj-actions">
+                                                    {% set primary_adj = latest_record.late_start if latest_record.late_start else latest_record.early_finish %}
+                                                    {% set secondary_adj = latest_record.early_finish if latest_record.late_start and latest_record.early_finish else None %}
+                                                    <div class="btn-group" role="group">
+                                                        {% if records|length > 1 %}
+                                                            <button type="button" class="btn btn-sm btn-secondary toggle-driver-blocks-btn"
+                                                                    data-bs-toggle="collapse" data-bs-target=".adjDriverBlocks{{ driver.id }}"
+                                                                    aria-expanded="false"
+                                                                    title="Show more adjustments">
+                                                                <i class="fas fa-chevron-down"></i>
+                                                            </button>
+                                                        {% endif %}
+                                                        {% if finished_records|length > 0 %}
+                                                            <button type="button" class="btn btn-sm btn-info"
+                                                                    data-bs-toggle="modal" data-bs-target="#finishedAdjustmentsModal{{ driver.id }}"
+                                                                    title="View finished adjustments">
+                                                                <i class="fas fa-history"></i>
+                                                            </button>
+                                                        {% endif %}
+                                                        {% if primary_adj %}
+                                                            <button type="button" class="btn btn-sm btn-primary edit-adj-btn"
+                                                                    data-adj-id="{{ primary_adj.id }}"
+                                                                    data-driver-id="{{ primary_adj.driver_id }}"
+                                                                    data-date="{{ primary_adj.adjustment_date.strftime('%Y-%m-%d') }}"
+                                                                    data-type="{{ primary_adj.adjustment_type }}"
+                                                                    data-time="{{ primary_adj.adjusted_time.strftime('%H:%M') }}"
+                                                                    data-notes="{{ primary_adj.notes or '' }}"
+                                                                    title="Edit {{ 'late start' if primary_adj.adjustment_type == 'late_start' else 'early finish' }}">
+                                                                <i class="fas fa-edit"></i>
+                                                            </button>
+                                                            <button type="button" class="btn btn-sm btn-danger"
+                                                                    onclick="showGlobalDeleteConfirm({
+                                                                        title: 'Remove Adjustment',
+                                                                        message: 'Remove this adjustment for',
+                                                                        name: '{{ primary_adj.driver.formatted_name() }} on {{ primary_adj.adjustment_date.strftime('%d/%m/%Y') }} ({{ 'Late Start' if primary_adj.adjustment_type == 'late_start' else 'Early Finish' }})',
+                                                                        action: '{{ url_for('delete_adjustment', adjustment_id=primary_adj.id) }}'
+                                                                    })"
+                                                                    title="Delete {{ 'late start' if primary_adj.adjustment_type == 'late_start' else 'early finish' }}">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        {% endif %}
+                                                    </div>
+
+                                                    {% if secondary_adj %}
+                                                        <div class="btn-group" role="group">
+                                                            <button type="button" class="btn btn-sm btn-primary edit-adj-btn"
+                                                                    data-adj-id="{{ secondary_adj.id }}"
+                                                                    data-driver-id="{{ secondary_adj.driver_id }}"
+                                                                    data-date="{{ secondary_adj.adjustment_date.strftime('%Y-%m-%d') }}"
+                                                                    data-type="{{ secondary_adj.adjustment_type }}"
+                                                                    data-time="{{ secondary_adj.adjusted_time.strftime('%H:%M') }}"
+                                                                    data-notes="{{ secondary_adj.notes or '' }}"
+                                                                    title="Edit early finish">
+                                                                <i class="fas fa-edit"></i>
+                                                            </button>
+                                                            <button type="button" class="btn btn-sm btn-danger"
+                                                                    onclick="showGlobalDeleteConfirm({
+                                                                        title: 'Remove Adjustment',
+                                                                        message: 'Remove this adjustment for',
+                                                                        name: '{{ secondary_adj.driver.formatted_name() }} on {{ secondary_adj.adjustment_date.strftime('%d/%m/%Y') }} (Early Finish)',
+                                                                        action: '{{ url_for('delete_adjustment', adjustment_id=secondary_adj.id) }}'
+                                                                    })"
+                                                                    title="Delete early finish">
+                                                                <i class="fas fa-trash"></i>
+                                                            </button>
+                                                        </div>
+                                                    {% endif %}
                                                 </div>
                                             </td>
                                         </tr>
+
+                                        {% if records|length > 1 %}
+                                            {% for rec in records[1:] %}
+                                            <tr class="collapse adjDriverBlocks{{ driver.id }}" id="adj-row-{{ driver.id }}-{{ rec.date.strftime('%Y%m%d') }}">
+                                                <td></td>
+                                                <td>{{ rec.date.strftime('%d/%m/%Y') }}</td>
+                                                <td>
+                                                    <div class="adj-stack">
+                                                        {% if rec.late_start %}
+                                                            <span class="badge badge-late-start"><i class="fas fa-hourglass-start me-1"></i>Late Start</span>
+                                                        {% endif %}
+                                                        {% if rec.early_finish %}
+                                                            <span class="badge badge-early-finish"><i class="fas fa-hourglass-end me-1"></i>Early Finish</span>
+                                                        {% endif %}
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="adj-stack">
+                                                        {% if rec.late_start %}
+                                                            <div><strong>{{ rec.late_start.adjusted_time.strftime('%H:%M') }}</strong> <small class="text-muted">(late)</small></div>
+                                                        {% endif %}
+                                                        {% if rec.early_finish %}
+                                                            <div><strong>{{ rec.early_finish.adjusted_time.strftime('%H:%M') }}</strong> <small class="text-muted">(early)</small></div>
+                                                        {% endif %}
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    {% if rec.notes %}
+                                                        <span class="text-muted">{{ rec.notes }}</span>
+                                                    {% else %}
+                                                        <span class="text-muted">—</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td class="text-end">
+                                                    <div class="adj-actions">
+                                                        {% if rec.late_start %}
+                                                            <div class="btn-group" role="group">
+                                                                <button type="button" class="btn btn-sm btn-primary edit-adj-btn"
+                                                                        data-adj-id="{{ rec.late_start.id }}"
+                                                                        data-driver-id="{{ rec.late_start.driver_id }}"
+                                                                        data-date="{{ rec.late_start.adjustment_date.strftime('%Y-%m-%d') }}"
+                                                                        data-type="{{ rec.late_start.adjustment_type }}"
+                                                                        data-time="{{ rec.late_start.adjusted_time.strftime('%H:%M') }}"
+                                                                        data-notes="{{ rec.late_start.notes or '' }}"
+                                                                        title="Edit late start">
+                                                                    <i class="fas fa-edit"></i>
+                                                                </button>
+                                                                <button type="button" class="btn btn-sm btn-danger"
+                                                                        onclick="showGlobalDeleteConfirm({
+                                                                            title: 'Remove Adjustment',
+                                                                            message: 'Remove this adjustment for',
+                                                                            name: '{{ rec.late_start.driver.formatted_name() }} on {{ rec.late_start.adjustment_date.strftime('%d/%m/%Y') }} (Late Start)',
+                                                                            action: '{{ url_for('delete_adjustment', adjustment_id=rec.late_start.id) }}'
+                                                                        })"
+                                                                        title="Delete late start">
+                                                                    <i class="fas fa-trash"></i>
+                                                                </button>
+                                                            </div>
+                                                        {% endif %}
+                                                        {% if rec.early_finish %}
+                                                            <div class="btn-group" role="group">
+                                                                <button type="button" class="btn btn-sm btn-primary edit-adj-btn"
+                                                                        title="Edit early finish"
+                                                                        data-adj-id="{{ rec.early_finish.id }}"
+                                                                        data-driver-id="{{ rec.early_finish.driver_id }}"
+                                                                        data-date="{{ rec.early_finish.adjustment_date.strftime('%Y-%m-%d') }}"
+                                                                        data-type="{{ rec.early_finish.adjustment_type }}"
+                                                                        data-time="{{ rec.early_finish.adjusted_time.strftime('%H:%M') }}"
+                                                                        data-notes="{{ rec.early_finish.notes or '' }}">
+                                                                    <i class="fas fa-edit"></i>
+                                                                </button>
+                                                                <button type="button" class="btn btn-sm btn-danger"
+                                                                        onclick="showGlobalDeleteConfirm({
+                                                                            title: 'Remove Adjustment',
+                                                                            message: 'Remove this adjustment for',
+                                                                            name: '{{ rec.early_finish.driver.formatted_name() }} on {{ rec.early_finish.adjustment_date.strftime('%d/%m/%Y') }} (Early Finish)',
+                                                                            action: '{{ url_for('delete_adjustment', adjustment_id=rec.early_finish.id) }}'
+                                                                        })"
+                                                                        title="Delete early finish">
+                                                                    <i class="fas fa-trash"></i>
+                                                                </button>
+                                                            </div>
+                                                        {% endif %}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        {% endif %}
+
                                         {% endfor %}
                                     </tbody>
                                 </table>
                             </div>
+
+                            {% for entry in adjustments_with_finished %}
+                                {% set driver = entry.driver %}
+                                {% set finished_records = entry.finished_records %}
+                                {% if finished_records|length > 0 %}
+                                <div class="modal fade" id="finishedAdjustmentsModal{{ driver.id }}" tabindex="-1" aria-hidden="true">
+                                    <div class="modal-dialog modal-lg">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title"><i class="fas fa-history"></i> Finished Adjustments - {{ driver.formatted_driver_number() }} {{ driver.formatted_name() }}</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <div class="table-responsive">
+                                                    <table class="table table-sm table-hover mb-0 adjustments-records-table">
+                                                        <thead class="table-light">
+                                                            <tr>
+                                                                <th>Date</th>
+                                                                <th>Type</th>
+                                                                <th>Adjusted Time</th>
+                                                                <th>Notes</th>
+                                                                <th class="text-end">Actions</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {% for rec in finished_records %}
+                                                            <tr>
+                                                                <td>{{ rec.date.strftime('%d/%m/%Y') }}</td>
+                                                                <td>
+                                                                    <div class="adj-stack">
+                                                                        {% if rec.late_start %}
+                                                                            <span class="badge badge-late-start"><i class="fas fa-hourglass-start me-1"></i>Late Start</span>
+                                                                        {% endif %}
+                                                                        {% if rec.early_finish %}
+                                                                            <span class="badge badge-early-finish"><i class="fas fa-hourglass-end me-1"></i>Early Finish</span>
+                                                                        {% endif %}
+                                                                    </div>
+                                                                </td>
+                                                                <td>
+                                                                    <div class="adj-stack">
+                                                                        {% if rec.late_start %}
+                                                                            <div><strong>{{ rec.late_start.adjusted_time.strftime('%H:%M') }}</strong> <small class="text-muted">(late)</small></div>
+                                                                        {% endif %}
+                                                                        {% if rec.early_finish %}
+                                                                            <div><strong>{{ rec.early_finish.adjusted_time.strftime('%H:%M') }}</strong> <small class="text-muted">(early)</small></div>
+                                                                        {% endif %}
+                                                                    </div>
+                                                                </td>
+                                                                <td>
+                                                                    {% if rec.notes %}
+                                                                        <span class="text-muted">{{ rec.notes }}</span>
+                                                                    {% else %}
+                                                                        <span class="text-muted">—</span>
+                                                                    {% endif %}
+                                                                </td>
+                                                                <td class="text-end">
+                                                                    <div class="adj-actions">
+                                                                        {% if rec.late_start %}
+                                                                            <div class="btn-group" role="group">
+                                                                                <button type="button" class="btn btn-sm btn-danger"
+                                                                                        onclick="showGlobalDeleteConfirm({
+                                                                                            title: 'Remove Finished Adjustment',
+                                                                                            message: 'Remove this finished adjustment for',
+                                                                                            name: '{{ rec.late_start.driver.formatted_name() }} on {{ rec.late_start.adjustment_date.strftime('%d/%m/%Y') }} (Late Start)',
+                                                                                            action: '{{ url_for('delete_adjustment', adjustment_id=rec.late_start.id) }}'
+                                                                                        })"
+                                                                                        title="Delete late start">
+                                                                                    <i class="fas fa-trash"></i>
+                                                                                </button>
+                                                                            </div>
+                                                                        {% endif %}
+                                                                        {% if rec.early_finish %}
+                                                                            <div class="btn-group" role="group">
+                                                                                <button type="button" class="btn btn-sm btn-danger"
+                                                                                        onclick="showGlobalDeleteConfirm({
+                                                                                            title: 'Remove Finished Adjustment',
+                                                                                            message: 'Remove this finished adjustment for',
+                                                                                            name: '{{ rec.early_finish.driver.formatted_name() }} on {{ rec.early_finish.adjustment_date.strftime('%d/%m/%Y') }} (Early Finish)',
+                                                                                            action: '{{ url_for('delete_adjustment', adjustment_id=rec.early_finish.id) }}'
+                                                                                        })"
+                                                                                        title="Delete early finish">
+                                                                                    <i class="fas fa-trash"></i>
+                                                                                </button>
+                                                                            </div>
+                                                                        {% endif %}
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                            {% endfor %}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-danger"
+                                                        onclick="showGlobalDeleteConfirm({
+                                                            title: 'Delete Finished Adjustments',
+                                                            message: 'Delete all finished adjustments for',
+                                                            name: '{{ driver.formatted_name() }}',
+                                                            warning: 'This removes past adjustment records only and cannot be undone.',
+                                                            action: '{{ url_for('delete_finished_adjustments_for_driver', driver_id=driver.id) }}',
+                                                            submitLabel: 'Delete All Finished'
+                                                        })">
+                                                    <i class="fas fa-trash-alt"></i> Delete All Finished
+                                                </button>
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            {% endfor %}
                         {% else %}
                             <div class="p-4 text-center text-muted">
                                 <i class="fas fa-clock fa-2x mb-2 d-block"></i>

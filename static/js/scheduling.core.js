@@ -3,6 +3,119 @@
  * Core utilities for the Scheduling section (holidays, adjustments, swaps).
  */
 
+const CAL_TIME_OFF_LABELS = {
+    holiday: 'Holiday',
+    sickness: 'Sickness',
+    vor: 'VOR',
+    other: 'Time Off'
+};
+
+const CAL_TIME_OFF_ICONS = {
+    holiday: 'fa-umbrella-beach',
+    sickness: 'fa-notes-medical',
+    vor: 'fa-wrench',
+    other: 'fa-user-clock'
+};
+
+const CAL_TIME_OFF_BADGES = {
+    holiday: 'bg-warning text-dark',
+    sickness: 'bg-danger',
+    vor: 'bg-secondary',
+    other: 'bg-info text-dark'
+};
+
+function calToMinutes(timeValue) {
+    if (!timeValue || typeof timeValue !== 'string' || !timeValue.includes(':')) return null;
+    const [hours, mins] = timeValue.split(':').map((v) => parseInt(v, 10));
+    if (Number.isNaN(hours) || Number.isNaN(mins)) return null;
+    return (hours * 60) + mins;
+}
+
+function calToTimeText(minutesValue) {
+    if (minutesValue === null || minutesValue === undefined) return '';
+    const hrs = String(Math.floor(minutesValue / 60)).padStart(2, '0');
+    const mins = String(minutesValue % 60).padStart(2, '0');
+    return `${hrs}:${mins}`;
+}
+
+function buildUnifiedCalendarCellContent(dayData) {
+    const safeDayData = dayData || null;
+    const shifts = safeDayData && Array.isArray(safeDayData.shifts) ? safeDayData.shifts : [];
+    const adjustments = safeDayData && Array.isArray(safeDayData.adjustments) ? safeDayData.adjustments : [];
+    const hasDayOffShift = shifts.some((shift) => shift.shift_type === 'day_off' || shift.label === 'OFF');
+
+    const shiftBadges = [];
+    const bottomTimeTokens = [];
+
+    shifts.forEach((shift) => {
+        const startMinutes = calToMinutes(shift.start_time);
+        const endMinutes = calToMinutes(shift.end_time);
+        const defaultStartMinutes = calToMinutes(shift.default_start_time) ?? startMinutes;
+        const defaultEndMinutes = calToMinutes(shift.default_end_time) ?? endMinutes;
+
+        const startText = calToTimeText(startMinutes);
+        const endText = calToTimeText(endMinutes);
+        const rangeText = `${startText}${startText && endText ? '–' : ''}${endText}`;
+
+        const isChangedFromDefault = (
+            ((startMinutes !== null || defaultStartMinutes !== null) ? startMinutes !== defaultStartMinutes : false)
+            ||
+            ((endMinutes !== null || defaultEndMinutes !== null) ? endMinutes !== defaultEndMinutes : false)
+        );
+
+        if (!safeDayData?.is_holiday && !hasDayOffShift && rangeText && isChangedFromDefault) {
+            bottomTimeTokens.push(`<span class="cal-shift-time-changed">${rangeText}</span>`);
+        }
+
+        const shiftIconHtml = (shift.shift_type === 'day_off' || shift.label === 'OFF')
+            ? ''
+            : `<i class="${shift.icon || 'fas fa-clock'} text-white"></i>`;
+
+        shiftBadges.push(`<span class="badge ${shift.badge_color || 'bg-primary'} cal-shift-box"><span class="cal-shift-label">${shiftIconHtml}${shift.label}</span></span>`);
+    });
+
+    let timeOffHtml = '';
+    if (safeDayData?.is_holiday) {
+        const type = safeDayData.time_off_type || 'other';
+        const label = CAL_TIME_OFF_LABELS[type] || 'Time Off';
+        const icon = CAL_TIME_OFF_ICONS[type] || 'fa-user-clock';
+        const badgeClass = CAL_TIME_OFF_BADGES[type] || 'bg-info text-dark';
+        timeOffHtml = `<span class="badge ${badgeClass} cal-shift-box cal-timeoff" data-bs-toggle="tooltip" data-bs-placement="top" title="Driver marked as ${escapeHtml(label)}"><span class="cal-shift-label"><i class="fas ${icon}"></i>OFF</span></span>`;
+    }
+
+    const lateStart = adjustments.find((adj) => adj.adjustment_type === 'late_start');
+    const earlyFinish = adjustments.find((adj) => adj.adjustment_type === 'early_finish');
+
+    const lateStartIconHtml = lateStart
+        ? `<span class="cal-adjustment-icon badge-late-start-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${lateStart.label} at ${lateStart.time}${lateStart.notes ? ` — ${lateStart.notes}` : ''}`)}"><i class="fas fa-hourglass-start"></i></span>`
+        : '';
+
+    const earlyFinishIconHtml = earlyFinish
+        ? `<span class="cal-adjustment-icon badge-early-finish-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${earlyFinish.label} at ${earlyFinish.time}${earlyFinish.notes ? ` — ${earlyFinish.notes}` : ''}`)}"><i class="fas fa-hourglass-end"></i></span>`
+        : '';
+
+    const contentHtml = `${shiftBadges.join('')}${timeOffHtml}` || '<small class="text-muted">No shift</small>';
+
+    return {
+        contentHtml,
+        bottomTimesHtml: bottomTimeTokens.join(''),
+        lateStartIconHtml,
+        earlyFinishIconHtml,
+    };
+}
+
+function disposeTooltipsIn(containerEl) {
+    if (!containerEl || !window.bootstrap || !window.bootstrap.Tooltip) return;
+
+    containerEl.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
+        const instance = window.bootstrap.Tooltip.getInstance(el);
+        if (instance) {
+            instance.hide();
+            instance.dispose();
+        }
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Holiday calendar widget
 // ---------------------------------------------------------------------------
@@ -69,6 +182,8 @@
         const monthLabel = document.getElementById('calMonthLabel');
         if (!tbody || !monthLabel) return;
 
+        disposeTooltipsIn(tbody);
+
         const year = calViewDate.getFullYear();
         const month = calViewDate.getMonth(); // 0-indexed
 
@@ -115,20 +230,15 @@
                 if (isRangeStart || isRangeEnd) classes += ' cal-selected';
                 if (isInRange && calStartDate && calEndDate && calStartDate !== calEndDate) classes += ' cal-in-range';
 
-                // Get shift data for this date
                 const dayData = getShiftsForDate(dateStr);
-                let shiftBadges = '';
-                if (dayData && dayData.shifts && dayData.shifts.length > 0) {
-                    shiftBadges = dayData.shifts.map(shift => 
-                        `<span class="badge ${shift.badge_color || 'bg-primary'} badge-sm" style="font-size: 0.65rem; padding: 1px 3px;">${shift.label}</span>`
-                    ).join(' ');
-                } else if (dayData && dayData.is_holiday) {
-                    shiftBadges = '<span class="badge bg-danger badge-sm" style="font-size: 0.6rem; padding: 1px 3px;">OFF</span>';
-                }
+                const visuals = buildUnifiedCalendarCellContent(dayData);
+                const inlineRowHtml = `${visuals.contentHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
 
                 html += `<td class="${classes}" data-date="${dateStr}">
-                    <div style="font-weight: 600; margin-bottom: 2px;">${dayCounter}</div>
-                    <div style="display: flex; flex-wrap: wrap; gap: 2px; justify-content: center;">${shiftBadges}</div>
+                    <div class="cal-day-header">
+                        <div class="fw-bold small">${dayCounter}</div>
+                    </div>
+                    <div class="cal-day-inline">${inlineRowHtml}</div>
                 </td>`;
                 dayCounter++;
             }
@@ -144,6 +254,12 @@
                 selectCalDay(td.getAttribute('data-date'));
             });
         });
+
+        if (window.bootstrap && window.bootstrap.Tooltip) {
+            tbody.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+                window.bootstrap.Tooltip.getOrCreateInstance(el);
+            });
+        }
     }
 
     function selectCalDay(dateStr) {
@@ -253,6 +369,22 @@
         }
         if (clearBtn) {
             clearBtn.addEventListener('click', function () {
+                const driverSelectEl = document.getElementById('holidayDriverSelect');
+                const typeSelectEl = document.getElementById('timeOffType');
+                const notesEl = document.getElementById('holidayNotes');
+
+                if (driverSelectEl) {
+                    driverSelectEl.value = '';
+                }
+                if (typeSelectEl) {
+                    typeSelectEl.value = 'holiday';
+                }
+                if (notesEl) {
+                    notesEl.value = '';
+                }
+
+                selectedDriverId = null;
+                driverShiftData = null;
                 calStartDate = null;
                 calEndDate = null;
                 updateDateDisplay();
@@ -298,6 +430,269 @@
     };
 
 })();
+
+
+    // ---------------------------------------------------------------------------
+    // Adjustment calendar widget (single-date picker)
+    // ---------------------------------------------------------------------------
+
+    (function () {
+        'use strict';
+
+        let adjCalViewDate = new Date();
+        adjCalViewDate.setDate(1);
+
+        let adjSelectedDate = null;
+        let adjSelectedDriverId = null;
+        let adjDriverShiftData = null;
+        let adjSelectedDateHasWorkingShift = false;
+
+        async function fetchAdjustmentDriverShifts(driverId, monthStr) {
+            if (!driverId) {
+                adjDriverShiftData = null;
+                return;
+            }
+
+            try {
+                const response = await fetch(`/driver/${driverId}/calendar-data?month=${monthStr}`);
+                const data = await response.json();
+                if (data.success) {
+                    adjDriverShiftData = data;
+                } else {
+                    adjDriverShiftData = null;
+                }
+            } catch (err) {
+                console.error('Error fetching adjustment driver shifts:', err);
+                adjDriverShiftData = null;
+            }
+        }
+
+        function getAdjustmentShiftsForDate(dateStr) {
+            if (!adjDriverShiftData || !adjDriverShiftData.days) return null;
+            return adjDriverShiftData.days.find(day => day.date === dateStr) || null;
+        }
+
+        function formatDateISO(d) {
+            const yr = d.getFullYear();
+            const mo = String(d.getMonth() + 1).padStart(2, '0');
+            const da = String(d.getDate()).padStart(2, '0');
+            return `${yr}-${mo}-${da}`;
+        }
+
+        function updateAdjustmentDateDisplay() {
+            const display = document.getElementById('adjDateDisplay');
+            if (!display) return;
+
+            if (!adjSelectedDate) {
+                display.textContent = 'Select a driver, then click a date on the calendar.';
+                return;
+            }
+
+            const parts = adjSelectedDate.split('-');
+            const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+            const formatted = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+            display.innerHTML = `<strong>Selected:</strong> ${formatted}`;
+        }
+
+        function updateAdjustmentFormInput() {
+            const input = document.getElementById('adjDate');
+            if (input) input.value = adjSelectedDate || '';
+
+            const saveBtn = document.getElementById('saveAdjustmentBtn');
+            if (saveBtn) saveBtn.disabled = !adjSelectedDate || !adjSelectedDateHasWorkingShift;
+        }
+
+        function updateAdjustmentShiftStatus() {
+            const statusEl = document.getElementById('adjShiftStatus');
+            if (!statusEl) return;
+
+            if (!adjSelectedDriverId || !adjSelectedDate) {
+                adjSelectedDateHasWorkingShift = false;
+                statusEl.innerHTML = '';
+                return;
+            }
+
+            const dayData = getAdjustmentShiftsForDate(adjSelectedDate);
+            const shifts = dayData && Array.isArray(dayData.shifts) ? dayData.shifts : [];
+            const workingShifts = shifts.filter(shift => shift.shift_type !== 'day_off');
+
+            if (workingShifts.length > 0) {
+                adjSelectedDateHasWorkingShift = true;
+                const labels = workingShifts.map(shift => shift.label).join(', ');
+                statusEl.innerHTML = `<span class="text-success"><i class="fas fa-check-circle me-1"></i>Shift on selected day: ${labels}</span>`;
+                return;
+            }
+
+            adjSelectedDateHasWorkingShift = false;
+
+            if (dayData && dayData.is_holiday) {
+                const typeMap = {
+                    holiday: 'Holiday',
+                    sickness: 'Sickness',
+                    vor: 'VOR',
+                    other: 'Other'
+                };
+                const reason = typeMap[dayData.time_off_type] || 'Time Off';
+                statusEl.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is marked as having time off (${reason}).</span>`;
+                return;
+            }
+
+            statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>No shift assigned on selected day.</span>';
+        }
+
+        async function renderAdjustmentCalendar() {
+            const tbody = document.getElementById('adjCalBody');
+            const monthLabel = document.getElementById('adjCalMonthLabel');
+            if (!tbody || !monthLabel) return;
+
+            disposeTooltipsIn(tbody);
+
+            const year = adjCalViewDate.getFullYear();
+            const month = adjCalViewDate.getMonth();
+            monthLabel.textContent = adjCalViewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+            if (adjSelectedDriverId) {
+                const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+                await fetchAdjustmentDriverShifts(adjSelectedDriverId, monthStr);
+            } else {
+                adjDriverShiftData = null;
+            }
+
+            const todayStr = formatDateISO(new Date());
+            const firstDay = new Date(year, month, 1);
+            let startOffset = firstDay.getDay() - 1;
+            if (startOffset < 0) startOffset = 6;
+
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+
+            let html = '<tr>';
+            let dayCounter = 1;
+
+            for (let i = 0; i < totalCells; i++) {
+                if (i % 7 === 0 && i > 0) html += '</tr><tr>';
+
+                if (i < startOffset || dayCounter > daysInMonth) {
+                    html += '<td class="cal-empty"></td>';
+                    continue;
+                }
+
+                const dateStr = formatDateISO(new Date(year, month, dayCounter));
+                const isToday = dateStr === todayStr;
+                const isSelected = dateStr === adjSelectedDate;
+
+                let classes = 'cal-day';
+                if (isToday) classes += ' cal-today';
+                if (isSelected) classes += ' cal-selected';
+
+                const dayData = getAdjustmentShiftsForDate(dateStr);
+                const visuals = buildUnifiedCalendarCellContent(dayData);
+                const inlineRowHtml = `${visuals.contentHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
+
+                html += `<td class="${classes}" data-date="${dateStr}">
+                    <div class="cal-day-header">
+                        <div class="fw-bold small">${dayCounter}</div>
+                    </div>
+                    <div class="cal-day-inline">${inlineRowHtml}</div>
+                </td>`;
+                dayCounter++;
+            }
+
+            html += '</tr>';
+            tbody.innerHTML = html;
+
+            tbody.querySelectorAll('td.cal-day').forEach(function (td) {
+                td.addEventListener('click', function () {
+                    if (!adjSelectedDriverId) return;
+                    adjSelectedDate = td.getAttribute('data-date');
+                    updateAdjustmentDateDisplay();
+                    updateAdjustmentShiftStatus();
+                    updateAdjustmentFormInput();
+                    renderAdjustmentCalendar();
+                });
+            });
+
+            if (window.bootstrap && window.bootstrap.Tooltip) {
+                tbody.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+                    window.bootstrap.Tooltip.getOrCreateInstance(el);
+                });
+            }
+        }
+
+        function initAdjustmentCalendar() {
+            const body = document.getElementById('adjCalBody');
+            if (!body) return;
+
+            const prev = document.getElementById('adjCalPrev');
+            const next = document.getElementById('adjCalNext');
+            const clearBtn = document.getElementById('clearAdjSelection');
+            const driverSelect = document.getElementById('adjDriverSelect');
+
+            if (prev) {
+                prev.addEventListener('click', function () {
+                    adjCalViewDate.setMonth(adjCalViewDate.getMonth() - 1);
+                    renderAdjustmentCalendar();
+                });
+            }
+
+            if (next) {
+                next.addEventListener('click', function () {
+                    adjCalViewDate.setMonth(adjCalViewDate.getMonth() + 1);
+                    renderAdjustmentCalendar();
+                });
+            }
+
+            if (clearBtn) {
+                clearBtn.addEventListener('click', function () {
+                    const driverSelectEl = document.getElementById('adjDriverSelect');
+                    const typeSelectEl = document.getElementById('adjType');
+                    const timeEl = document.getElementById('adjTime');
+                    const notesEl = document.getElementById('adjNotes');
+
+                    if (driverSelectEl) {
+                        driverSelectEl.value = '';
+                    }
+                    if (typeSelectEl) {
+                        typeSelectEl.value = '';
+                    }
+                    if (timeEl) {
+                        timeEl.value = '';
+                    }
+                    if (notesEl) {
+                        notesEl.value = '';
+                    }
+
+                    adjSelectedDriverId = null;
+                    adjDriverShiftData = null;
+                    adjSelectedDate = null;
+                    updateAdjustmentDateDisplay();
+                    updateAdjustmentShiftStatus();
+                    updateAdjustmentFormInput();
+                    renderAdjustmentCalendar();
+                });
+            }
+
+            if (driverSelect) {
+                driverSelect.addEventListener('change', function () {
+                    adjSelectedDriverId = this.value ? parseInt(this.value, 10) : null;
+                    adjSelectedDate = null;
+                    updateAdjustmentDateDisplay();
+                    updateAdjustmentShiftStatus();
+                    updateAdjustmentFormInput();
+                    renderAdjustmentCalendar();
+                });
+            }
+
+            updateAdjustmentDateDisplay();
+            updateAdjustmentShiftStatus();
+            updateAdjustmentFormInput();
+            renderAdjustmentCalendar();
+        }
+
+        window.schedulingAdjustmentCalendar = {
+            init: initAdjustmentCalendar
+        };
+    })();
 
 
 // ---------------------------------------------------------------------------

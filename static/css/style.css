@@ -259,6 +259,295 @@ footer {
     border-left: 4px solid;
 }
 
+/* Unified calendar styles (Scheduling + Driver calendars) */
+.holiday-calendar {
+    user-select: none;
+}
+
+.holiday-calendar .cal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.holiday-calendar table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 3px;
+}
+
+.holiday-calendar th {
+    text-align: center;
+    font-size: 0.75rem;
+    color: #6c757d;
+    padding-bottom: 4px;
+}
+
+.holiday-calendar td {
+    text-align: center;
+    vertical-align: top;
+    min-height: 124px;
+    height: 124px;
+    padding: 4px 2px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.15s;
+    position: relative;
+}
+
+.holiday-calendar td:empty,
+.holiday-calendar td.cal-empty {
+    cursor: default;
+    background-color: #f8f9fa;
+}
+
+.holiday-calendar .cal-day {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+}
+
+.holiday-calendar td.cal-day:hover {
+    background: #e9ecef;
+}
+
+.holiday-calendar.readonly td.cal-day {
+    cursor: default;
+}
+
+.holiday-calendar.readonly td.cal-day:hover {
+    background: #f8f9fa;
+}
+
+.holiday-calendar td.cal-day.cal-selected {
+    background: #0d6efd !important;
+    color: #fff !important;
+    font-weight: 600;
+    border: 2px solid #0a58ca;
+}
+
+.holiday-calendar td.cal-day.cal-in-range {
+    background: #cfe2ff !important;
+    color: #084298;
+    font-weight: 500;
+}
+
+.holiday-calendar td.cal-day.cal-holiday {
+    background: #ffc107 !important;
+    color: #000;
+    font-weight: 600;
+}
+
+.holiday-calendar td.cal-day.cal-today {
+    border: 2px solid #0d6efd;
+    box-shadow: 0 0 0 1px #0d6efd;
+}
+
+.holiday-calendar .cal-day-header {
+    margin-bottom: 2px;
+}
+
+.holiday-calendar .cal-day-shifts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+    align-items: center;
+    align-content: center;
+    min-height: 72px;
+    height: 72px;
+    padding-bottom: 24px;
+    text-align: center;
+}
+
+.holiday-calendar .cal-shift-box {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    border-radius: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    text-align: center;
+    font-size: 0.76rem;
+    font-weight: 700;
+    line-height: 1.2;
+    min-width: 82px;
+}
+
+.holiday-calendar .cal-shift-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.28rem;
+}
+
+.holiday-calendar .cal-timeoff,
+.holiday-calendar .cal-timeoff i {
+    color: #000 !important;
+}
+
+.holiday-calendar .cal-timeoff {
+    border: 2px solid #000 !important;
+}
+
+.holiday-calendar .cal-day-bottom {
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    bottom: 4px;
+    height: 22px;
+}
+
+.holiday-calendar .cal-day-bottom-left,
+.holiday-calendar .cal-day-bottom-right,
+.holiday-calendar .cal-day-bottom-center {
+    position: absolute;
+    display: flex;
+    align-items: center;
+}
+
+.holiday-calendar .cal-day-bottom-left {
+    left: 0;
+}
+
+.holiday-calendar .cal-day-bottom-right {
+    right: 0;
+}
+
+.holiday-calendar .cal-day-bottom-center {
+    left: 50%;
+    transform: translateX(-50%);
+    gap: 4px;
+    max-width: calc(100% - 72px);
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.holiday-calendar .cal-shift-time-changed {
+    font-size: 0.68rem;
+    line-height: 1;
+    color: #fff;
+    background-color: #dc3545;
+    border-radius: 0.35rem;
+    padding: 0.18rem 0.3rem;
+    font-weight: 700;
+}
+
+.holiday-calendar .cal-adjustment-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+}
+
+.holiday-calendar.compact td {
+    min-height: 52px;
+    height: 52px;
+    padding: 2px 1px;
+}
+
+.holiday-calendar.compact table {
+    border-spacing: 1px;
+}
+
+.holiday-calendar.compact .cal-day-header {
+    position: static;
+    margin-bottom: 1px;
+}
+
+.holiday-calendar.compact .cal-day-header .fw-bold.small {
+    font-size: 0.74rem !important;
+}
+
+.holiday-calendar.compact .cal-day-inline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    flex-wrap: nowrap;
+    min-height: 18px;
+    overflow: hidden;
+}
+
+.holiday-calendar.compact .cal-day-shifts {
+    display: none;
+}
+
+.holiday-calendar.compact .cal-shift-box {
+    font-size: 0.62rem;
+    padding: 0.18rem 0.3rem;
+    min-width: 38px;
+    border-radius: 0.35rem;
+}
+
+.holiday-calendar.compact .cal-adjustment-icon {
+    width: 15px;
+    height: 15px;
+    font-size: 0.56rem;
+}
+
+.holiday-calendar.compact .cal-shift-time-changed {
+    font-size: 0.54rem;
+    padding: 0.1rem 0.16rem;
+}
+
+.holiday-calendar.compact .cal-day-bottom {
+    display: none;
+}
+
+.holiday-calendar.compact .cal-day-bottom-center {
+    display: none;
+}
+
+@media (max-width: 1200px) {
+    .holiday-calendar td {
+        min-height: 114px;
+        height: 114px;
+    }
+
+    .holiday-calendar .cal-day-shifts {
+        min-height: 64px;
+        height: 64px;
+        padding-bottom: 22px;
+    }
+
+    .holiday-calendar .cal-shift-box {
+        font-size: 0.72rem;
+        padding: 0.32rem 0.5rem;
+        min-width: 74px;
+    }
+
+    .holiday-calendar.compact td {
+        min-height: 50px;
+        height: 50px;
+    }
+
+    .holiday-calendar.compact .cal-shift-box {
+        font-size: 0.58rem;
+        padding: 0.14rem 0.24rem;
+        min-width: 34px;
+    }
+}
+
+#driverCalendarModal .modal-dialog {
+    max-width: min(1180px, 95vw);
+}
+
+.badge-late-start-icon {
+    background-color: #fd7e14;
+    color: #fff;
+}
+
+.badge-early-finish-icon {
+    background-color: #6f42c1;
+    color: #fff;
+}
+
 .alert-success {
     border-left-color: var(--success-color);
     background-color: #d1e7dd;

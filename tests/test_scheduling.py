@@ -9,7 +9,7 @@ from datetime import date, time, datetime, timedelta
 from app import app as flask_app, db as _db
 from app import (
     Driver, ShiftPattern, ShiftTiming, DriverAssignment,
-    DriverHoliday, ShiftAdjustment, ShiftSwap,
+    DriverHoliday, ShiftAdjustment, ShiftSwap, DriverCustomTiming,
     validate_swap, get_driver_shifts_for_date, get_cars_working_at_time,
     group_consecutive_holidays,
 )
@@ -326,8 +326,45 @@ class TestAdjustmentModel:
 
 class TestAdjustmentRoutes:
 
-    def test_add_late_start(self, client, db):
+    def _make_driver_with_working_day(self, db, work_date):
         driver = make_driver(db)
+        make_shift_timing(db, 'morning', '06:00', '14:00')
+        pattern = make_pattern(
+            db,
+            f'Adjustment Pattern {driver.id}',
+            7,
+            ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off']
+        )
+        make_assignment(db, driver, pattern, work_date, start_day_of_cycle=1)
+        return driver
+
+    def _make_driver_with_default_and_custom_window(self, db, work_date):
+        driver = make_driver(db)
+        make_shift_timing(db, 'morning', '06:00', '18:00')
+        pattern = make_pattern(
+            db,
+            f'Custom Window Pattern {driver.id}',
+            7,
+            ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off']
+        )
+        assignment = make_assignment(db, driver, pattern, work_date, start_day_of_cycle=1)
+
+        custom = DriverCustomTiming(
+            driver_id=driver.id,
+            assignment_id=assignment.id,
+            shift_type='morning',
+            day_of_cycle=0,
+            day_of_week=work_date.weekday(),
+            start_time=time(4, 0),
+            end_time=time(14, 0),
+            priority=1,
+        )
+        db.session.add(custom)
+        db.session.commit()
+        return driver
+
+    def test_add_late_start(self, client, db):
+        driver = self._make_driver_with_working_day(db, date(2026, 7, 10))
         resp = client.post('/scheduling/adjustment/add', data={
             'driver_id': driver.id,
             'adjustment_date': '2026-07-10',
@@ -341,7 +378,7 @@ class TestAdjustmentRoutes:
         assert adj.adjusted_time == time(8, 30)
 
     def test_add_early_finish(self, client, db):
-        driver = make_driver(db)
+        driver = self._make_driver_with_working_day(db, date(2026, 7, 11))
         resp = client.post('/scheduling/adjustment/add', data={
             'driver_id': driver.id,
             'adjustment_date': '2026-07-11',
@@ -353,7 +390,7 @@ class TestAdjustmentRoutes:
         assert adj.adjustment_type == 'early_finish'
 
     def test_add_adjustment_invalid_type(self, client, db):
-        driver = make_driver(db)
+        driver = self._make_driver_with_working_day(db, date(2026, 7, 12))
         resp = client.post('/scheduling/adjustment/add', data={
             'driver_id': driver.id,
             'adjustment_date': '2026-07-12',
@@ -364,7 +401,7 @@ class TestAdjustmentRoutes:
         assert ShiftAdjustment.query.count() == 0
 
     def test_add_adjustment_invalid_time(self, client, db):
-        driver = make_driver(db)
+        driver = self._make_driver_with_working_day(db, date(2026, 7, 12))
         resp = client.post('/scheduling/adjustment/add', data={
             'driver_id': driver.id,
             'adjustment_date': '2026-07-12',
@@ -374,8 +411,138 @@ class TestAdjustmentRoutes:
         assert resp.status_code == 200
         assert ShiftAdjustment.query.count() == 0
 
+    def test_add_adjustment_rejects_day_off(self, client, db):
+        driver = self._make_driver_with_working_day(db, date(2026, 7, 10))
+        resp = client.post('/scheduling/adjustment/add', data={
+            'driver_id': driver.id,
+            'adjustment_date': '2026-07-11',  # day 2 in cycle -> day_off
+            'adjustment_type': 'late_start',
+            'adjusted_time': '09:00',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        assert ShiftAdjustment.query.count() == 0
+
+    def test_add_adjustment_allows_both_types_same_day(self, client, db):
+        driver = self._make_driver_with_working_day(db, date(2026, 7, 10))
+
+        late_resp = client.post('/scheduling/adjustment/add', data={
+            'driver_id': driver.id,
+            'adjustment_date': '2026-07-10',
+            'adjustment_type': 'late_start',
+            'adjusted_time': '08:00',
+        }, follow_redirects=True)
+        early_resp = client.post('/scheduling/adjustment/add', data={
+            'driver_id': driver.id,
+            'adjustment_date': '2026-07-10',
+            'adjustment_type': 'early_finish',
+            'adjusted_time': '13:00',
+        }, follow_redirects=True)
+
+        assert late_resp.status_code == 200
+        assert early_resp.status_code == 200
+        assert ShiftAdjustment.query.filter_by(driver_id=driver.id, adjustment_date=date(2026, 7, 10)).count() == 2
+
+    def test_add_adjustment_rejects_duplicate_type_same_day(self, client, db):
+        driver = self._make_driver_with_working_day(db, date(2026, 7, 10))
+        db.session.add(ShiftAdjustment(
+            driver_id=driver.id,
+            adjustment_date=date(2026, 7, 10),
+            adjustment_type='late_start',
+            adjusted_time=time(8, 0),
+        ))
+        db.session.commit()
+
+        resp = client.post('/scheduling/adjustment/add', data={
+            'driver_id': driver.id,
+            'adjustment_date': '2026-07-10',
+            'adjustment_type': 'late_start',
+            'adjusted_time': '09:00',
+        }, follow_redirects=True)
+
+        assert resp.status_code == 200
+        assert ShiftAdjustment.query.filter_by(driver_id=driver.id, adjustment_date=date(2026, 7, 10), adjustment_type='late_start').count() == 1
+
+    def test_early_finish_uses_combined_custom_default_bounds(self, client, db):
+        driver = self._make_driver_with_default_and_custom_window(db, date(2026, 7, 10))
+
+        ok = client.post('/scheduling/adjustment/add', data={
+            'driver_id': driver.id,
+            'adjustment_date': '2026-07-10',
+            'adjustment_type': 'early_finish',
+            'adjusted_time': '17:59',
+        }, follow_redirects=True)
+        assert ok.status_code == 200
+        assert ShiftAdjustment.query.count() == 1
+
+        too_early = client.post('/scheduling/adjustment/add', data={
+            'driver_id': driver.id,
+            'adjustment_date': '2026-07-10',
+            'adjustment_type': 'early_finish',
+            'adjusted_time': '04:00',
+        }, follow_redirects=True)
+        assert too_early.status_code == 200
+        assert ShiftAdjustment.query.count() == 1
+
+        too_late = client.post('/scheduling/adjustment/add', data={
+            'driver_id': driver.id,
+            'adjustment_date': '2026-07-10',
+            'adjustment_type': 'early_finish',
+            'adjusted_time': '18:00',
+        }, follow_redirects=True)
+        assert too_late.status_code == 200
+        assert ShiftAdjustment.query.count() == 1
+
+    def test_late_start_uses_combined_custom_default_bounds(self, client, db):
+        driver = self._make_driver_with_default_and_custom_window(db, date(2026, 7, 10))
+
+        ok = client.post('/scheduling/adjustment/add', data={
+            'driver_id': driver.id,
+            'adjustment_date': '2026-07-10',
+            'adjustment_type': 'late_start',
+            'adjusted_time': '17:59',
+        }, follow_redirects=True)
+        assert ok.status_code == 200
+        assert ShiftAdjustment.query.count() == 1
+
+        too_early = client.post('/scheduling/adjustment/add', data={
+            'driver_id': driver.id,
+            'adjustment_date': '2026-07-10',
+            'adjustment_type': 'late_start',
+            'adjusted_time': '04:00',
+        }, follow_redirects=True)
+        assert too_early.status_code == 200
+        assert ShiftAdjustment.query.count() == 1
+
+        too_late = client.post('/scheduling/adjustment/add', data={
+            'driver_id': driver.id,
+            'adjustment_date': '2026-07-10',
+            'adjustment_type': 'late_start',
+            'adjusted_time': '18:00',
+        }, follow_redirects=True)
+        assert too_late.status_code == 200
+        assert ShiftAdjustment.query.count() == 1
+
+    def test_early_finish_must_be_after_existing_late_start(self, client, db):
+        driver = self._make_driver_with_working_day(db, date(2026, 7, 10))
+        db.session.add(ShiftAdjustment(
+            driver_id=driver.id,
+            adjustment_date=date(2026, 7, 10),
+            adjustment_type='late_start',
+            adjusted_time=time(10, 0),
+        ))
+        db.session.commit()
+
+        resp = client.post('/scheduling/adjustment/add', data={
+            'driver_id': driver.id,
+            'adjustment_date': '2026-07-10',
+            'adjustment_type': 'early_finish',
+            'adjusted_time': '09:30',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+        assert ShiftAdjustment.query.count() == 1
+
     def test_edit_adjustment(self, client, db):
-        driver = make_driver(db)
+        driver = self._make_driver_with_working_day(db, date(2026, 7, 10))
         adj = ShiftAdjustment(
             driver_id=driver.id,
             adjustment_date=date(2026, 7, 10),
@@ -394,6 +561,85 @@ class TestAdjustmentRoutes:
         assert updated.adjustment_type == 'early_finish'
         assert updated.adjusted_time == time(13, 0)
 
+    def test_edit_adjustment_rejects_day_off(self, client, db):
+        driver = self._make_driver_with_working_day(db, date(2026, 7, 10))
+        adj = ShiftAdjustment(
+            driver_id=driver.id,
+            adjustment_date=date(2026, 7, 10),
+            adjustment_type='late_start',
+            adjusted_time=time(8, 30),
+        )
+        db.session.add(adj)
+        db.session.commit()
+
+        resp = client.post(f'/scheduling/adjustment/{adj.id}/edit', data={
+            'adjustment_date': '2026-07-11',  # day 2 in cycle -> day_off
+            'adjustment_type': 'early_finish',
+            'adjusted_time': '13:00',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+        updated = ShiftAdjustment.query.get(adj.id)
+        assert updated.adjustment_date == date(2026, 7, 10)
+        assert updated.adjustment_type == 'late_start'
+        assert updated.adjusted_time == time(8, 30)
+
+    def test_edit_adjustment_rejects_duplicate_type_same_day(self, client, db):
+        driver = self._make_driver_with_working_day(db, date(2026, 7, 10))
+        first = ShiftAdjustment(
+            driver_id=driver.id,
+            adjustment_date=date(2026, 7, 10),
+            adjustment_type='late_start',
+            adjusted_time=time(8, 0),
+        )
+        second = ShiftAdjustment(
+            driver_id=driver.id,
+            adjustment_date=date(2026, 7, 10),
+            adjustment_type='early_finish',
+            adjusted_time=time(13, 0),
+        )
+        db.session.add(first)
+        db.session.add(second)
+        db.session.commit()
+
+        resp = client.post(f'/scheduling/adjustment/{second.id}/edit', data={
+            'adjustment_date': '2026-07-10',
+            'adjustment_type': 'late_start',
+            'adjusted_time': '09:00',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+        updated = ShiftAdjustment.query.get(second.id)
+        assert updated.adjustment_type == 'early_finish'
+
+    def test_edit_late_start_rejects_if_after_existing_early_finish(self, client, db):
+        driver = self._make_driver_with_working_day(db, date(2026, 7, 10))
+        existing_early = ShiftAdjustment(
+            driver_id=driver.id,
+            adjustment_date=date(2026, 7, 10),
+            adjustment_type='early_finish',
+            adjusted_time=time(11, 0),
+        )
+        target = ShiftAdjustment(
+            driver_id=driver.id,
+            adjustment_date=date(2026, 7, 10),
+            adjustment_type='late_start',
+            adjusted_time=time(8, 0),
+        )
+        db.session.add(existing_early)
+        db.session.add(target)
+        db.session.commit()
+
+        resp = client.post(f'/scheduling/adjustment/{target.id}/edit', data={
+            'adjustment_date': '2026-07-10',
+            'adjustment_type': 'late_start',
+            'adjusted_time': '11:00',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+        updated = ShiftAdjustment.query.get(target.id)
+        assert updated.adjusted_time == time(8, 0)
+
     def test_delete_adjustment(self, client, db):
         driver = make_driver(db)
         adj = ShiftAdjustment(
@@ -407,6 +653,79 @@ class TestAdjustmentRoutes:
         resp = client.post(f'/scheduling/adjustment/{adj.id}/delete', follow_redirects=True)
         assert resp.status_code == 200
         assert ShiftAdjustment.query.count() == 0
+
+    def test_late_start_overrides_custom_start_time_in_shift_output(self, db):
+        work_date = date(2026, 8, 2)
+        driver = make_driver(db)
+        make_shift_timing(db, 'morning', '06:00', '14:00')
+        pattern = make_pattern(
+            db,
+            f'Adj Overrides Custom Pattern {driver.id}',
+            7,
+            ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off']
+        )
+        assignment = make_assignment(db, driver, pattern, work_date, start_day_of_cycle=1)
+
+        db.session.add(DriverCustomTiming(
+            driver_id=driver.id,
+            assignment_id=assignment.id,
+            shift_type='morning',
+            day_of_cycle=0,
+            day_of_week=work_date.weekday(),
+            start_time=time(9, 0),
+            priority=1,
+        ))
+        db.session.add(ShiftAdjustment(
+            driver_id=driver.id,
+            adjustment_date=work_date,
+            adjustment_type='late_start',
+            adjusted_time=time(7, 0),
+        ))
+        db.session.commit()
+
+        shifts = get_driver_shifts_for_date(driver, work_date)
+        assert len(shifts) == 1
+        assert shifts[0]['start_time'] == time(7, 0)
+        assert shifts[0]['default_start_time'] == time(6, 0)
+
+    def test_calendar_data_uses_adjustment_time_over_custom(self, client, db):
+        work_date = date(2026, 8, 2)
+        driver = make_driver(db)
+        make_shift_timing(db, 'morning', '06:00', '14:00')
+        pattern = make_pattern(
+            db,
+            f'Calendar Effective Pattern {driver.id}',
+            7,
+            ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off']
+        )
+        assignment = make_assignment(db, driver, pattern, work_date, start_day_of_cycle=1)
+
+        db.session.add(DriverCustomTiming(
+            driver_id=driver.id,
+            assignment_id=assignment.id,
+            shift_type='morning',
+            day_of_cycle=0,
+            day_of_week=work_date.weekday(),
+            start_time=time(9, 0),
+            priority=1,
+        ))
+        db.session.add(ShiftAdjustment(
+            driver_id=driver.id,
+            adjustment_date=work_date,
+            adjustment_type='late_start',
+            adjusted_time=time(7, 0),
+        ))
+        db.session.commit()
+
+        resp = client.get(f'/driver/{driver.id}/calendar-data?month={work_date.strftime("%Y-%m")}')
+        assert resp.status_code == 200
+        payload = json.loads(resp.data)
+        assert payload.get('success') is True
+
+        target_day = next(d for d in payload['days'] if d['date'] == work_date.strftime('%Y-%m-%d'))
+        assert len(target_day['shifts']) == 1
+        assert target_day['shifts'][0]['start_time'] == '07:00'
+        assert target_day['shifts'][0]['default_start_time'] == '06:00'
 
 
 # ===========================================================================

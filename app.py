@@ -553,9 +553,19 @@ def get_drivers_for_date(target_date):
     # Get all active driver assignments for the target date
     assignments = get_active_assignments_for_date(target_date)
     
+    adjustment_bounds_cache = {}
+
     for assignment in assignments:
         if is_driver_on_holiday(assignment.driver_id, target_date):
             continue
+
+        if assignment.driver_id not in adjustment_bounds_cache:
+            adjustment_bounds_cache[assignment.driver_id] = get_adjustment_conflict_bounds(
+                assignment.driver_id,
+                target_date,
+            )
+
+        latest_late_start, earliest_early_finish = adjustment_bounds_cache[assignment.driver_id]
 
         shift_types = assignment.get_shifts_for_date(target_date)
         if not shift_types:
@@ -607,12 +617,29 @@ def get_drivers_for_date(target_date):
                 timing_note = None
                 is_custom = False
 
+            adjusted_start_time = start_time
+            adjusted_end_time = end_time
+
+            if latest_late_start is not None and adjusted_start_time is not None:
+                adjusted_start_time = latest_late_start
+            if earliest_early_finish is not None and adjusted_end_time is not None:
+                adjusted_end_time = earliest_early_finish
+
+            is_adjusted = (
+                adjusted_start_time != start_time
+                or adjusted_end_time != end_time
+            )
+
+            start_time = adjusted_start_time
+            end_time = adjusted_end_time
+
             # Create driver info object with timing data
             driver_info = {
                 'driver': assignment.driver,
                 'start_time': start_time,
                 'end_time': end_time,
                 'is_custom': is_custom,
+                'is_adjusted': is_adjusted,
                 'timing_note': timing_note,
                 'shift_type': effective_shift_type
             }
@@ -641,6 +668,8 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None):
 
     if is_driver_on_holiday(driver.id, target_date):
         return []
+
+    latest_late_start, earliest_early_finish = get_adjustment_conflict_bounds(driver.id, target_date)
 
     assignments = DriverAssignment.query.filter(
         DriverAssignment.driver_id == driver.id,
@@ -690,29 +719,199 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None):
             else:
                 end_time = None
 
+            adjusted_start_time = start_time
+            adjusted_end_time = end_time
+
+            if latest_late_start is not None and adjusted_start_time is not None:
+                adjusted_start_time = latest_late_start
+            if earliest_early_finish is not None and adjusted_end_time is not None:
+                adjusted_end_time = earliest_early_finish
+
+            is_adjusted = (
+                adjusted_start_time != start_time
+                or adjusted_end_time != end_time
+            )
+
+            start_time = adjusted_start_time
+            end_time = adjusted_end_time
+
+            default_start_time = default_timing.start_time if default_timing else None
+            default_end_time = default_timing.end_time if default_timing else None
+
             timing_meta = timings_dict.get(effective_shift_type)
             if effective_shift_type == 'day_off':
                 label = 'OFF'
                 badge_color = 'bg-secondary'
+                icon = 'fas fa-user-clock'
             elif timing_meta:
                 label = timing_meta.display_label
                 badge_color = timing_meta.badge_color or 'bg-primary'
+                icon = timing_meta.icon or 'fas fa-clock'
             else:
                 label = shift_label(effective_shift_type)
                 badge_color = 'bg-primary'
+                icon = 'fas fa-clock'
 
             entries.append({
                 'shift_type': effective_shift_type,
                 'label': label,
                 'badge_color': badge_color,
+                'icon': icon,
                 'start_time': start_time,
                 'end_time': end_time,
+                'default_start_time': default_start_time,
+                'default_end_time': default_end_time,
                 'is_override': bool(custom_timing and custom_timing.override_shift),
                 'is_custom_time': bool(custom_timing and (custom_timing.start_time is not None or custom_timing.end_time is not None)),
+                'is_adjusted': is_adjusted,
             })
 
     entries.sort(key=lambda item: (item['start_time'] is None, item['start_time'] or datetime.min.time(), item['label']))
     return entries
+
+
+def driver_has_working_shift_on_date(driver, target_date, timings_dict=None):
+    """Return True when driver has at least one non-day-off shift on the target date."""
+    shifts = get_driver_shifts_for_date(driver, target_date, timings_dict)
+    return any(shift.get('shift_type') != 'day_off' for shift in shifts)
+
+
+def get_driver_adjustment_time_window(driver, target_date, timings_dict=None):
+    """Return (earliest_start, latest_end) from default/custom timings for the driver's working shifts on a date."""
+    if timings_dict is None:
+        all_timings = ShiftTiming.query.all()
+        timings_dict = {timing.shift_type: timing for timing in all_timings}
+
+    if is_driver_on_holiday(driver.id, target_date):
+        return None, None
+
+    assignments = DriverAssignment.query.filter(
+        DriverAssignment.driver_id == driver.id,
+        DriverAssignment.start_date <= target_date,
+        db.or_(
+            DriverAssignment.end_date.is_(None),
+            DriverAssignment.end_date >= target_date
+        )
+    ).all()
+
+    window_starts = []
+    window_ends = []
+
+    for assignment in assignments:
+        shift_types = assignment.get_shifts_for_date(target_date) or []
+        if not shift_types:
+            continue
+
+        days_since_start = (target_date - assignment.start_date).days
+        cycle_day = days_since_start % assignment.shift_pattern.cycle_length
+        weekday = target_date.weekday()
+
+        for base_shift_type in shift_types:
+            if base_shift_type == 'day_off':
+                continue
+
+            custom_timing = DriverCustomTiming.get_custom_timing(
+                assignment.driver_id,
+                assignment.id,
+                base_shift_type,
+                cycle_day,
+                weekday
+            )
+
+            effective_shift_type = base_shift_type
+            if custom_timing and custom_timing.override_shift and custom_timing.override_shift in timings_dict:
+                effective_shift_type = custom_timing.override_shift
+
+            default_timing = timings_dict.get(effective_shift_type) or timings_dict.get(base_shift_type)
+
+            candidate_starts = []
+            candidate_ends = []
+
+            if default_timing and default_timing.start_time is not None:
+                candidate_starts.append(default_timing.start_time)
+            if custom_timing and custom_timing.start_time is not None:
+                candidate_starts.append(custom_timing.start_time)
+
+            if default_timing and default_timing.end_time is not None:
+                candidate_ends.append(default_timing.end_time)
+            if custom_timing and custom_timing.end_time is not None:
+                candidate_ends.append(custom_timing.end_time)
+
+            if candidate_starts and candidate_ends:
+                window_starts.append(min(candidate_starts))
+                window_ends.append(max(candidate_ends))
+
+    if not window_starts or not window_ends:
+        return None, None
+
+    return min(window_starts), max(window_ends)
+
+
+def get_adjustment_conflict_bounds(driver_id, target_date, exclude_adjustment_id=None):
+    """Return (latest_late_start, earliest_early_finish) from existing adjustments on same date."""
+    query = ShiftAdjustment.query.filter(
+        ShiftAdjustment.driver_id == driver_id,
+        ShiftAdjustment.adjustment_date == target_date,
+    )
+
+    if exclude_adjustment_id is not None:
+        query = query.filter(ShiftAdjustment.id != exclude_adjustment_id)
+
+    adjustments = query.all()
+    late_starts = [a.adjusted_time for a in adjustments if a.adjustment_type == 'late_start']
+    early_finishes = [a.adjusted_time for a in adjustments if a.adjustment_type == 'early_finish']
+
+    latest_late_start = max(late_starts) if late_starts else None
+    earliest_early_finish = min(early_finishes) if early_finishes else None
+    return latest_late_start, earliest_early_finish
+
+
+def validate_adjustment_time(driver, target_date, adjustment_type, adjusted_time, exclude_adjustment_id=None):
+    """Validate adjustment time against working window and existing opposite adjustments.
+
+    Rules:
+    - Window start is the earliest start between default and custom timing.
+    - Window end is the latest end between default and custom timing.
+    - late_start must be strictly inside (window_start, window_end).
+    - early_finish must be strictly inside (window_start, window_end).
+    - Existing opposite adjustments further tighten allowed bounds.
+    """
+    all_timings = ShiftTiming.query.all()
+    timings_dict = {timing.shift_type: timing for timing in all_timings}
+
+    if not driver_has_working_shift_on_date(driver, target_date, timings_dict):
+        return "Cannot set adjustment on a day off or time off day."
+
+    window_start, window_end = get_driver_adjustment_time_window(driver, target_date, timings_dict)
+    if window_start is None or window_end is None:
+        return "Could not determine shift time window for this day."
+
+    latest_late_start, earliest_early_finish = get_adjustment_conflict_bounds(
+        driver.id,
+        target_date,
+        exclude_adjustment_id=exclude_adjustment_id,
+    )
+
+    lower_bound = window_start
+    upper_bound = window_end
+
+    if adjustment_type == 'late_start' and earliest_early_finish and earliest_early_finish < upper_bound:
+        upper_bound = earliest_early_finish
+    if adjustment_type == 'early_finish' and latest_late_start and latest_late_start > lower_bound:
+        lower_bound = latest_late_start
+
+    if upper_bound <= lower_bound:
+        return "Existing adjustments leave no valid time window on this day."
+
+    if adjusted_time <= lower_bound:
+        label = "Late start" if adjustment_type == 'late_start' else "Early finish"
+        return f"{label} must be later than {lower_bound.strftime('%H:%M')}."
+
+    if adjusted_time >= upper_bound:
+        label = "Late start" if adjustment_type == 'late_start' else "Early finish"
+        return f"{label} must be earlier than {upper_bound.strftime('%H:%M')}."
+
+    return None
 
 def get_week_dates(date_str):
     """Get Monday and Sunday for the week containing the given date"""
@@ -2378,6 +2577,19 @@ def get_driver_calendar_data(driver_id):
     ).all()
     holiday_dates = {h.holiday_date.strftime("%Y-%m-%d"): h for h in holidays_in_month}
 
+    adjustments_in_month = ShiftAdjustment.query.filter(
+        ShiftAdjustment.driver_id == driver_id,
+        ShiftAdjustment.adjustment_date >= month_start,
+        ShiftAdjustment.adjustment_date < next_month,
+    ).order_by(ShiftAdjustment.adjustment_date.asc(), ShiftAdjustment.id.asc()).all()
+
+    adjustment_dates = {}
+    for adjustment in adjustments_in_month:
+        date_key = adjustment.adjustment_date.strftime("%Y-%m-%d")
+        if date_key not in adjustment_dates:
+            adjustment_dates[date_key] = []
+        adjustment_dates[date_key].append(adjustment)
+
     today = datetime.now().date()
     days = []
     for day_offset in range(month_days):
@@ -2385,6 +2597,7 @@ def get_driver_calendar_data(driver_id):
         date_str = current_date.strftime("%Y-%m-%d")
         holiday_record = holiday_dates.get(date_str)
         is_holiday = holiday_record is not None
+        day_adjustments = adjustment_dates.get(date_str, [])
         
         # If on holiday, show no shifts (holiday overrides)
         day_entries = [] if is_holiday else get_driver_shifts_for_date(driver, current_date, timings_dict)
@@ -2395,13 +2608,25 @@ def get_driver_calendar_data(driver_id):
             "is_today": current_date == today,
             "is_holiday": is_holiday,
             "time_off_type": holiday_record.time_off_type if holiday_record else None,
+            "adjustments": [
+                {
+                    "adjustment_type": adj.adjustment_type,
+                    "label": "Late Start" if adj.adjustment_type == "late_start" else "Early Finish",
+                    "time": adj.adjusted_time.strftime("%H:%M"),
+                    "notes": adj.notes or "",
+                }
+                for adj in day_adjustments
+            ],
             "shifts": [
                 {
                     "shift_type": entry["shift_type"],
                     "label": entry["label"],
                     "badge_color": entry["badge_color"],
+                    "icon": entry["icon"],
                     "start_time": entry["start_time"].strftime("%H:%M") if entry["start_time"] else None,
                     "end_time": entry["end_time"].strftime("%H:%M") if entry["end_time"] else None,
+                    "default_start_time": entry["default_start_time"].strftime("%H:%M") if entry["default_start_time"] else None,
+                    "default_end_time": entry["default_end_time"].strftime("%H:%M") if entry["default_end_time"] else None,
                     "is_override": entry["is_override"],
                     "is_custom_time": entry["is_custom_time"],
                 }
@@ -2778,9 +3003,72 @@ def scheduling():
     adjustments = (
         ShiftAdjustment.query
         .join(Driver)
-        .order_by(ShiftAdjustment.adjustment_date.desc())
+        .order_by(Driver.driver_number.asc(), ShiftAdjustment.adjustment_date.desc(), ShiftAdjustment.id.desc())
         .all()
     )
+
+    grouped_adjustments = {}
+    for adjustment in adjustments:
+        driver_id = adjustment.driver_id
+        if driver_id not in grouped_adjustments:
+            grouped_adjustments[driver_id] = {
+                "driver": adjustment.driver,
+                "current_future_records": [],
+                "finished_records": [],
+            }
+
+        day_map = grouped_adjustments[driver_id].setdefault("_day_map", {})
+        day_key = adjustment.adjustment_date
+        if day_key not in day_map:
+            day_map[day_key] = {
+                "date": adjustment.adjustment_date,
+                "late_start": None,
+                "early_finish": None,
+                "notes": [],
+            }
+
+        day_entry = day_map[day_key]
+        if adjustment.adjustment_type == "late_start":
+            day_entry["late_start"] = adjustment
+        elif adjustment.adjustment_type == "early_finish":
+            day_entry["early_finish"] = adjustment
+
+        if adjustment.notes:
+            day_entry["notes"].append(adjustment.notes)
+
+    for entry in grouped_adjustments.values():
+        day_map = entry.pop("_day_map", {})
+        day_records = sorted(day_map.values(), key=lambda rec: rec["date"])
+        for record in day_records:
+            unique_notes = []
+            for note in record["notes"]:
+                if note not in unique_notes:
+                    unique_notes.append(note)
+            record["notes"] = " | ".join(unique_notes)
+
+        for record in day_records:
+            if record["date"] < today:
+                entry["finished_records"].append(record)
+            else:
+                entry["current_future_records"].append(record)
+
+        entry["finished_records"] = sorted(entry["finished_records"], key=lambda rec: rec["date"], reverse=True)
+
+    adjustments_by_driver = sorted(
+        [entry for entry in grouped_adjustments.values() if entry["current_future_records"]],
+        key=_driver_sort_key,
+    )
+
+    adjustments_with_finished = sorted(
+        [entry for entry in grouped_adjustments.values() if entry["finished_records"]],
+        key=_driver_sort_key,
+    )
+
+    finished_adjustment_days = sum(
+        len(entry["finished_records"])
+        for entry in grouped_adjustments.values()
+    )
+
     swaps = (
         ShiftSwap.query
         .order_by(ShiftSwap.date_a.desc())
@@ -2793,6 +3081,9 @@ def scheduling():
         time_off_by_driver=time_off_by_driver,
         finished_time_off_days=finished_time_off_days,
         adjustments=adjustments,
+        adjustments_by_driver=adjustments_by_driver,
+        adjustments_with_finished=adjustments_with_finished,
+        finished_adjustment_days=finished_adjustment_days,
         swaps=swaps,
     )
 
@@ -3043,7 +3334,7 @@ def add_adjustment():
         flash("Please select a driver.", "error")
         return redirect(url_for("scheduling"))
 
-    Driver.query.get_or_404(driver_id)
+    driver = Driver.query.get_or_404(driver_id)
 
     if adjustment_type not in ("late_start", "early_finish"):
         flash("Adjustment type must be 'late_start' or 'early_finish'.", "error")
@@ -3060,6 +3351,21 @@ def add_adjustment():
         flash("Invalid time format. Use HH:MM.", "error")
         return redirect(url_for("scheduling"))
 
+    validation_error = validate_adjustment_time(driver, adj_date, adjustment_type, adjusted_time)
+    if validation_error:
+        flash(validation_error, "error")
+        return redirect(url_for("scheduling"))
+
+    existing_same_type = ShiftAdjustment.query.filter_by(
+        driver_id=driver_id,
+        adjustment_date=adj_date,
+        adjustment_type=adjustment_type,
+    ).first()
+    if existing_same_type:
+        label = "Late Start" if adjustment_type == "late_start" else "Early Finish"
+        flash(f"Only one {label} adjustment is allowed per driver per day.", "error")
+        return redirect(url_for("scheduling"))
+
     adjustment = ShiftAdjustment(
         driver_id=driver_id,
         adjustment_date=adj_date,
@@ -3069,7 +3375,6 @@ def add_adjustment():
     )
     db.session.add(adjustment)
     db.session.commit()
-    driver = Driver.query.get(driver_id)
     label = "Late Start" if adjustment_type == "late_start" else "Early Finish"
     flash(f"{label} on {adj_date.strftime('%d/%m/%Y')} added for {driver.formatted_name()}.", "success")
     return redirect(url_for("scheduling"))
@@ -3099,6 +3404,28 @@ def edit_adjustment(adjustment_id):
         flash("Invalid time format. Use HH:MM.", "error")
         return redirect(url_for("scheduling"))
 
+    validation_error = validate_adjustment_time(
+        adjustment.driver,
+        adj_date,
+        adjustment_type,
+        adjusted_time,
+        exclude_adjustment_id=adjustment.id,
+    )
+    if validation_error:
+        flash(validation_error, "error")
+        return redirect(url_for("scheduling"))
+
+    existing_same_type = ShiftAdjustment.query.filter(
+        ShiftAdjustment.driver_id == adjustment.driver_id,
+        ShiftAdjustment.adjustment_date == adj_date,
+        ShiftAdjustment.adjustment_type == adjustment_type,
+        ShiftAdjustment.id != adjustment.id,
+    ).first()
+    if existing_same_type:
+        label = "Late Start" if adjustment_type == "late_start" else "Early Finish"
+        flash(f"Only one {label} adjustment is allowed per driver per day.", "error")
+        return redirect(url_for("scheduling"))
+
     adjustment.adjustment_date = adj_date
     adjustment.adjustment_type = adjustment_type
     adjustment.adjusted_time = adjusted_time
@@ -3115,6 +3442,46 @@ def delete_adjustment(adjustment_id):
     db.session.delete(adjustment)
     db.session.commit()
     flash("Adjustment removed.", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/adjustment/<int:driver_id>/delete-finished", methods=["POST"])
+def delete_finished_adjustments_for_driver(driver_id):
+    """Delete all finished (past-date) adjustments for a driver."""
+    driver = Driver.query.get_or_404(driver_id)
+    today = datetime.now().date()
+
+    deleted_count = ShiftAdjustment.query.filter(
+        ShiftAdjustment.driver_id == driver_id,
+        ShiftAdjustment.adjustment_date < today,
+    ).delete(synchronize_session=False)
+
+    db.session.commit()
+
+    if deleted_count:
+        flash(f"Removed {deleted_count} finished adjustment(s) for {driver.formatted_name()}.", "success")
+    else:
+        flash(f"No finished adjustments to remove for {driver.formatted_name()}.", "warning")
+
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/adjustment/delete-finished-all", methods=["POST"])
+def delete_all_finished_adjustments():
+    """Delete all finished (past-date) adjustments for all drivers."""
+    today = datetime.now().date()
+
+    deleted_count = ShiftAdjustment.query.filter(
+        ShiftAdjustment.adjustment_date < today,
+    ).delete(synchronize_session=False)
+
+    db.session.commit()
+
+    if deleted_count:
+        flash(f"Removed {deleted_count} finished adjustment(s).", "success")
+    else:
+        flash("No finished adjustments to remove.", "warning")
+
     return redirect(url_for("scheduling"))
 
 
