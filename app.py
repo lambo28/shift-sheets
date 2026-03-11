@@ -11,6 +11,9 @@ from config import config
 # Minimum rest hours required between consecutive shifts (used in swap validation)
 MIN_REST_HOURS = 8
 
+# Maximum hours a driver may work within any rolling 24-hour period
+MAX_WORK_HOURS_PER_24H = 16
+
 # -----------------------------------------------------------------------------
 # App Setup
 # -----------------------------------------------------------------------------
@@ -391,6 +394,175 @@ class ShiftSwap(db.Model):
     @property
     def work_date(self):
         return self.date_b
+
+
+class ExtraCarRequest(db.Model):
+    """A request for additional cars beyond normal shifted coverage."""
+    __tablename__ = 'extra_car_request'
+
+    id = db.Column(db.Integer, primary_key=True)
+    date = db.Column(db.Date, nullable=False)
+    # 'shift_type' uses an existing shift timing; 'time_window' uses explicit start/end
+    request_type = db.Column(db.String(20), nullable=False)
+    shift_type = db.Column(db.String(50), nullable=True)   # used when request_type='shift_type'
+    window_start = db.Column(db.Time, nullable=True)        # used when request_type='time_window'
+    window_end = db.Column(db.Time, nullable=True)          # used when request_type='time_window'
+    unlimited = db.Column(db.Boolean, default=False, nullable=False)
+    required_slots = db.Column(db.Integer, nullable=True)   # NULL when unlimited=True
+    min_partial_hours = db.Column(db.Float, default=2.0, nullable=False)
+    status = db.Column(db.String(20), default='OPEN', nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    assignments = db.relationship(
+        'ExtraCarAssignment',
+        back_populates='request',
+        cascade='all, delete-orphan',
+        order_by='ExtraCarAssignment.created_at',
+    )
+
+    def get_time_window(self):
+        """Return (start_datetime, end_datetime) for this request."""
+        if self.request_type == 'shift_type' and self.shift_type:
+            timing = ShiftTiming.query.filter_by(shift_type=self.shift_type).first()
+            if not timing or not timing.start_time or not timing.end_time:
+                return None, None
+            start_dt = datetime.combine(self.date, timing.start_time)
+            end_dt = datetime.combine(self.date, timing.end_time)
+        elif self.request_type == 'time_window' and self.window_start and self.window_end:
+            start_dt = datetime.combine(self.date, self.window_start)
+            end_dt = datetime.combine(self.date, self.window_end)
+        else:
+            return None, None
+        if end_dt <= start_dt:
+            end_dt += timedelta(days=1)
+        return start_dt, end_dt
+
+    def display_window(self):
+        """Return a human-readable time window string."""
+        start_dt, end_dt = self.get_time_window()
+        if not start_dt:
+            return '—'
+        return f"{start_dt.strftime('%H:%M')} – {end_dt.strftime('%H:%M')}"
+
+    def compute_coverage(self):
+        """
+        Compute how many independent coverage slots are filled by current assignments.
+
+        Coverage model:
+        - Only assignments whose effective overlap with the request window is >= min_partial_hours count.
+        - Assignments that are sequential (B starts when or after A ends) form one coverage *chain*,
+          which equals one filled slot. Parallel/overlapping assignments each start a new chain.
+        - Returns (filled_slots, suggested_status).
+        """
+        req_start, req_end = self.get_time_window()
+        if not req_start or not req_end:
+            return 0, self.status
+
+        min_hours = self.min_partial_hours or 2.0
+        valid = []
+
+        for asgn in self.assignments:
+            asgn_start = datetime.combine(self.date, asgn.start_time) if asgn.start_time else req_start
+            asgn_end = datetime.combine(self.date, asgn.end_time) if asgn.end_time else req_end
+            if asgn_end <= asgn_start:
+                asgn_end += timedelta(days=1)
+            # Clip to request window
+            eff_start = max(asgn_start, req_start)
+            eff_end = min(asgn_end, req_end)
+            if eff_end <= eff_start:
+                continue
+            if (eff_end - eff_start).total_seconds() / 3600 < min_hours:
+                continue
+            valid.append((eff_start, eff_end))
+
+        valid.sort(key=lambda x: x[0])
+
+        # Greedy chain counting: track end-times of open chains.
+        # An assignment extends the chain whose end is <= the assignment's start
+        # (sequential / handover). When multiple chains qualify, pick the one
+        # ending latest to preserve earlier-ending chains for future assignments.
+        chain_ends = []
+        for asgn_start, asgn_end in valid:
+            best_idx = None
+            best_end = None
+            for i, chain_end in enumerate(chain_ends):
+                if asgn_start >= chain_end:
+                    if best_end is None or chain_end > best_end:
+                        best_idx = i
+                        best_end = chain_end
+            if best_idx is not None:
+                chain_ends[best_idx] = max(chain_ends[best_idx], asgn_end)
+            else:
+                chain_ends.append(asgn_end)
+
+        filled_slots = len(chain_ends)
+
+        if self.status == 'CLOSED':
+            return filled_slots, 'CLOSED'
+
+        if self.unlimited:
+            new_status = 'PARTIALLY_FILLED' if filled_slots > 0 else 'OPEN'
+        else:
+            required = self.required_slots or 0
+            if filled_slots >= required > 0:
+                new_status = 'FILLED'
+            elif filled_slots > 0:
+                new_status = 'PARTIALLY_FILLED'
+            else:
+                new_status = 'OPEN'
+
+        return filled_slots, new_status
+
+
+class ExtraCarAssignment(db.Model):
+    """A car/driver assignment to an ExtraCarRequest."""
+    __tablename__ = 'extra_car_assignment'
+
+    id = db.Column(db.Integer, primary_key=True)
+    request_id = db.Column(
+        db.Integer,
+        db.ForeignKey('extra_car_request.id', ondelete='CASCADE'),
+        nullable=False,
+    )
+    driver_id = db.Column(db.Integer, db.ForeignKey('driver.id'), nullable=False)
+    # Optional time overrides; if NULL the full request window applies
+    start_time = db.Column(db.Time, nullable=True)
+    end_time = db.Column(db.Time, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    request = db.relationship('ExtraCarRequest', back_populates='assignments')
+    driver = db.relationship('Driver', backref=db.backref('extra_assignments', lazy=True))
+
+    def effective_start(self):
+        """Return the effective start datetime for this assignment."""
+        req_start, _ = self.request.get_time_window()
+        if self.start_time and req_start:
+            return datetime.combine(self.request.date, self.start_time)
+        return req_start
+
+    def effective_end(self):
+        """Return the effective end datetime for this assignment."""
+        _, req_end = self.request.get_time_window()
+        if self.end_time and req_end:
+            return datetime.combine(self.request.date, self.end_time)
+        return req_end
+
+    def duration_hours(self):
+        """Return the effective duration in hours (clipped to request window)."""
+        req_start, req_end = self.request.get_time_window()
+        if not req_start or not req_end:
+            return 0.0
+        s = self.effective_start() or req_start
+        e = self.effective_end() or req_end
+        if e <= s:
+            e += timedelta(days=1)
+        eff_start = max(s, req_start)
+        eff_end = min(e, req_end)
+        if eff_end <= eff_start:
+            return 0.0
+        return (eff_end - eff_start).total_seconds() / 3600
 
 # -----------------------------------------------------------------------------
 # Initialization
@@ -1161,6 +1333,141 @@ def get_active_assignments_for_date(target_date):
             DriverAssignment.end_date >= target_date
         )
     ).all()
+
+# -----------------------------------------------------------------------------
+# Extra Cars Helper Functions
+# -----------------------------------------------------------------------------
+
+def get_driver_all_work_intervals(driver, ref_date, timings_dict=None, exclude_request_id=None):
+    """Return a list of (source, start_datetime, end_datetime) tuples representing
+    all working periods for ``driver`` across ref_date-1, ref_date, and ref_date+1.
+
+    ``source`` is ``'scheduled'`` for pattern-based shifts or ``'extra'`` for
+    ExtraCarAssignment entries.  Entries from the extra-car request identified by
+    ``exclude_request_id`` are omitted so that the current request's own existing
+    assignments do not count against the driver being validated.
+    """
+    if timings_dict is None:
+        timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
+
+    intervals = []
+
+    # Collect regular scheduled shifts for the three-day window
+    for delta in range(-1, 2):
+        check_date = ref_date + timedelta(days=delta)
+        shifts = get_driver_shifts_for_date(driver, check_date, timings_dict)
+        for shift in shifts:
+            if shift['shift_type'] == 'day_off':
+                continue
+            if not shift['start_time'] or not shift['end_time']:
+                continue
+            s = datetime.combine(check_date, shift['start_time'])
+            e = datetime.combine(check_date, shift['end_time'])
+            if e <= s:
+                e += timedelta(days=1)
+            intervals.append(('scheduled', s, e))
+
+    # Collect existing extra-car assignments in the same window
+    window_start_date = ref_date - timedelta(days=1)
+    window_end_date = ref_date + timedelta(days=1)
+    extra_asgns = (
+        ExtraCarAssignment.query
+        .filter(ExtraCarAssignment.driver_id == driver.id)
+        .join(ExtraCarRequest)
+        .filter(
+            ExtraCarRequest.date >= window_start_date,
+            ExtraCarRequest.date <= window_end_date,
+            ExtraCarRequest.status != 'CLOSED',
+        )
+        .all()
+    )
+    if exclude_request_id is not None:
+        extra_asgns = [a for a in extra_asgns if a.request_id != exclude_request_id]
+
+    for ea in extra_asgns:
+        req_start, req_end = ea.request.get_time_window()
+        if not req_start or not req_end:
+            continue
+        s = datetime.combine(ea.request.date, ea.start_time) if ea.start_time else req_start
+        e = datetime.combine(ea.request.date, ea.end_time) if ea.end_time else req_end
+        if e <= s:
+            e += timedelta(days=1)
+        intervals.append(('extra', s, e))
+
+    return intervals
+
+
+def validate_extra_car_assignment(driver, request, proposed_start_dt, proposed_end_dt, timings_dict=None):
+    """Validate a proposed extra-car assignment against driver work rules.
+
+    Enforces:
+    - Minimum rest of ``MIN_REST_HOURS`` hours between consecutive working periods.
+    - Maximum of ``MAX_WORK_HOURS_PER_24H`` hours worked within any rolling 24-hour window.
+
+    Returns a tuple ``(is_valid, errors, suggested_start_dt, suggested_end_dt)`` where
+    ``suggested_*`` are the tightest legal boundaries found.  When validation passes they
+    match the proposed values.
+    """
+    if timings_dict is None:
+        timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
+
+    errors = []
+    raw_intervals = get_driver_all_work_intervals(
+        driver, request.date, timings_dict, exclude_request_id=request.id
+    )
+    existing_intervals = [(s, e) for _, s, e in raw_intervals]
+
+    suggested_start = proposed_start_dt
+    suggested_end = proposed_end_dt
+
+    # --- Rest before ---
+    prev_ends = [e for s, e in existing_intervals if e <= proposed_start_dt]
+    if prev_ends:
+        latest_prev_end = max(prev_ends)
+        rest_before = (proposed_start_dt - latest_prev_end).total_seconds() / 3600
+        if rest_before < MIN_REST_HOURS:
+            min_start = latest_prev_end + timedelta(hours=MIN_REST_HOURS)
+            errors.append(
+                f"Insufficient rest before assignment: {rest_before:.1f}h "
+                f"(minimum {MIN_REST_HOURS}h required). "
+                f"Earliest valid start: {min_start.strftime('%H:%M')}."
+            )
+            suggested_start = min_start
+
+    # --- Rest after ---
+    next_starts = [s for s, e in existing_intervals if s >= proposed_end_dt]
+    if next_starts:
+        earliest_next_start = min(next_starts)
+        rest_after = (earliest_next_start - proposed_end_dt).total_seconds() / 3600
+        if rest_after < MIN_REST_HOURS:
+            max_end = earliest_next_start - timedelta(hours=MIN_REST_HOURS)
+            errors.append(
+                f"Insufficient rest after assignment: {rest_after:.1f}h "
+                f"(minimum {MIN_REST_HOURS}h required). "
+                f"Latest valid finish: {max_end.strftime('%H:%M')}."
+            )
+            suggested_end = max_end
+
+    # --- Max hours in any rolling 24-hour window ---
+    all_intervals = existing_intervals + [(proposed_start_dt, proposed_end_dt)]
+    exceeded = False
+    for window_start, _ in all_intervals:
+        window_end = window_start + timedelta(hours=24)
+        total = sum(
+            (min(e, window_end) - max(s, window_start)).total_seconds() / 3600
+            for s, e in all_intervals
+            if e > window_start and s < window_end
+        )
+        if total > MAX_WORK_HOURS_PER_24H:
+            errors.append(
+                f"Would exceed maximum {MAX_WORK_HOURS_PER_24H}h work in a 24-hour period "
+                f"({total:.1f}h total)."
+            )
+            exceeded = True
+            break
+
+    return (not errors), errors, suggested_start, suggested_end
+
 
 # -----------------------------------------------------------------------------
 # Routes: Dashboard and Navigation
@@ -3999,6 +4306,271 @@ def delete_swap(swap_id):
     # -----------------------------------------------------------------------------
     # Entrypoint
     # -----------------------------------------------------------------------------
+
+
+# -----------------------------------------------------------------------------
+# Routes: Extra Cars
+# -----------------------------------------------------------------------------
+
+@app.route("/extra-cars")
+def extra_cars():
+    """Extra car requests management page."""
+    all_requests = (
+        ExtraCarRequest.query
+        .order_by(ExtraCarRequest.date.desc(), ExtraCarRequest.id.desc())
+        .all()
+    )
+    all_drivers = Driver.query.order_by(Driver.driver_number).all()
+    all_shift_timings = ShiftTiming.query.order_by(ShiftTiming.shift_type).all()
+
+    # Attach coverage info to each request
+    requests_with_coverage = []
+    for req in all_requests:
+        filled_slots, suggested_status = req.compute_coverage()
+        # Auto-update status when it changes (skip CLOSED requests)
+        if req.status != 'CLOSED' and suggested_status != req.status:
+            req.status = suggested_status
+        requests_with_coverage.append({
+            'request': req,
+            'filled_slots': filled_slots,
+        })
+    db.session.commit()
+
+    return render_template(
+        'extra_cars.html',
+        requests_with_coverage=requests_with_coverage,
+        all_drivers=all_drivers,
+        all_shift_timings=all_shift_timings,
+        today=datetime.now().date(),
+    )
+
+
+@app.route("/extra-cars/request/add", methods=["POST"])
+def add_extra_car_request():
+    """Create a new extra car request."""
+    request_type = request.form.get("request_type", "").strip()
+    req_date_str = request.form.get("date", "").strip()
+    notes = request.form.get("notes", "").strip() or None
+
+    req_date = parse_date_string(req_date_str)
+    if not req_date:
+        flash("Please provide a valid date.", "error")
+        return redirect(url_for("extra_cars"))
+
+    if request_type not in ("shift_type", "time_window"):
+        flash("Please select a valid request type.", "error")
+        return redirect(url_for("extra_cars"))
+
+    shift_type_val = None
+    window_start_val = None
+    window_end_val = None
+
+    if request_type == "shift_type":
+        shift_type_val = request.form.get("shift_type", "").strip()
+        if not shift_type_val:
+            flash("Please select a shift type.", "error")
+            return redirect(url_for("extra_cars"))
+        timing = ShiftTiming.query.filter_by(shift_type=shift_type_val).first()
+        if not timing:
+            flash("Selected shift type not found.", "error")
+            return redirect(url_for("extra_cars"))
+    else:
+        window_start_val = parse_time_string(request.form.get("window_start", "").strip())
+        window_end_val = parse_time_string(request.form.get("window_end", "").strip())
+        if not window_start_val or not window_end_val:
+            flash("Please provide valid start and end times.", "error")
+            return redirect(url_for("extra_cars"))
+
+    unlimited_raw = request.form.get("unlimited", "")
+    unlimited = unlimited_raw in ("1", "true", "on", "yes")
+
+    required_slots = None
+    if not unlimited:
+        required_slots = parse_positive_int(request.form.get("required_slots", ""))
+        if not required_slots:
+            flash("Please enter a positive number of required slots, or select unlimited.", "error")
+            return redirect(url_for("extra_cars"))
+
+    min_partial_raw = request.form.get("min_partial_hours", "2")
+    try:
+        min_partial_hours = float(min_partial_raw)
+        if min_partial_hours < 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        min_partial_hours = 2.0
+
+    new_req = ExtraCarRequest(
+        date=req_date,
+        request_type=request_type,
+        shift_type=shift_type_val,
+        window_start=window_start_val,
+        window_end=window_end_val,
+        unlimited=unlimited,
+        required_slots=required_slots,
+        min_partial_hours=min_partial_hours,
+        status='OPEN',
+        notes=notes,
+    )
+    db.session.add(new_req)
+    db.session.commit()
+
+    flash("Extra car request created.", "success")
+    return redirect(url_for("extra_cars"))
+
+
+@app.route("/extra-cars/request/<int:request_id>/delete", methods=["POST"])
+def delete_extra_car_request(request_id):
+    """Delete an extra car request and its assignments."""
+    req = ExtraCarRequest.query.get_or_404(request_id)
+    db.session.delete(req)
+    db.session.commit()
+    flash("Extra car request deleted.", "success")
+    return redirect(url_for("extra_cars"))
+
+
+@app.route("/extra-cars/request/<int:request_id>/status", methods=["POST"])
+def update_extra_car_request_status(request_id):
+    """Manually update the status of an extra car request."""
+    req = ExtraCarRequest.query.get_or_404(request_id)
+    new_status = request.form.get("status", "").strip()
+    valid_statuses = ("DRAFT", "OPEN", "PARTIALLY_FILLED", "FILLED", "CLOSED")
+    if new_status not in valid_statuses:
+        flash("Invalid status.", "error")
+        return redirect(url_for("extra_cars"))
+    req.status = new_status
+    db.session.commit()
+    flash(f"Request status updated to {new_status.replace('_', ' ').title()}.", "success")
+    return redirect(url_for("extra_cars"))
+
+
+@app.route("/extra-cars/request/<int:request_id>/assignment/validate", methods=["POST"])
+def validate_extra_car_assignment_ajax(request_id):
+    """AJAX endpoint to validate a proposed extra-car assignment before saving."""
+    req = ExtraCarRequest.query.get_or_404(request_id)
+
+    data = request.get_json(silent=True) or request.form
+    driver_id = parse_positive_int(data.get("driver_id"))
+    start_str = (data.get("start_time") or "").strip()
+    end_str = (data.get("end_time") or "").strip()
+
+    if not driver_id:
+        return json_error("Please select a driver.")
+
+    driver = db.session.get(Driver, driver_id)
+    if not driver:
+        return json_error("Driver not found.")
+
+    req_start, req_end = req.get_time_window()
+    if not req_start or not req_end:
+        return json_error("Request has an invalid or incomplete time window.")
+
+    # Resolve proposed times (fall back to full request window)
+    proposed_start = datetime.combine(req.date, parse_time_string(start_str)) if start_str else req_start
+    proposed_end = datetime.combine(req.date, parse_time_string(end_str)) if end_str else req_end
+    if proposed_end <= proposed_start:
+        proposed_end += timedelta(days=1)
+
+    timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
+    is_valid, errors, suggested_start, suggested_end = validate_extra_car_assignment(
+        driver, req, proposed_start, proposed_end, timings_dict
+    )
+
+    return jsonify({
+        "success": True,
+        "valid": is_valid,
+        "errors": errors,
+        "suggested_start": suggested_start.strftime("%H:%M"),
+        "suggested_end": suggested_end.strftime("%H:%M"),
+    })
+
+
+@app.route("/extra-cars/request/<int:request_id>/assignment/add", methods=["POST"])
+def add_extra_car_assignment(request_id):
+    """Add a driver assignment to an extra car request."""
+    req = ExtraCarRequest.query.get_or_404(request_id)
+
+    driver_id = parse_positive_int(request.form.get("driver_id"))
+    start_str = request.form.get("start_time", "").strip()
+    end_str = request.form.get("end_time", "").strip()
+    notes = request.form.get("notes", "").strip() or None
+
+    if not driver_id:
+        flash("Please select a driver.", "error")
+        return redirect(url_for("extra_cars"))
+
+    driver = db.session.get(Driver, driver_id)
+    if not driver:
+        flash("Driver not found.", "error")
+        return redirect(url_for("extra_cars"))
+
+    req_start, req_end = req.get_time_window()
+    if not req_start or not req_end:
+        flash("Request has an invalid or incomplete time window.", "error")
+        return redirect(url_for("extra_cars"))
+
+    start_time = parse_time_string(start_str) if start_str else None
+    end_time = parse_time_string(end_str) if end_str else None
+
+    proposed_start = datetime.combine(req.date, start_time) if start_time else req_start
+    proposed_end = datetime.combine(req.date, end_time) if end_time else req_end
+    if proposed_end <= proposed_start:
+        proposed_end += timedelta(days=1)
+
+    timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
+    is_valid, errors, _, _ = validate_extra_car_assignment(
+        driver, req, proposed_start, proposed_end, timings_dict
+    )
+
+    if not is_valid:
+        for err in errors:
+            flash(err, "error")
+        return redirect(url_for("extra_cars"))
+
+    assignment = ExtraCarAssignment(
+        request_id=req.id,
+        driver_id=driver.id,
+        start_time=start_time,
+        end_time=end_time,
+        notes=notes,
+    )
+    db.session.add(assignment)
+    db.session.flush()
+
+    # Recompute and persist status
+    filled_slots, new_status = req.compute_coverage()
+    if req.status != 'CLOSED':
+        req.status = new_status
+
+    db.session.commit()
+
+    flash(
+        f"{driver.formatted_name()} added to extra car request "
+        f"({proposed_start.strftime('%H:%M')}–{proposed_end.strftime('%H:%M')}).",
+        "success",
+    )
+    return redirect(url_for("extra_cars"))
+
+
+@app.route(
+    "/extra-cars/request/<int:request_id>/assignment/<int:assignment_id>/delete",
+    methods=["POST"],
+)
+def delete_extra_car_assignment(request_id, assignment_id):
+    """Remove a driver assignment from an extra car request."""
+    req = ExtraCarRequest.query.get_or_404(request_id)
+    asgn = ExtraCarAssignment.query.filter_by(id=assignment_id, request_id=request_id).first_or_404()
+
+    db.session.delete(asgn)
+    db.session.flush()
+
+    filled_slots, new_status = req.compute_coverage()
+    if req.status != 'CLOSED':
+        req.status = new_status
+
+    db.session.commit()
+    flash("Assignment removed.", "success")
+    return redirect(url_for("extra_cars"))
+
 
 if __name__ == "__main__":
     app.run(

@@ -102,6 +102,11 @@
                             <i class="fas fa-car"></i> Cars Working
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if current_endpoint == 'extra_cars' %}active{% endif %}" href="{{ url_for('extra_cars') }}" {% if current_endpoint == 'extra_cars' %}aria-current="page"{% endif %}>
+                            <i class="fas fa-car-side"></i> Extra Cars
+                        </a>
+                    </li>
                 </ul>
             </div>
         </div>
