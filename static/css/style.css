@@ -16,6 +16,35 @@ body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
+.skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 10000;
+    background: #fff;
+    color: #000;
+    padding: 0.5rem 0.75rem;
+    border: 2px solid var(--primary-color);
+    border-radius: 0.25rem;
+}
+
+.skip-link:focus {
+    left: 0.75rem;
+    top: 0.75rem;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.btn:focus-visible,
+.nav-link:focus-visible,
+.dropdown-item:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
 .navbar-brand {
     font-weight: 600;
     font-size: 1.3rem;
@@ -71,6 +100,22 @@ body {
 
 .btn-group .btn:hover {
     transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    .btn:hover,
+    .card:hover,
+    .btn-group .btn:hover,
+    .dashboard-card:hover {
+        transform: none !important;
+    }
 }
 
 /* Form Styling */
@@ -153,9 +198,45 @@ footer {
     .card-body {
         padding: 1rem;
     }
+
+    .page-header-stack {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 0.75rem;
+    }
+
+    .page-header-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        width: 100%;
+    }
+
+    .page-header-actions .btn {
+        flex: 1 1 auto;
+    }
     
     .table-responsive {
         border: none;
+        padding-bottom: 0.25rem;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .table td,
+    .table th {
+        white-space: nowrap;
+    }
+
+    .btn-sm,
+    .table .btn,
+    .table .btn-sm {
+        min-height: 2.5rem;
+        min-width: 2.5rem;
+        padding: 0.45rem 0.6rem;
+    }
+
+    .table .btn-group {
+        gap: 0.25rem;
     }
     
     .btn-group {
@@ -168,9 +249,35 @@ footer {
         border-radius: 0.375rem !important;
         margin-bottom: 0.25rem;
     }
+
+    .table .btn-group .btn {
+        margin-bottom: 0;
+    }
+
+    .adjustments-records-table td {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+    }
     
     .btn-group .btn:last-child {
         margin-bottom: 0;
+    }
+}
+
+@media (max-width: 576px) {
+    .table .btn-group {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(2.5rem, 1fr));
+        width: auto;
+        gap: 0.25rem;
+    }
+
+    .table .btn-group .btn {
+        width: 100%;
+    }
+
+    .table .btn-group .btn:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
     }
 }
 
@@ -345,6 +452,18 @@ footer {
     box-shadow: 0 0 0 1px #0d6efd;
 }
 
+.holiday-calendar td.cal-day.cal-swap-giveup {
+    background: #ffc107 !important;
+    color: #000;
+    font-weight: 600;
+}
+
+.holiday-calendar td.cal-day.cal-swap-work {
+    background: #28a745 !important;
+    color: #fff;
+    font-weight: 600;
+}
+
 .holiday-calendar .cal-day-header {
     margin-bottom: 2px;
 }
@@ -445,6 +564,26 @@ footer {
     font-size: 0.72rem;
 }
 
+.holiday-calendar .badge-swap-giveup-icon {
+    background: #ffc107;
+    color: #212529;
+    border: 1px solid #e0a800;
+}
+
+.holiday-calendar .badge-swap-work-icon {
+    background: #198754;
+    color: #fff;
+    border: 1px solid #157347;
+}
+
+.holiday-calendar td.cal-day.cal-has-swap-giveup {
+    box-shadow: inset 0 0 0 2px #ffc107;
+}
+
+.holiday-calendar td.cal-day.cal-has-swap-work {
+    box-shadow: inset 0 0 0 2px #198754;
+}
+
 .holiday-calendar.compact td {
     min-height: 52px;
     height: 52px;
@@ -453,6 +592,11 @@ footer {
 
 .holiday-calendar.compact table {
     border-spacing: 1px;
+}
+
+.holiday-calendar.compact td.cal-day {
+    padding: 0.4rem 0.3rem !important;
+    min-height: 60px;
 }
 
 .holiday-calendar.compact .cal-day-header {

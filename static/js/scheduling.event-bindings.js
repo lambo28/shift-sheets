@@ -32,6 +32,9 @@
         if (window.schedulingAdjustmentCalendar) {
             window.schedulingAdjustmentCalendar.init();
         }
+        if (window.schedulingSwapCalendar) {
+            window.schedulingSwapCalendar.init();
+        }
 
         // Update time input hint when adjustment type changes
         const adjTypeSelect = document.getElementById('adjType');
@@ -48,7 +51,7 @@
         }
 
         // Re-invalidate when swap fields change (so user must re-validate)
-        ['swapDriverA', 'swapDriverB', 'swapDateA', 'swapDateB'].forEach(function (id) {
+        ['swapDriver', 'swapGiveUpDate', 'swapWorkDate', 'swapWorkShiftType'].forEach(function (id) {
             const el = document.getElementById(id);
             if (el) {
                 el.addEventListener('change', resetSwapValidation);

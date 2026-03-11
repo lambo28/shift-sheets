@@ -31,6 +31,7 @@ function initializeAssignPatternForm() {
         e.preventDefault();
 
         if (!validateAssignDates()) {
+            showAlertBanner('error', MESSAGES.INVALID_DATE_RANGE);
             return false;
         }
 
@@ -39,7 +40,8 @@ function initializeAssignPatternForm() {
         const originalHtml = submitBtn.innerHTML;
 
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        submitBtn.innerHTML = MESSAGES.SAVING;
+        DEBUG.log('Submitting assignment pattern', 'info', { driverId });
 
         try {
             const response = await fetch(this.action, {
@@ -51,10 +53,9 @@ function initializeAssignPatternForm() {
             const result = await response.json();
 
             if (!response.ok || !result.ok) {
-                showAlertBanner('error', 
-                    '<i class="fas fa-exclamation-circle"></i> ' +
-                    (result.error || 'Could not save assignment. Please try again.')
-                );
+                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
+                showAlertBanner('error', errorMsg);
+                DEBUG.warn('Assignment save failed', { driverId, error: errorMsg });
                 return;
             }
 
@@ -73,17 +74,14 @@ function initializeAssignPatternForm() {
             document.getElementById('assign_end_date').value = '';
             submitBtn.innerHTML = '<i class="fas fa-calendar-plus"></i> Assign Pattern';
 
-            showAlertBanner('success', 
-                '<i class="fas fa-check-circle"></i> ' +
-                (result.message || 'Assignment saved successfully.')
-            );
+            showAlertBanner('success', result.message || MESSAGES.ASSIGNMENT_SAVED);
+            DEBUG.log('Assignment saved', 'info', { driverId });
 
             // Refresh driver table in background
             setTimeout(() => refreshDriverRow(driverId), 500);
         } catch (error) {
-            showAlertBanner('error', 
-                '<i class="fas fa-exclamation-circle"></i> Could not save assignment. Please try again.'
-            );
+            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+            DEBUG.error('Error saving assignment', { error, driverId });
         } finally {
             submitBtn.disabled = false;
             if (!submitBtn.innerHTML.includes('Assign Pattern') && 
@@ -106,7 +104,8 @@ function initializeAssignmentActionForm() {
 
         const formAction = this.action;
         const isDelete = formAction.includes('/delete');
-        const actionTitle = isDelete ? 'Deleting' : 'Ending';
+        const actionTitle = isDelete ? MESSAGES.ASSIGNMENT_DELETED : MESSAGES.ASSIGNMENT_ENDED;
+        DEBUG.log(`Submitting assignment ${isDelete ? 'delete' : 'end'}`, 'info');
 
         try {
             const response = await fetch(formAction, {
@@ -117,10 +116,9 @@ function initializeAssignmentActionForm() {
             const result = await response.json();
 
             if (!response.ok || !result.ok) {
-                showAlertBanner('error',
-                    '<i class="fas fa-exclamation-circle"></i> ' +
-                    (result.error || `Could not ${actionTitle.toLowerCase()} assignment. Please try again.`)
-                );
+                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
+                showAlertBanner('error', errorMsg);
+                DEBUG.warn(`Assignment ${isDelete ? 'delete' : 'end'} failed`, { error: errorMsg });
                 return;
             }
 
@@ -134,19 +132,16 @@ function initializeAssignmentActionForm() {
                 loadAssignmentHistory(driverId);
             }
 
-            showAlertBanner('success',
-                '<i class="fas fa-check-circle"></i> ' +
-                (result.message || `Assignment ${isDelete ? 'deleted' : 'ended'} successfully.`)
-            );
+            showAlertBanner('success', result.message || actionTitle);
+            DEBUG.log(`Assignment ${isDelete ? 'deleted' : 'ended'}`, 'info', { driverId });
 
             // Refresh driver table in background
             if (driverId) {
                 setTimeout(() => refreshDriverRow(driverId), 500);
             }
         } catch (error) {
-            showAlertBanner('error',
-                '<i class="fas fa-exclamation-circle"></i> Could not process request. Please try again.'
-            );
+            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+            DEBUG.error('Error processing assignment action', { error });
         }
     });
 }
@@ -165,7 +160,8 @@ function initializeAddDriverForm() {
         const originalHtml = submitBtn.innerHTML;
 
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...';
+        submitBtn.innerHTML = MESSAGES.SAVING;
+        DEBUG.log('Submitting add driver form', 'info');
 
         try {
             const response = await fetch(this.action, {
@@ -177,10 +173,9 @@ function initializeAddDriverForm() {
             const result = await response.json();
 
             if (!response.ok || !result.ok) {
-                showAlertBanner('error',
-                    '<i class="fas fa-exclamation-circle"></i> ' +
-                    (result.error || 'Could not add driver. Please try again.')
-                );
+                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
+                showAlertBanner('error', errorMsg);
+                DEBUG.warn('Add driver failed', { error: errorMsg });
                 return;
             }
 
@@ -189,15 +184,13 @@ function initializeAddDriverForm() {
 
             this.reset();
 
-            showAlertBanner('success',
-                '<i class="fas fa-check-circle"></i> ' +
-                (result.message || 'Driver added successfully.')
-            );
+            showAlertBanner('success', result.message || MESSAGES.DRIVER_ADDED);
+            DEBUG.log('Driver added successfully', 'info', { driverId: result.driverId });
+            
             setTimeout(() => location.reload(), 1500);
         } catch (error) {
-            showAlertBanner('error',
-                '<i class="fas fa-exclamation-circle"></i> Could not add driver. Please try again.'
-            );
+            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+            DEBUG.error('Error adding driver', { error });
         } finally {
             submitBtn.disabled = false;
             submitBtn.innerHTML = originalHtml;
@@ -219,7 +212,8 @@ function initializeEditDriverForm() {
         const originalHtml = submitBtn.innerHTML;
 
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+        submitBtn.innerHTML = MESSAGES.SAVING;
+        DEBUG.log('Submitting edit driver form', 'info');
 
         try {
             const response = await fetch(this.action, {
@@ -231,10 +225,9 @@ function initializeEditDriverForm() {
             const result = await response.json();
 
             if (!response.ok || !result.ok) {
-                showAlertBanner('error',
-                    '<i class="fas fa-exclamation-circle"></i> ' +
-                    (result.error || 'Could not update driver. Please try again.')
-                );
+                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
+                showAlertBanner('error', errorMsg);
+                DEBUG.warn('Edit driver failed', { error: errorMsg });
                 return;
             }
 
@@ -244,22 +237,16 @@ function initializeEditDriverForm() {
             // Extract driver ID from form action
             const driverId = this.action.match(/\/driver\/(\d+)\/edit/)?.[1];
             if (driverId) {
-                showAlertBanner('success',
-                    '<i class="fas fa-check-circle"></i> ' +
-                    (result.message || 'Driver updated successfully.')
-                );
+                showAlertBanner('success', result.message || MESSAGES.DRIVER_UPDATED);
+                DEBUG.log('Driver updated', 'info', { driverId });
                 setTimeout(() => refreshDriverRow(driverId), 500);
             } else {
-                showAlertBanner('success',
-                    '<i class="fas fa-check-circle"></i> ' +
-                    (result.message || 'Driver updated successfully.')
-                );
+                showAlertBanner('success', result.message || MESSAGES.DRIVER_UPDATED);
                 setTimeout(() => location.reload(), 1500);
             }
         } catch (error) {
-            showAlertBanner('error',
-                '<i class="fas fa-exclamation-circle"></i> Could not update driver. Please try again.'
-            );
+            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+            DEBUG.error('Error updating driver', { error });
         } finally {
             submitBtn.disabled = false;
             submitBtn.innerHTML = originalHtml;
@@ -281,7 +268,8 @@ function initializeDeleteDriverForm() {
         const originalHtml = submitBtn.innerHTML;
 
         submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deleting...';
+        submitBtn.innerHTML = MESSAGES.SAVING;
+        DEBUG.log('Submitting delete driver form', 'info');
 
         try {
             const response = await fetch(this.action, {
@@ -292,10 +280,9 @@ function initializeDeleteDriverForm() {
             const result = await response.json();
 
             if (!response.ok || !result.ok) {
-                showAlertBanner('error',
-                    '<i class="fas fa-exclamation-circle"></i> ' +
-                    (result.error || 'Could not delete driver. Please try again.')
-                );
+                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
+                showAlertBanner('error', errorMsg);
+                DEBUG.warn('Delete driver failed', { error: errorMsg });
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = originalHtml;
                 return;
@@ -304,15 +291,12 @@ function initializeDeleteDriverForm() {
             // Close modal if open
             hideModalById('deleteModal');
 
-            showAlertBanner('success',
-                '<i class="fas fa-check-circle"></i> ' +
-                (result.message || 'Driver deleted successfully.')
-            );
+            showAlertBanner('success', result.message || MESSAGES.DRIVER_DELETED);
+            DEBUG.log('Driver deleted successfully', 'info');
             setTimeout(() => location.reload(), 1500);
         } catch (error) {
-            showAlertBanner('error',
-                '<i class="fas fa-exclamation-circle"></i> Could not delete driver. Please try again.'
-            );
+            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+            DEBUG.error('Error deleting driver', { error });
             submitBtn.disabled = false;
             submitBtn.innerHTML = originalHtml;
         }

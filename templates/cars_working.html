@@ -19,14 +19,14 @@
                             <div class="mb-3">
                                 <label for="date" class="form-label">Date</label>
                                 <input type="date" class="form-control" id="date" name="date" 
-                                       value="{{ date.strftime('%Y-%m-%d') if date else '' }}" required>
+                                        value="{{ date.strftime('%Y-%m-%d') if date else '' }}" required autocomplete="off">
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label for="time" class="form-label">Time</label>
                                 <input type="time" class="form-control" id="time" name="time" 
-                                       value="{{ time.strftime('%H:%M') if time else '' }}" required>
+                                        value="{{ time.strftime('%H:%M') if time else '' }}" required autocomplete="off">
                             </div>
                         </div>
                     </div>
@@ -38,36 +38,9 @@
                     </div>
                 </form>
                 
-                <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    const dateInput = document.getElementById('date');
-                    const timeInput = document.getElementById('time');
-                    
-                    // Set date to today only if not already set
-                    if (!dateInput.value) {
-                        const today = new Date().toISOString().split('T')[0];
-                        dateInput.value = today;
-                    }
-                    
-                    // Set time to next full hour only if not already set
-                    if (!timeInput.value) {
-                        const now = new Date();
-                        let nextHour = now.getHours() + 1;
-                        
-                        // Wrap around midnight
-                        if (nextHour >= 24) {
-                            nextHour = 0;
-                        }
-                        
-                        const timeString = String(nextHour).padStart(2, '0') + ':00';
-                        timeInput.value = timeString;
-                    }
-                });
-                </script>
-                
                 {% if car_count is defined %}
                     <hr>
-                    <div class="alert alert-success">
+                    <div class="alert alert-success" role="status" aria-live="polite">
                         <div class="d-flex align-items-center">
                             <div class="me-3">
                                 <i class="fas fa-car fa-2x"></i>
@@ -87,4 +60,8 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/cars-working.init.js') }}"></script>
 {% endblock %}

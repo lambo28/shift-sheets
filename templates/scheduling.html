@@ -59,6 +59,16 @@
 .toggle-driver-blocks-btn:focus-visible {
     box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
 }
+
+.cal-swap-giveup {
+    background-color: #fff3cd !important;
+    box-shadow: inset 0 0 0 2px #ffc107;
+}
+
+.cal-swap-work {
+    background-color: #d1e7dd !important;
+    box-shadow: inset 0 0 0 2px #198754;
+}
 </style>
 {% endblock %}
 
@@ -208,13 +218,14 @@
                         {% if time_off_by_driver %}
                             <div class="table-responsive">
                                 <table class="table table-hover table-sm mb-0 adjustments-records-table">
+                                    <caption class="visually-hidden">Current and upcoming time off records grouped by driver</caption>
                                     <thead class="table-light">
                                         <tr>
-                                            <th>Driver</th>
-                                            <th>Date</th>
-                                            <th>Type</th>
-                                            <th>Notes</th>
-                                            <th class="text-end">Actions</th>
+                                            <th scope="col">Driver</th>
+                                            <th scope="col">Date</th>
+                                            <th scope="col">Type</th>
+                                            <th scope="col">Notes</th>
+                                            <th scope="col" class="text-end">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -356,12 +367,13 @@
                                             <div class="modal-body">
                                                 <div class="table-responsive">
                                                     <table class="table table-sm table-hover mb-0">
+                                                        <caption class="visually-hidden">Finished time off records for {{ driver.formatted_driver_number() }} {{ driver.formatted_name() }}</caption>
                                                         <thead class="table-light">
                                                             <tr>
-                                                                <th>Date</th>
-                                                                <th>Type</th>
-                                                                <th>Notes</th>
-                                                                <th class="text-end">Actions</th>
+                                                                <th scope="col">Date</th>
+                                                                <th scope="col">Type</th>
+                                                                <th scope="col">Notes</th>
+                                                                <th scope="col" class="text-end">Actions</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
@@ -890,51 +902,155 @@
     <!-- ===================== SWAPS PANEL ===================== -->
     <div class="tab-pane fade" id="swapsPanel" role="tabpanel" aria-labelledby="swaps-tab">
         <div class="row g-4">
-            <!-- Add Swap Form -->
-            <div class="col-lg-5">
+            <div class="col-12">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="fas fa-plus-circle"></i> Request Shift Swap</h5>
                     </div>
                     <div class="card-body">
                         <p class="text-muted small mb-3">
-                            Select two drivers and the dates they each give up. Their shifts will be swapped.
-                            Validation is applied before saving.
+                            Select one driver, choose the day they are giving up, then choose the day they will work
+                            and the shift type to apply on that day. Validation is applied before saving.
                         </p>
                         <form method="POST" action="{{ url_for('add_swap') }}" id="addSwapForm">
                             <div class="row g-3 mb-3">
-                                <div class="col-md-6">
-                                    <label for="swapDriverA" class="form-label">Driver A</label>
-                                    <select class="form-select" id="swapDriverA" name="driver_a_id" required>
+                                <div class="col-12">
+                                    <label for="swapDriver" class="form-label">Driver</label>
+                                    <select class="form-select" id="swapDriver" name="driver_id" required>
                                         <option value="">— Select driver —</option>
                                         {% for driver in drivers %}
                                             <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
                                         {% endfor %}
                                     </select>
-                                </div>
-                                <div class="col-md-6">
-                                    <label for="swapDateA" class="form-label">Date A gives up</label>
-                                    <input type="date" class="form-control" id="swapDateA" name="date_a" required>
                                 </div>
                             </div>
                             <div class="row g-3 mb-3">
                                 <div class="col-md-6">
-                                    <label for="swapDriverB" class="form-label">Driver B</label>
-                                    <select class="form-select" id="swapDriverB" name="driver_b_id" required>
-                                        <option value="">— Select driver —</option>
-                                        {% for driver in drivers %}
-                                            <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
-                                        {% endfor %}
-                                    </select>
+                                    <input type="date" class="form-control" id="swapGiveUpDate" name="give_up_date" required hidden>
                                 </div>
                                 <div class="col-md-6">
-                                    <label for="swapDateB" class="form-label">Date B gives up</label>
-                                    <input type="date" class="form-control" id="swapDateB" name="date_b" required>
+                                    <input type="date" class="form-control" id="swapWorkDate" name="work_date" required hidden>
                                 </div>
                             </div>
-                            <div class="mb-3">
-                                <label for="swapNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
-                                <input type="text" class="form-control" id="swapNotes" name="notes" maxlength="200">
+
+                            <div class="card mb-3">
+                                <div class="card-body p-2">
+                                    <div class="row g-2">
+                                        <!-- Give-up day calendar -->
+                                        <div class="col-md-6">
+                                            <div class="border-end pe-2">
+                                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="swapGiveUpCalPrev">
+                                                        <i class="fas fa-chevron-left"></i>
+                                                    </button>
+                                                    <div class="text-center">
+                                                        <strong style="font-size: 0.95rem;">Day to Give Up</strong>
+                                                        <div id="swapGiveUpCalMonthLabel" style="font-size: 0.85rem; color: #666;">Month Year</div>
+                                                    </div>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="swapGiveUpCalNext">
+                                                        <i class="fas fa-chevron-right"></i>
+                                                    </button>
+                                                </div>
+                                                <div class="holiday-calendar compact">
+                                                    <table class="table table-bordered align-middle mb-0" style="font-size: 0.9rem;">
+                                                        <thead class="table-light">
+                                                            <tr>
+                                                                <th class="text-center" style="padding: 0.4rem;">Mon</th>
+                                                                <th class="text-center" style="padding: 0.4rem;">Tue</th>
+                                                                <th class="text-center" style="padding: 0.4rem;">Wed</th>
+                                                                <th class="text-center" style="padding: 0.4rem;">Thu</th>
+                                                                <th class="text-center" style="padding: 0.4rem;">Fri</th>
+                                                                <th class="text-center" style="padding: 0.4rem;">Sat</th>
+                                                                <th class="text-center" style="padding: 0.4rem;">Sun</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="swapGiveUpCalBody">
+                                                            <tr>
+                                                                <td colspan="7" class="text-center text-muted" style="padding: 0.5rem;">Loading…</td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Work day calendar -->
+                                        <div class="col-md-6">
+                                            <div class="ps-2">
+                                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="swapWorkCalPrev">
+                                                        <i class="fas fa-chevron-left"></i>
+                                                    </button>
+                                                    <div class="text-center">
+                                                        <strong style="font-size: 0.95rem;">Day to Work</strong>
+                                                        <div id="swapWorkCalMonthLabel" style="font-size: 0.85rem; color: #666;">Month Year</div>
+                                                    </div>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="swapWorkCalNext">
+                                                        <i class="fas fa-chevron-right"></i>
+                                                    </button>
+                                                </div>
+                                                <div class="holiday-calendar compact">
+                                                    <table class="table table-bordered align-middle mb-0" style="font-size: 0.9rem;">
+                                                        <thead class="table-light">
+                                                            <tr>
+                                                                <th class="text-center" style="padding: 0.4rem;">Mon</th>
+                                                                <th class="text-center" style="padding: 0.4rem;">Tue</th>
+                                                                <th class="text-center" style="padding: 0.4rem;">Wed</th>
+                                                                <th class="text-center" style="padding: 0.4rem;">Thu</th>
+                                                                <th class="text-center" style="padding: 0.4rem;">Fri</th>
+                                                                <th class="text-center" style="padding: 0.4rem;">Sat</th>
+                                                                <th class="text-center" style="padding: 0.4rem;">Sun</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody id="swapWorkCalBody">
+                                                            <tr>
+                                                                <td colspan="7" class="text-center text-muted" style="padding: 0.5rem;">Loading…</td>
+                                                            </tr>
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-footer py-2 d-flex justify-content-between align-items-center">
+                                    <small id="swapDateSelectionDisplay" class="text-muted">Select a driver, then click a worked day (left) and an off day (right).</small>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="clearSwapSelection">
+                                        Clear Selection
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label for="swapWorkShiftType" class="form-label">Shift type on worked day</label>
+                                    <div class="dropdown">
+                                        <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" id="swapWorkShiftTypeBtn" data-bs-toggle="dropdown" aria-expanded="false" style="text-align: left !important;">
+                                            <span id="swapWorkShiftTypeDisplay">— Select shift type —</span>
+                                        </button>
+                                        <ul class="dropdown-menu w-100" aria-labelledby="swapWorkShiftTypeBtn" style="width: 100% !important;">
+                                            {% for shift_type in swap_shift_types %}
+                                                <li>
+                                                    <a class="dropdown-item swap-shift-option" href="#" 
+                                                       data-shift-type="{{ shift_type.shift_type }}" 
+                                                       data-color="{{ shift_type.badge_color }}"
+                                                       data-icon="{{ shift_type.icon }}"
+                                                       data-label="{{ shift_type.display_label or shift_label(shift_type.shift_type) }}">
+                                                        <span class="badge {{ shift_type.badge_color }} p-2 me-2">
+                                                            <i class="{{ shift_type.icon }}"></i>
+                                                        </span>
+                                                        {{ shift_type.display_label or shift_label(shift_type.shift_type) }}
+                                                    </a>
+                                                </li>
+                                            {% endfor %}
+                                        </ul>
+                                    </div>
+                                    <input type="hidden" id="swapWorkShiftType" name="work_shift_type" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="swapNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                                    <input type="text" class="form-control" id="swapNotes" name="notes" maxlength="200">
+                                </div>
                             </div>
 
                             <!-- Validation result area -->
@@ -948,28 +1064,20 @@
                                     <i class="fas fa-exchange-alt"></i> Confirm Swap
                                 </button>
                             </div>
-                        </form>
-                    </div>
-                </div>
 
-                <!-- Validation rules info -->
-                <div class="card mt-3">
-                    <div class="card-header">
-                        <h6 class="mb-0"><i class="fas fa-info-circle text-info"></i> Validation Rules</h6>
-                    </div>
-                    <div class="card-body py-2">
-                        <ul class="mb-0 small text-muted">
-                            <li>Both drivers must have a shift on their respective dates.</li>
-                            <li>No overlapping shifts after the swap.</li>
-                            <li>Minimum <strong>8 hours rest</strong> between consecutive shifts.</li>
-                            <li>Swap must not exceed each driver's <strong>weekly assignment limit</strong>.</li>
-                        </ul>
+                            <hr>
+                            <ul class="mb-0 small text-muted">
+                                <li>The selected driver must have a working shift on the give-up date.</li>
+                                <li>The selected driver must be off on the work date.</li>
+                                <li>Minimum <strong>8 hours rest</strong> between consecutive shifts.</li>
+                            </ul>
+                        </form>
                     </div>
                 </div>
             </div>
 
             <!-- Swaps Table -->
-            <div class="col-lg-7">
+            <div class="col-12">
                 <div class="card">
                     <div class="card-header">
                         <h5 class="mb-0"><i class="fas fa-list"></i> Swap Records</h5>
@@ -980,11 +1088,9 @@
                                 <table class="table table-hover table-sm mb-0">
                                     <thead class="table-light">
                                         <tr>
-                                            <th>Driver A</th>
-                                            <th>Date A</th>
-                                            <th></th>
-                                            <th>Driver B</th>
-                                            <th>Date B</th>
+                                            <th>Driver</th>
+                                            <th>Gives Up Shift</th>
+                                            <th>Works Shift</th>
                                             <th>Notes</th>
                                             <th class="text-end">Actions</th>
                                         </tr>
@@ -993,18 +1099,31 @@
                                         {% for swap in swaps %}
                                         <tr>
                                             <td>
-                                                <span class="badge bg-primary me-1">{{ swap.driver_a.formatted_driver_number() }}</span>
-                                                {{ swap.driver_a.formatted_name() }}
-                                            </td>
-                                            <td>{{ swap.date_a.strftime('%d/%m/%Y') }}</td>
-                                            <td class="text-center text-muted">
-                                                <i class="fas fa-exchange-alt"></i>
+                                                <span class="badge bg-primary me-1">{{ swap.driver.formatted_driver_number() }}</span>
+                                                {{ swap.driver.formatted_name() }}
                                             </td>
                                             <td>
-                                                <span class="badge bg-success me-1">{{ swap.driver_b.formatted_driver_number() }}</span>
-                                                {{ swap.driver_b.formatted_name() }}
+                                                <div class="d-flex flex-wrap align-items-center gap-1">
+                                                    <span>{{ swap.give_up_date.strftime('%d/%m/%Y') }}</span>
+                                                    {% if swap.give_up_shift_entries %}
+                                                        {% for entry in swap.give_up_shift_entries %}
+                                                            <span class="badge {{ entry.badge_color or 'bg-primary' }}">
+                                                                <i class="{{ entry.icon or 'fas fa-clock' }} me-1"></i>
+                                                                {{ entry.label or (entry.shift_type|shift_label) }}
+                                                            </span>
+                                                        {% endfor %}
+                                                    {% endif %}
+                                                </div>
                                             </td>
-                                            <td>{{ swap.date_b.strftime('%d/%m/%Y') }}</td>
+                                            <td>
+                                                <div class="d-flex flex-wrap align-items-center gap-1">
+                                                    <span>{{ swap.work_date.strftime('%d/%m/%Y') }}</span>
+                                                    <span class="badge {{ swap.work_shift_badge_color or 'bg-info text-dark' }}">
+                                                        <i class="{{ swap.work_shift_icon or 'fas fa-clock' }} me-1"></i>
+                                                        {{ swap.work_shift_label or (swap.work_shift_type|shift_label) }}
+                                                    </span>
+                                                </div>
+                                            </td>
                                             <td>
                                                 {% if swap.notes %}
                                                     <span class="text-muted">{{ swap.notes }}</span>
@@ -1016,8 +1135,8 @@
                                                 <button type="button" class="btn btn-sm btn-danger"
                                                         onclick="showGlobalDeleteConfirm({
                                                             title: 'Remove Swap',
-                                                            message: 'Remove swap between',
-                                                            name: '{{ swap.driver_a.formatted_name() }} ↔ {{ swap.driver_b.formatted_name() }}',
+                                                            message: 'Remove swap for',
+                                                            name: '{{ swap.driver.formatted_name() }} ({{ swap.give_up_date.strftime('%d/%m/%Y') }} → {{ swap.work_date.strftime('%d/%m/%Y') }})',
                                                             action: '{{ url_for('delete_swap', swap_id=swap.id) }}'
                                                         })"
                                                         title="Delete">
@@ -1185,30 +1304,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/shared.core.js') }}"></script>
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    if (typeof window.showAlertBanner !== 'function') {
-        return;
-    }
-
-    const flashAlerts = document.querySelectorAll('main > .alert.alert-dismissible');
-    flashAlerts.forEach(function (alertEl) {
-        let level = 'info';
-        if (alertEl.classList.contains('alert-success')) level = 'success';
-        else if (alertEl.classList.contains('alert-danger')) level = 'error';
-        else if (alertEl.classList.contains('alert-warning')) level = 'warning';
-
-        const cloned = alertEl.cloneNode(true);
-        const closeBtn = cloned.querySelector('.btn-close');
-        if (closeBtn) closeBtn.remove();
-
-        const messageHtml = cloned.innerHTML.trim();
-        window.showAlertBanner(level, messageHtml, true, 4000);
-        alertEl.remove();
-    });
-});
-</script>
-<script src="{{ url_for('static', filename='js/scheduling.core.js') }}"></script>
-<script src="{{ url_for('static', filename='js/scheduling.event-bindings.js') }}"></script>
+<script src="{{ bundle_url('scheduling.bundle.js') }}"></script>
 {% endblock %}

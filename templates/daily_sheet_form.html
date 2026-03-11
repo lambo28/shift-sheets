@@ -20,8 +20,8 @@
                     <div class="mb-4">
                         <label for="target_date" class="form-label">Select Date *</label>
                         <input type="date" class="form-control" id="target_date" 
-                               name="target_date" required>
-                        <div class="form-text">Choose the date for the shift sheet</div>
+                               name="target_date" required aria-describedby="target_date_help">
+                        <div class="form-text" id="target_date_help">Choose the date for the shift sheet</div>
                     </div>
                     
                     <div class="d-flex justify-content-end">
@@ -37,32 +37,8 @@
         </div>
     </div>
 </div>
+{% endblock %}
 
-<script>
-// Set default date to today and restrict past dates based on time
-document.addEventListener('DOMContentLoaded', function() {
-    const dateInput = document.getElementById('target_date');
-    const today = new Date();
-    const todayString = today.toISOString().split('T')[0];
-    
-    // Set default date to today
-    dateInput.value = todayString;
-    
-    // Determine minimum selectable date based on current time
-    const currentHour = today.getHours();
-    let minDate;
-    
-    if (currentHour >= 12) {
-        // After 12:00: only today and future
-        minDate = todayString;
-    } else {
-        // Before 12:00: yesterday, today, and future
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        minDate = yesterday.toISOString().split('T')[0];
-    }
-    
-    dateInput.min = minDate;
-});
-</script>
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/daily-sheet-form.init.js') }}"></script>
 {% endblock %}

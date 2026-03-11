@@ -225,6 +225,23 @@ python -m pytest tests/ -v
 python -m pytest tests/test_scheduling.py -v
 ```
 
+### JavaScript Bundles (Cache-Busted)
+
+This project uses generated per-page JS bundles in `static/js/bundles/` with hashed filenames and a manifest.
+
+```bash
+# Build bundles + manifest
+make build-js
+
+# Build with minify flag (uses rjsmin if installed)
+make build-js-min
+```
+
+Notes:
+- Source files stay in `static/js/`.
+- Do not edit generated bundle files directly.
+- Templates resolve hashed bundle names via the Flask `bundle_url(...)` helper.
+
 ### Database Schema
 
 The application uses SQLAlchemy models. New tables are created automatically on first run; existing databases are migrated by the inline `ALTER TABLE` checks in `app.py`.
@@ -276,13 +293,14 @@ ShiftAdjustment:
   - notes (Optional)
   - created_at
 
-# Recorded shift swaps between two drivers
+# Recorded single-driver day swaps
 ShiftSwap:
   - id (Primary Key)
-  - driver_a_id (Foreign Key → Driver)
-  - driver_b_id (Foreign Key → Driver)
-  - date_a (date driver_a gives up their shift)
-  - date_b (date driver_b gives up their shift)
+  - driver_a_id (Foreign Key → Driver, primary driver for the swap)
+  - driver_b_id (Foreign Key → Driver, mirrors driver_a_id for compatibility)
+  - date_a (date the driver gives up)
+  - date_b (date the driver works)
+  - work_shift_type (shift type worked on date_b)
   - notes (Optional)
   - created_at
 ```

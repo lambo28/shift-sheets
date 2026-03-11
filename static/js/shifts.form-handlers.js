@@ -71,11 +71,20 @@ function saveCreatePattern(event) {
 
     const form = document.getElementById('createPatternForm');
     if (!form) return;
+    
+    const cycleLength = document.getElementById('createCycleLength').value;
+    const error = Validate.cycle_length(cycleLength);
+    if (error) {
+        showAlertBanner('error', error);
+        DEBUG.warn('Invalid cycle length', { cycleLength });
+        return;
+    }
+    
     const formData = new FormData(form);
+    const cycleLengthNum = parseInt(cycleLength, 10);
     
     // Add daily shift data
-    const cycleLength = parseInt(document.getElementById('createCycleLength').value);
-    for (let i = 0; i < cycleLength; i++) {
+    for (let i = 0; i < cycleLengthNum; i++) {
         const select = document.getElementById(`create_day_${i}_shift`);
         if (select) {
             getSelectedDayShiftValues(select).forEach((value) => {
@@ -87,7 +96,8 @@ function saveCreatePattern(event) {
     const submitBtn = document.getElementById('createPatternBtn');
     const originalHtml = submitBtn.innerHTML;
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+    submitBtn.innerHTML = MESSAGES.SAVING;
+    DEBUG.log('Submitting create pattern form', 'info', { cycleLength: cycleLengthNum });
     
     requestJson(form.action || '/shift-pattern/add', {
         method: 'POST',
@@ -99,15 +109,19 @@ function saveCreatePattern(event) {
             hideModalById('createPatternModal');
             form.reset();
             document.getElementById('createPatternDays').style.display = 'none';
-            setPendingMainFeedback('success', 'Shift pattern created successfully.');
+            showAlertBanner('success', data.message || MESSAGES.PATTERN_CREATED);
+            DEBUG.log('Pattern created', 'info');
             location.reload(); // Reload to show new pattern
         } else {
-            showAlertBanner('danger', 'Error creating pattern: ' + (data.error || 'Unknown error'));
+            const errorMsg = data.error || MESSAGES.SERVER_ERROR;
+            showAlertBanner('error', errorMsg);
+            DEBUG.warn('Create pattern failed', { error: errorMsg });
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        showAlertBanner('danger', 'Error creating pattern.');
+        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+        DEBUG.error('Error creating pattern', { error });
     })
     .finally(() => {
         submitBtn.disabled = false;
@@ -128,7 +142,8 @@ function addShiftType(event) {
     const originalHtml = submitBtn.innerHTML;
     
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...';
+    submitBtn.innerHTML = MESSAGES.SAVING;
+    DEBUG.log('Submitting add shift type form', 'info');
     
     requestJson(form.action || '/shift-types/add', {
         method: 'POST',
@@ -139,15 +154,19 @@ function addShiftType(event) {
         if (data.success) {
             hideModalById('addShiftTypeModal');
             form.reset();
-            setPendingMainFeedback('success', 'Shift type added successfully.');
+            showAlertBanner('success', data.message || MESSAGES.SHIFT_TYPE_ADDED);
+            DEBUG.log('Shift type added', 'info');
             location.reload();
         } else {
-            showAlertBanner('danger', 'Error adding shift type: ' + (data.error || 'Unknown error'));
+            const errorMsg = data.error || MESSAGES.SERVER_ERROR;
+            showAlertBanner('error', errorMsg);
+            DEBUG.warn('Add shift type failed', { error: errorMsg });
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        showAlertBanner('danger', 'Error adding shift type.');
+        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+        DEBUG.error('Error adding shift type', { error });
     })
     .finally(() => {
         submitBtn.disabled = false;
@@ -205,12 +224,14 @@ function editShiftType(shiftType) {
             const modal = new bootstrap.Modal(document.getElementById('editShiftTypeModal'));
             modal.show();
         } else {
-            showAlertBanner('danger', 'Could not load shift type data.');
+            showAlertBanner('error', MESSAGES.LOAD_DATA_ERROR);
+            DEBUG.warn('Could not load shift type data');
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        showAlertBanner('danger', 'Error loading shift type data.');
+        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+        DEBUG.error('Error loading shift type data', { error });
     });
 }
 
@@ -229,7 +250,8 @@ function submitEditShiftType(event) {
     const originalHtml = submitBtn.innerHTML;
     
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+    submitBtn.innerHTML = MESSAGES.SAVING;
+    DEBUG.log('Submitting edit shift type form', 'info');
     
     requestJson(`/shift-types/${originalShiftType}/edit`, {
         method: 'POST',
@@ -240,15 +262,19 @@ function submitEditShiftType(event) {
         if (data.success) {
             hideModalById('editShiftTypeModal');
             form.reset();
-            setPendingMainFeedback('success', 'Shift type updated successfully.');
+            showAlertBanner('success', data.message || MESSAGES.SHIFT_TYPE_UPDATED);
+            DEBUG.log('Shift type updated', 'info');
             location.reload();
         } else {
-            showAlertBanner('danger', 'Error updating shift type: ' + (data.error || 'Unknown error'));
+            const errorMsg = data.error || MESSAGES.SERVER_ERROR;
+            showAlertBanner('error', errorMsg);
+            DEBUG.warn('Edit shift type failed', { error: errorMsg });
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        showAlertBanner('danger', 'Error updating shift type.');
+        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+        DEBUG.error('Error updating shift type', { error });
     })
     .finally(() => {
         submitBtn.disabled = false;
@@ -264,6 +290,8 @@ function deleteShiftType(shiftType, shiftName) {
         if (modal) modal.hide();
     }
     
+    DEBUG.log('Deleting shift type', { shiftType });
+    
     requestJson(`/shift-types/delete/${shiftType}`, {
         method: 'POST',
         headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -273,18 +301,22 @@ function deleteShiftType(shiftType, shiftName) {
         window.pendingShiftTypeDelete = null;
         
         if (data.success) {
-            setPendingMainFeedback('success', 'Shift type deleted successfully.');
+            showAlertBanner('success', data.message || MESSAGES.SHIFT_TYPE_DELETED);
+            DEBUG.log('Shift type deleted', 'info');
             location.reload();
         } else {
             // Show error message
-            showAlertBanner('danger', data.error || 'Error deleting shift type');
+            const errorMsg = data.error || MESSAGES.SERVER_ERROR;
+            showAlertBanner('error', errorMsg);
+            DEBUG.warn('Delete shift type failed', { error: errorMsg });
         }
     })
     .catch(error => {
         console.error('Error:', error);
         // Clear pending deletion
         window.pendingShiftTypeDelete = null;
-        showAlertBanner('danger', 'Error deleting shift type.');
+        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+        DEBUG.error('Error deleting shift type', { error });
     });
 }
 
@@ -310,6 +342,8 @@ function deletePattern(patternId, patternName) {
         if (modal) modal.hide();
     }
     
+    DEBUG.log('Deleting pattern', { patternId });
+    
     requestJson(`/shift-pattern/${patternId}/delete`, {
         method: 'POST',
         headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -319,18 +353,22 @@ function deletePattern(patternId, patternName) {
         window.pendingPatternDelete = null;
         
         if (data.success) {
-            setPendingMainFeedback('success', 'Shift pattern deleted successfully.');
+            showAlertBanner('success', data.message || MESSAGES.PATTERN_DELETED);
+            DEBUG.log('Pattern deleted', 'info');
             location.reload();
         } else {
             // Show error message
-            showAlertBanner('danger', data.error || 'Error deleting pattern');
+            const errorMsg = data.error || MESSAGES.SERVER_ERROR;
+            showAlertBanner('error', errorMsg);
+            DEBUG.warn('Delete pattern failed', { error: errorMsg });
         }
     })
     .catch(error => {
         console.error('Error:', error);
         // Clear pending deletion
         window.pendingPatternDelete = null;
-        showAlertBanner('danger', 'Error deleting pattern.');
+        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+        DEBUG.error('Error deleting pattern', { error });
     });
 }
 
@@ -349,6 +387,8 @@ function confirmDelete(patternId, patternName) {
 }
 
 function editPattern(patternId) {
+    DEBUG.log('Loading pattern for edit', { patternId });
+    
     requestJson(`/shift-pattern/${patternId}/edit-data`)
     .then(data => {
         if (data && data.id) {
@@ -375,13 +415,16 @@ function editPattern(patternId) {
             
             const modal = new bootstrap.Modal(document.getElementById('editPatternModal'));
             modal.show();
+            DEBUG.log('Pattern loaded successfully', 'info');
         } else {
-            showAlertBanner('danger', 'Could not load pattern data.');
+            showAlertBanner('error', MESSAGES.LOAD_DATA_ERROR);
+            DEBUG.warn('Could not load pattern data');
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        showAlertBanner('danger', 'Error loading pattern.');
+        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+        DEBUG.error('Error loading pattern', { error });
     });
 }
 
@@ -446,12 +489,14 @@ function savePattern(event) {
     const submitBtn = document.getElementById('savePatternBtn');
     const originalHtml = submitBtn.innerHTML;
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+    submitBtn.innerHTML = MESSAGES.SAVING;
+    DEBUG.log('Submitting edit pattern form', 'info');
     
     const patternId = document.getElementById('editPatternId')?.value;
     const actionUrl = form.action || (patternId ? `/shift-pattern/${patternId}/edit` : '');
     if (!actionUrl) {
-        showAlertBanner('danger', 'Could not determine edit endpoint.');
+        showAlertBanner('error', MESSAGES.FORM_ERROR);
+        DEBUG.warn('Could not determine edit endpoint');
         submitBtn.disabled = false;
         submitBtn.innerHTML = originalHtml;
         return;
@@ -467,15 +512,19 @@ function savePattern(event) {
             hideModalById('editPatternModal');
             form.reset();
             document.getElementById('editPatternDays').style.display = 'none';
-            setPendingMainFeedback('success', 'Shift pattern updated successfully.');
+            showAlertBanner('success', data.message || MESSAGES.PATTERN_UPDATED);
+            DEBUG.log('Pattern updated', 'info');
             location.reload(); // Reload to show updated pattern
         } else {
-            showAlertBanner('danger', 'Error updating pattern: ' + (data.error || 'Unknown error'));
+            const errorMsg = data.error || MESSAGES.SERVER_ERROR;
+            showAlertBanner('error', errorMsg);
+            DEBUG.warn('Edit pattern failed', { error: errorMsg });
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        showAlertBanner('danger', 'Error updating pattern.');
+        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+        DEBUG.error('Error updating pattern', { error });
     })
     .finally(() => {
         submitBtn.disabled = false;
@@ -518,6 +567,8 @@ function updateCopyPatternDays() {
 }
 
 function copyPattern(patternId) {
+    DEBUG.log('Loading pattern for copy', { patternId });
+    
     requestJson(`/shift-pattern/${patternId}/edit-data`)
     .then(data => {
         if (data && data.id) {
@@ -538,13 +589,16 @@ function copyPattern(patternId) {
             
             const modal = new bootstrap.Modal(document.getElementById('copyPatternModal'));
             modal.show();
+            DEBUG.log('Pattern loaded for copy', 'info');
         } else {
-            showAlertBanner('danger', 'Could not load pattern data.');
+            showAlertBanner('error', MESSAGES.LOAD_DATA_ERROR);
+            DEBUG.warn('Could not load pattern data');
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        showAlertBanner('danger', 'Error loading pattern.');
+        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+        DEBUG.error('Error loading pattern', { error });
     });
 }
 
@@ -572,7 +626,8 @@ function saveCopyPattern(event) {
     const submitBtn = document.getElementById('copyPatternBtn');
     const originalHtml = submitBtn.innerHTML;
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+    submitBtn.innerHTML = MESSAGES.SAVING;
+    DEBUG.log('Submitting copy pattern form', 'info');
     
     requestJson(form.action || '/shift-pattern/add', {
         method: 'POST',
@@ -584,15 +639,19 @@ function saveCopyPattern(event) {
             hideModalById('copyPatternModal');
             form.reset();
             document.getElementById('copyPatternDays').style.display = 'none';
-            setPendingMainFeedback('success', 'Shift pattern copied successfully.');
+            showAlertBanner('success', data.message || MESSAGES.PATTERN_COPIED);
+            DEBUG.log('Pattern copied', 'info');
             location.reload(); // Reload to show new pattern
         } else {
-            showAlertBanner('danger', 'Error creating pattern copy: ' + (data.error || 'Unknown error'));
+            const errorMsg = data.error || MESSAGES.SERVER_ERROR;
+            showAlertBanner('error', errorMsg);
+            DEBUG.warn('Copy pattern failed', { error: errorMsg });
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        showAlertBanner('danger', 'Error creating pattern copy.');
+        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+        DEBUG.error('Error copying pattern', { error });
     })
     .finally(() => {
         submitBtn.disabled = false;

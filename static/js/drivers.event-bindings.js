@@ -17,7 +17,6 @@ function initializeEventBindings() {
     initializeGlobalClickHandler();
     initializeStringFormatters();
     initializePatternForm();
-    initializeWorkflowModal();
 }
 
 function initializeModalCleanup() {
@@ -36,7 +35,6 @@ function initializeGlobalClickHandler() {
         handleAssignmentDeleteButton(event) ||
         handleAssignmentEndButton(event) ||
         handleAssignmentEditButton(event) ||
-        handleWorkflowButton(event) ||
         handleEditDriverButton(event) ||
         handleDeleteDriverButton(event);
     });
@@ -214,25 +212,6 @@ function handleAssignmentEditButton(event) {
 }
 
 /**
- * Handle workflow button click
- */
-function handleWorkflowButton(event) {
-    if (!event.target.closest('.open-driver-workflow-btn')) return false;
-
-    const button = event.target.closest('.open-driver-workflow-btn');
-    const title = button.getAttribute('data-workflow-title') || 'Driver Workflow';
-    const url = button.getAttribute('data-workflow-url') || 'about:blank';
-
-    document.getElementById('driverWorkflowTitle').textContent = title;
-    document.getElementById('driverWorkflowFrame').src = url;
-
-    const workflowModal = new bootstrap.Modal(document.getElementById('driverWorkflowModal'));
-    workflowModal.show();
-
-    return true;
-}
-
-/**
  * Handle edit driver button click
  */
 function handleEditDriverButton(event) {
@@ -361,50 +340,6 @@ function updateAssignPatternWarning() {
         warningDiv.style.display = 'block';
     } else {
         warningDiv.style.display = 'none';
-    }
-}
-
-/**
- * Initialize workflow modal handlers
- */
-function initializeWorkflowModal() {
-    const workflowModalEl = document.getElementById('driverWorkflowModal');
-    if (!workflowModalEl) return;
-
-    workflowModalEl.addEventListener('shown.bs.modal', function() {
-        adjustDriverWorkflowFrameSize();
-    });
-
-    workflowModalEl.addEventListener('hidden.bs.modal', function() {
-        cleanupModalArtifacts();
-        const frameEl = document.getElementById('driverWorkflowFrame');
-        if (frameEl) {
-            frameEl.src = 'about:blank';
-            frameEl.style.height = '460px';
-        }
-        location.reload();
-    });
-}
-
-/**
- * Adjust workflow modal frame size
- */
-function adjustDriverWorkflowFrameSize() {
-    const frameEl = document.getElementById('driverWorkflowFrame');
-    if (!frameEl || !frameEl.contentWindow || !frameEl.contentWindow.document) return;
-
-    try {
-        const doc = frameEl.contentWindow.document;
-        const contentHeight = Math.max(
-            doc.body?.scrollHeight || 0,
-            doc.documentElement?.scrollHeight || 0
-        );
-        const minHeight = 420;
-        const maxHeight = Math.round(window.innerHeight * 0.75);
-        const targetHeight = Math.min(Math.max(contentHeight + 12, minHeight), maxHeight);
-        frameEl.style.height = `${targetHeight}px`;
-    } catch (error) {
-        frameEl.style.height = '460px';
     }
 }
 
