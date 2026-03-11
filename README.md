@@ -25,7 +25,7 @@ A comprehensive web application for managing driver scheduling with shift patter
 
 ### 🎨 **Modern Interface**
 - **Responsive Design**: Works on desktop, tablet, and mobile devices
-- **Clean Navigation**: Separate sections for Drivers, Shift Patterns, Daily Sheets
+- **Clean Navigation**: Separate sections for Drivers, Shift Patterns, Daily Sheets, and Scheduling
 - **Professional UI**: Bootstrap 5 with intuitive workflow
 - **Docker Support**: Easy deployment with containerization
 
@@ -83,11 +83,29 @@ open http://localhost:5000
 - Assign patterns to drivers with start/end dates
 - Visual pattern previews
 
-#### 3️⃣ **Daily Sheets** (`/daily-sheet`)
-- Pick any date to generate roster
-- See which drivers work based on their assigned patterns
-- Print professional daily sheets
-- Organized by shift type for easy dispatch
+### 📅 **Scheduling** (`/scheduling`)
+
+One unified section for managing all one-off scheduling events on top of the regular rotation:
+
+#### 🌴 Driver Holidays
+- Use the **calendar widget** to select any date for a driver's holiday.
+- Selected days are highlighted; already-booked holidays are shown in amber.
+- Holiday records can be reviewed in the table and deleted at any time.
+
+#### ⏱️ One-off Shift Adjustments
+- Record a **Late Start** (new, later start time) or **Early Finish** (new, earlier finish time) for a driver on a specific date.
+- Adjustments can be edited or deleted through the table view.
+- The type selector automatically updates the time label to "New Start Time" or "New Finish Time" for clarity.
+
+#### 🔄 Shift-to-Shift Swaps
+- Choose **Driver A** and the date they give up their shift, then **Driver B** and the date they give up their shift.
+- Click **Validate** first — the system checks all rules before allowing the swap to be saved:
+  1. Both drivers must have a scheduled shift on their respective dates.
+  2. No overlapping shifts after the swap.
+  3. **8-hour minimum rest** between consecutive shifts for each driver.
+  4. The swap must not push either driver above their **weekly assignment limit** (derived from their shift pattern).
+- If validation passes, click **Confirm Swap** to record it.
+- Saved swaps are listed in the table and can be removed if needed.
 
 ### 🔄 **Example Workflow**
 
@@ -190,12 +208,43 @@ shift-sheets/
   ├── driver_custom_timings.html # Driver custom timing rules
     ├── daily_sheet_form.html  # Daily sheet generator
     ├── daily_sheet.html       # Daily roster view
-    └── print_daily_sheet.html # Print-friendly sheets
+    ├── print_daily_sheet.html # Print-friendly sheets
+    └── scheduling.html        # Scheduling (holidays, adjustments, swaps)
 ```
+
+### Running Tests
+
+```bash
+# Install test dependencies
+pip install -r requirements.txt
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Run scheduling tests only
+python -m pytest tests/test_scheduling.py -v
+```
+
+### JavaScript Bundles (Cache-Busted)
+
+This project uses generated per-page JS bundles in `static/js/bundles/` with hashed filenames and a manifest.
+
+```bash
+# Build bundles + manifest
+make build-js
+
+# Build with minify flag (uses rjsmin if installed)
+make build-js-min
+```
+
+Notes:
+- Source files stay in `static/js/`.
+- Do not edit generated bundle files directly.
+- Templates resolve hashed bundle names via the Flask `bundle_url(...)` helper.
 
 ### Database Schema
 
-The application uses a clean 3-model structure:
+The application uses SQLAlchemy models. New tables are created automatically on first run; existing databases are migrated by the inline `ALTER TABLE` checks in `app.py`.
 
 ```python
 # Driver information (basic info only)
@@ -225,6 +274,35 @@ DriverAssignment:
   - start_date
   - end_date (Optional)
   - created_at
+
+# Holiday dates per driver
+DriverHoliday:
+  - id (Primary Key)
+  - driver_id (Foreign Key → Driver)
+  - holiday_date (Unique per driver)
+  - notes (Optional)
+  - created_at
+
+# One-off late start or early finish
+ShiftAdjustment:
+  - id (Primary Key)
+  - driver_id (Foreign Key → Driver)
+  - adjustment_date
+  - adjustment_type ('late_start' | 'early_finish')
+  - adjusted_time
+  - notes (Optional)
+  - created_at
+
+# Recorded single-driver day swaps
+ShiftSwap:
+  - id (Primary Key)
+  - driver_a_id (Foreign Key → Driver, primary driver for the swap)
+  - driver_b_id (Foreign Key → Driver, mirrors driver_a_id for compatibility)
+  - date_a (date the driver gives up)
+  - date_b (date the driver works)
+  - work_shift_type (shift type worked on date_b)
+  - notes (Optional)
+  - created_at
 ```
 
 ## 🗂️ API Overview
@@ -239,6 +317,15 @@ DriverAssignment:
 - **`GET /driver/<id>/assign-pattern`** - Assign pattern to driver
 - **`GET /daily-sheet`** - Daily sheet generator form
 - **`POST /daily-sheet/generate`** - Generate roster for specific date
+- **`GET /scheduling`** - Scheduling management (holidays, adjustments, swaps)
+- **`POST /scheduling/holiday/add`** - Book a holiday date for a driver
+- **`POST /scheduling/holiday/<id>/delete`** - Remove a holiday record
+- **`POST /scheduling/adjustment/add`** - Add a one-off late start or early finish
+- **`POST /scheduling/adjustment/<id>/edit`** - Edit an adjustment
+- **`POST /scheduling/adjustment/<id>/delete`** - Remove an adjustment
+- **`POST /scheduling/swap/validate`** - Validate a proposed swap (AJAX/JSON)
+- **`POST /scheduling/swap/add`** - Confirm and record a validated swap
+- **`POST /scheduling/swap/<id>/delete`** - Remove a swap record
 
 ## 🎯 Key Concepts
 

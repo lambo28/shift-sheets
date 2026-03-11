@@ -16,6 +16,35 @@ body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
+.skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 10000;
+    background: #fff;
+    color: #000;
+    padding: 0.5rem 0.75rem;
+    border: 2px solid var(--primary-color);
+    border-radius: 0.25rem;
+}
+
+.skip-link:focus {
+    left: 0.75rem;
+    top: 0.75rem;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.btn:focus-visible,
+.nav-link:focus-visible,
+.dropdown-item:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
 .navbar-brand {
     font-weight: 600;
     font-size: 1.3rem;
@@ -71,6 +100,22 @@ body {
 
 .btn-group .btn:hover {
     transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    .btn:hover,
+    .card:hover,
+    .btn-group .btn:hover,
+    .dashboard-card:hover {
+        transform: none !important;
+    }
 }
 
 /* Form Styling */
@@ -153,9 +198,45 @@ footer {
     .card-body {
         padding: 1rem;
     }
+
+    .page-header-stack {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 0.75rem;
+    }
+
+    .page-header-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        width: 100%;
+    }
+
+    .page-header-actions .btn {
+        flex: 1 1 auto;
+    }
     
     .table-responsive {
         border: none;
+        padding-bottom: 0.25rem;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .table td,
+    .table th {
+        white-space: nowrap;
+    }
+
+    .btn-sm,
+    .table .btn,
+    .table .btn-sm {
+        min-height: 2.5rem;
+        min-width: 2.5rem;
+        padding: 0.45rem 0.6rem;
+    }
+
+    .table .btn-group {
+        gap: 0.25rem;
     }
     
     .btn-group {
@@ -168,9 +249,35 @@ footer {
         border-radius: 0.375rem !important;
         margin-bottom: 0.25rem;
     }
+
+    .table .btn-group .btn {
+        margin-bottom: 0;
+    }
+
+    .adjustments-records-table td {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+    }
     
     .btn-group .btn:last-child {
         margin-bottom: 0;
+    }
+}
+
+@media (max-width: 576px) {
+    .table .btn-group {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(2.5rem, 1fr));
+        width: auto;
+        gap: 0.25rem;
+    }
+
+    .table .btn-group .btn {
+        width: 100%;
+    }
+
+    .table .btn-group .btn:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
     }
 }
 
@@ -257,6 +364,332 @@ footer {
 .alert {
     border: none;
     border-left: 4px solid;
+}
+
+/* Unified calendar styles (Scheduling + Driver calendars) */
+.holiday-calendar {
+    user-select: none;
+}
+
+.holiday-calendar .cal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.holiday-calendar table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 3px;
+}
+
+.holiday-calendar th {
+    text-align: center;
+    font-size: 0.75rem;
+    color: #6c757d;
+    padding-bottom: 4px;
+}
+
+.holiday-calendar td {
+    text-align: center;
+    vertical-align: top;
+    min-height: 124px;
+    height: 124px;
+    padding: 4px 2px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.15s;
+    position: relative;
+}
+
+.holiday-calendar td:empty,
+.holiday-calendar td.cal-empty {
+    cursor: default;
+    background-color: #f8f9fa;
+}
+
+.holiday-calendar .cal-day {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+}
+
+.holiday-calendar td.cal-day:hover {
+    background: #e9ecef;
+}
+
+.holiday-calendar.readonly td.cal-day {
+    cursor: default;
+}
+
+.holiday-calendar.readonly td.cal-day:hover {
+    background: #f8f9fa;
+}
+
+.holiday-calendar td.cal-day.cal-selected {
+    background: #0d6efd !important;
+    color: #fff !important;
+    font-weight: 600;
+    border: 2px solid #0a58ca;
+}
+
+.holiday-calendar td.cal-day.cal-in-range {
+    background: #cfe2ff !important;
+    color: #084298;
+    font-weight: 500;
+}
+
+.holiday-calendar td.cal-day.cal-holiday {
+    background: #ffc107 !important;
+    color: #000;
+    font-weight: 600;
+}
+
+.holiday-calendar td.cal-day.cal-today {
+    border: 2px solid #0d6efd;
+    box-shadow: 0 0 0 1px #0d6efd;
+}
+
+.holiday-calendar td.cal-day.cal-swap-giveup {
+    background: #ffc107 !important;
+    color: #000;
+    font-weight: 600;
+}
+
+.holiday-calendar td.cal-day.cal-swap-work {
+    background: #28a745 !important;
+    color: #fff;
+    font-weight: 600;
+}
+
+.holiday-calendar .cal-day-header {
+    margin-bottom: 2px;
+}
+
+.holiday-calendar .cal-day-shifts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+    align-items: center;
+    align-content: center;
+    min-height: 72px;
+    height: 72px;
+    padding-bottom: 24px;
+    text-align: center;
+}
+
+.holiday-calendar .cal-shift-box {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    border-radius: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    text-align: center;
+    font-size: 0.76rem;
+    font-weight: 700;
+    line-height: 1.2;
+    min-width: 82px;
+}
+
+.holiday-calendar .cal-shift-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.28rem;
+}
+
+.holiday-calendar .cal-timeoff,
+.holiday-calendar .cal-timeoff i {
+    color: #000 !important;
+}
+
+.holiday-calendar .cal-timeoff {
+    border: 2px solid #000 !important;
+}
+
+.holiday-calendar .cal-day-bottom {
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    bottom: 4px;
+    height: 22px;
+}
+
+.holiday-calendar .cal-day-bottom-left,
+.holiday-calendar .cal-day-bottom-right,
+.holiday-calendar .cal-day-bottom-center {
+    position: absolute;
+    display: flex;
+    align-items: center;
+}
+
+.holiday-calendar .cal-day-bottom-left {
+    left: 0;
+}
+
+.holiday-calendar .cal-day-bottom-right {
+    right: 0;
+}
+
+.holiday-calendar .cal-day-bottom-center {
+    left: 50%;
+    transform: translateX(-50%);
+    gap: 4px;
+    max-width: calc(100% - 72px);
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.holiday-calendar .cal-shift-time-changed {
+    font-size: 0.68rem;
+    line-height: 1;
+    color: #fff;
+    background-color: #dc3545;
+    border-radius: 0.35rem;
+    padding: 0.18rem 0.3rem;
+    font-weight: 700;
+}
+
+.holiday-calendar .cal-adjustment-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+}
+
+.holiday-calendar .badge-swap-giveup-icon {
+    background: #ffc107;
+    color: #212529;
+    border: 1px solid #e0a800;
+}
+
+.holiday-calendar .badge-swap-work-icon {
+    background: #198754;
+    color: #fff;
+    border: 1px solid #157347;
+}
+
+.holiday-calendar td.cal-day.cal-has-swap-giveup {
+    box-shadow: inset 0 0 0 2px #ffc107;
+}
+
+.holiday-calendar td.cal-day.cal-has-swap-work {
+    box-shadow: inset 0 0 0 2px #198754;
+}
+
+.holiday-calendar.compact td {
+    min-height: 52px;
+    height: 52px;
+    padding: 2px 1px;
+}
+
+.holiday-calendar.compact table {
+    border-spacing: 1px;
+}
+
+.holiday-calendar.compact td.cal-day {
+    padding: 0.4rem 0.3rem !important;
+    min-height: 60px;
+}
+
+.holiday-calendar.compact .cal-day-header {
+    position: static;
+    margin-bottom: 1px;
+}
+
+.holiday-calendar.compact .cal-day-header .fw-bold.small {
+    font-size: 0.74rem !important;
+}
+
+.holiday-calendar.compact .cal-day-inline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    flex-wrap: nowrap;
+    min-height: 18px;
+    overflow: hidden;
+}
+
+.holiday-calendar.compact .cal-day-shifts {
+    display: none;
+}
+
+.holiday-calendar.compact .cal-shift-box {
+    font-size: 0.62rem;
+    padding: 0.18rem 0.3rem;
+    min-width: 38px;
+    border-radius: 0.35rem;
+}
+
+.holiday-calendar.compact .cal-adjustment-icon {
+    width: 15px;
+    height: 15px;
+    font-size: 0.56rem;
+}
+
+.holiday-calendar.compact .cal-shift-time-changed {
+    font-size: 0.54rem;
+    padding: 0.1rem 0.16rem;
+}
+
+.holiday-calendar.compact .cal-day-bottom {
+    display: none;
+}
+
+.holiday-calendar.compact .cal-day-bottom-center {
+    display: none;
+}
+
+@media (max-width: 1200px) {
+    .holiday-calendar td {
+        min-height: 114px;
+        height: 114px;
+    }
+
+    .holiday-calendar .cal-day-shifts {
+        min-height: 64px;
+        height: 64px;
+        padding-bottom: 22px;
+    }
+
+    .holiday-calendar .cal-shift-box {
+        font-size: 0.72rem;
+        padding: 0.32rem 0.5rem;
+        min-width: 74px;
+    }
+
+    .holiday-calendar.compact td {
+        min-height: 50px;
+        height: 50px;
+    }
+
+    .holiday-calendar.compact .cal-shift-box {
+        font-size: 0.58rem;
+        padding: 0.14rem 0.24rem;
+        min-width: 34px;
+    }
+}
+
+#driverCalendarModal .modal-dialog {
+    max-width: min(1180px, 95vw);
+}
+
+.badge-late-start-icon {
+    background-color: #fd7e14;
+    color: #fff;
+}
+
+.badge-early-finish-icon {
+    background-color: #6f42c1;
+    color: #fff;
 }
 
 .alert-success {

@@ -58,40 +58,47 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body>
+    <a class="skip-link" href="#mainContent">Skip to main content</a>
 
     {% if not is_modal_mode %}
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+    {% set current_endpoint = request.endpoint or '' %}
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary" aria-label="Main navigation">
         <div class="container">
             <a class="navbar-brand" href="{{ url_for('index') }}">
                 <i class="fas fa-taxi"></i> Driver Shift Sheets
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('index') }}">
+                        <a class="nav-link {% if current_endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}" {% if current_endpoint == 'index' %}aria-current="page"{% endif %}>
                             <i class="fas fa-home"></i> Dashboard
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('drivers') }}">
+                        <a class="nav-link {% if current_endpoint == 'drivers' %}active{% endif %}" href="{{ url_for('drivers') }}" {% if current_endpoint == 'drivers' %}aria-current="page"{% endif %}>
                             <i class="fas fa-users"></i> Drivers
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('shifts') }}">
+                        <a class="nav-link {% if current_endpoint == 'shifts' %}active{% endif %}" href="{{ url_for('shifts') }}" {% if current_endpoint == 'shifts' %}aria-current="page"{% endif %}>
                             <i class="fas fa-calendar-week"></i> Shifts
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('daily_sheet_form') }}">
+                        <a class="nav-link {% if current_endpoint == 'scheduling' %}active{% endif %}" href="{{ url_for('scheduling') }}" {% if current_endpoint == 'scheduling' %}aria-current="page"{% endif %}>
+                            <i class="fas fa-calendar-alt"></i> Scheduling
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if current_endpoint in ['daily_sheet_form', 'generate_daily_sheet', 'daily_sheet', 'print_daily_sheet'] %}active{% endif %}" href="{{ url_for('daily_sheet_form') }}" {% if current_endpoint in ['daily_sheet_form', 'generate_daily_sheet', 'daily_sheet', 'print_daily_sheet'] %}aria-current="page"{% endif %}>
                             <i class="fas fa-calendar-day"></i> Daily Sheet
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('cars_working') }}">
+                        <a class="nav-link {% if current_endpoint == 'cars_working' %}active{% endif %}" href="{{ url_for('cars_working') }}" {% if current_endpoint == 'cars_working' %}aria-current="page"{% endif %}>
                             <i class="fas fa-car"></i> Cars Working
                         </a>
                     </li>
@@ -101,7 +108,7 @@
     </nav>
     {% endif %}
 
-    <main class="{{ 'container-fluid p-3' if is_modal_mode else 'container mt-4' }}">
+    <main id="mainContent" tabindex="-1" class="{{ 'container-fluid p-3' if is_modal_mode else 'container mt-4' }}">
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
@@ -115,7 +122,7 @@
                     {% endif %}
                     <div class="alert alert-{{ alert_class }} alert-dismissible fade show" role="alert">
                         {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close alert"></button>
                     </div>
                 {% endfor %}
             {% endif %}
@@ -132,7 +139,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="globalDeleteTitle">Confirm Deletion</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
                     <p id="globalDeleteMessage">Are you sure you want to delete this item?</p>
@@ -142,7 +149,7 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <form id="deleteForm" method="POST" style="display: inline;">
+                    <form id="deleteForm" method="POST" class="d-inline">
                         <button type="submit" class="btn btn-danger" id="globalDeleteSubmitBtn">Delete</button>
                     </form>
                 </div>
@@ -160,82 +167,12 @@
     {% endif %}
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        window.showGlobalDeleteConfirm = function (options = {}) {
-            const {
-                title = 'Confirm Deletion',
-                message = 'Are you sure you want to delete this item?',
-                name = '',
-                warning = '',
-                action = '#',
-                submitLabel = 'Delete'
-            } = options;
-
-            const titleEl = document.getElementById('globalDeleteTitle');
-            const messageEl = document.getElementById('globalDeleteMessage');
-            const nameRowEl = document.getElementById('globalDeleteNameRow');
-            const nameEl = document.getElementById('globalDeleteName');
-            const warningEl = document.getElementById('globalDeleteWarning');
-            const formEl = document.getElementById('deleteForm');
-            const submitEl = document.getElementById('globalDeleteSubmitBtn');
-
-            if (titleEl) titleEl.textContent = title;
-            if (messageEl) messageEl.textContent = message;
-
-            if (nameRowEl && nameEl) {
-                if (name) {
-                    nameEl.textContent = name;
-                    nameRowEl.classList.remove('d-none');
-                } else {
-                    nameEl.textContent = '';
-                    nameRowEl.classList.add('d-none');
-                }
-            }
-
-            if (warningEl) {
-                if (warning) {
-                    warningEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${warning}`;
-                    warningEl.classList.remove('d-none');
-                } else {
-                    warningEl.innerHTML = '';
-                    warningEl.classList.add('d-none');
-                }
-            }
-
-            if (formEl) formEl.action = action;
-            if (submitEl) {
-                submitEl.textContent = submitLabel;
-                // For shift type deletions (action is javascript:void(0)), change button to regular button
-                if (action === 'javascript:void(0);') {
-                    submitEl.type = 'button';
-                } else {
-                    submitEl.type = 'submit';
-                }
-            }
-
-            // Recreate feedback element if it was removed
-            let feedbackEl = document.getElementById('deletePatternFeedback');
-            if (!feedbackEl) {
-                feedbackEl = document.createElement('div');
-                feedbackEl.id = 'deletePatternFeedback';
-                feedbackEl.className = 'alert d-none mt-3';
-                feedbackEl.setAttribute('role', 'alert');
-                const modalBody = document.querySelector('#deleteModal .modal-body');
-                if (modalBody) {
-                    modalBody.appendChild(feedbackEl);
-                }
-            } else {
-                feedbackEl.classList.add('d-none');
-                feedbackEl.textContent = '';
-                feedbackEl.classList.remove('alert-success', 'alert-danger', 'alert-warning', 'alert-info', 'fade', 'show', 'alert-dismissible');
-            }
-
-            const modalEl = document.getElementById('deleteModal');
-            if (!modalEl || typeof bootstrap === 'undefined') return;
-            const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-            modal.show();
-        };
-    </script>
+    
+    <!-- Utility libraries (load before page-specific scripts) -->
+    <script src="{{ url_for('static', filename='js/utils/debug.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/utils/validation.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/utils/messages.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/base.delete-modal.js') }}"></script>
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

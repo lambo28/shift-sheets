@@ -181,6 +181,7 @@ function initializeFormControlHandlers() {
     if (deleteForm) {
         deleteForm.addEventListener('submit', function(event) {
             event.preventDefault();
+            DEBUG.log('Submitting delete pattern form', 'info');
 
             requestJson(deleteForm.action, {
                 method: 'POST',
@@ -194,15 +195,19 @@ function initializeFormControlHandlers() {
                     if (deleteModal) {
                         deleteModal.hide();
                     }
-                    setPendingMainFeedback('success', 'Shift pattern deleted successfully.');
+                    showAlertBanner('success', data.message || MESSAGES.PATTERN_DELETED);
+                    DEBUG.log('Pattern deleted', 'info');
                     location.reload();
                 } else {
-                    showAlertBanner('danger', 'Error deleting pattern: ' + (data.error || 'Unknown error'));
+                    const errorMsg = data.error || MESSAGES.SERVER_ERROR;
+                    showAlertBanner('error', errorMsg);
+                    DEBUG.warn('Delete pattern failed', { error: errorMsg });
                 }
             })
             .catch(error => {
                 console.error('Error deleting pattern:', error);
-                showAlertBanner('danger', 'Error deleting pattern.');
+                showAlertBanner('error', MESSAGES.NETWORK_ERROR);
+                DEBUG.error('Error deleting pattern', { error });
             });
         });
     }

@@ -47,14 +47,15 @@
                         <div class="card-body p-2">
                             {% if drivers %}
                                 <table class="table table-sm table-bordered mb-0">
+                                    <caption class="visually-hidden">Printable roster for {{ (shift_timing.display_label if shift_timing else (shift_type|shift_label)).upper() }} shift</caption>
                                     <thead class="table-light">
                                         <tr>
-                                            <th style="width: 80px;">Driver #</th>
-                                            <th>Name</th>
-                                            <th style="width: 100px;">Vehicle</th>
-                                            <th style="width: 90px;">Times</th>
-                                            <th style="width: 60px;">Badges</th>
-                                            <th style="width: 120px;">Signature</th>
+                                            <th scope="col" style="width: 80px;">Driver #</th>
+                                            <th scope="col">Name</th>
+                                            <th scope="col" style="width: 100px;">Vehicle</th>
+                                            <th scope="col" style="width: 90px;">Times</th>
+                                            <th scope="col" style="width: 60px;">Badges</th>
+                                            <th scope="col" style="width: 120px;">Signature</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -97,14 +98,15 @@
                                     <p class="mb-0">No drivers scheduled for {{ shift_type.replace('_', ' ') }} shift</p>
                                     <!-- Empty table for manual entries -->
                                     <table class="table table-sm table-bordered mt-2">
+                                        <caption class="visually-hidden">Blank rows for manual entries for {{ shift_type|shift_label }} shift</caption>
                                         <thead class="table-light">
                                             <tr>
-                                                <th style="width: 80px;">Driver #</th>
-                                                <th>Name</th>
-                                                <th style="width: 100px;">Vehicle</th>
-                                                <th style="width: 90px;">Times</th>
-                                                <th style="width: 60px;">Badges</th>
-                                                <th style="width: 120px;">Signature</th>
+                                                <th scope="col" style="width: 80px;">Driver #</th>
+                                                <th scope="col">Name</th>
+                                                <th scope="col" style="width: 100px;">Vehicle</th>
+                                                <th scope="col" style="width: 90px;">Times</th>
+                                                <th scope="col" style="width: 60px;">Badges</th>
+                                                <th scope="col" style="width: 120px;">Signature</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -137,11 +139,10 @@
                     </div>
                     <div class="card-body">
                         <table class="table table-sm table-bordered">
-                            {% set total_ns = namespace(count=0) %}
-                            {% for d in drivers_by_shift.values() %}{% set total_ns.count = total_ns.count + (d | length) %}{% endfor %}
+                            <caption class="visually-hidden">Daily total drivers and breakdown by shift</caption>
                             <tr>
                                 <th>Total Drivers:</th>
-                                <td class="text-center"><strong>{{ total_ns.count }}</strong></td>
+                                <td class="text-center"><strong>{{ total_drivers }}</strong></td>
                             </tr>
                             {% for shift_type, drivers in drivers_by_shift.items() %}
                             <tr>
@@ -180,21 +181,13 @@
 
     <!-- Print Button -->
     <div class="no-print text-center mt-3">
-        <button onclick="window.print()" class="btn btn-primary">
+        <button id="printDailySheetBtn" class="btn btn-primary" aria-label="Print this daily sheet">
             <i class="fas fa-print"></i> Print This Sheet
         </button>
         <a href="{{ url_for('daily_sheet_form') }}" class="btn btn-secondary ms-2">
             <i class="fas fa-arrow-left"></i> Back to Generator
         </a>
     </div>
-
-    <script>
-        // Auto-print when page loads
-        window.onload = function() {
-            setTimeout(function() {
-                window.print();
-            }, 500);
-        }
-    </script>
+    <script src="{{ url_for('static', filename='js/print-daily-sheet.init.js') }}"></script>
 </body>
 </html>

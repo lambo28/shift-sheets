@@ -202,9 +202,13 @@ function loadAssignmentHistory(driverId) {
     const assignments = driverAssignments[driverId] || [];
     const historySection = document.getElementById('assignmentHistorySection');
     const historyContent = document.getElementById('assignmentHistoryContent');
+    const panelContent = document.querySelector(`.assignments-list[data-driver-id="${driverId}"]`);
 
     if (assignments.length === 0) {
-        historySection.style.display = 'none';
+        if (historySection) historySection.style.display = 'none';
+        if (panelContent) {
+            panelContent.innerHTML = '<p class="text-muted text-center py-3 mb-0">No assignments yet. Use <strong>Add Assignment</strong> to create one.</p>';
+        }
         return;
     }
 
@@ -244,11 +248,11 @@ function loadAssignmentHistory(driverId) {
         // Render appropriate action buttons based on status
         if (assignment.status === 'scheduled') {
             html += `
-                <button type="button" class="btn btn-sm btn-outline-primary edit-assignment-btn"
+                <button type="button" class="btn btn-sm btn-primary edit-assignment-btn"
                         data-assignment-id="${assignment.id}" data-driver-id="${driverId}" title="Edit Assignment">
                     <i class="fas fa-edit"></i>
                 </button>
-                <button type="button" class="btn btn-sm btn-outline-danger delete-assignment-btn" 
+                <button type="button" class="btn btn-sm btn-danger delete-assignment-btn" 
                         data-assignment-id="${assignment.id}" data-pattern-name="${assignment.patternName}" 
                         data-driver-id="${driverId}" title="Delete Assignment">
                     <i class="fas fa-trash"></i>
@@ -256,14 +260,14 @@ function loadAssignmentHistory(driverId) {
             `;
         } else if (assignment.status === 'active' && !assignment.hasEndDate) {
             html += `
-                <button type="button" class="btn btn-sm btn-outline-primary edit-assignment-btn"
+                <button type="button" class="btn btn-sm btn-primary edit-assignment-btn"
                         data-assignment-id="${assignment.id}" data-driver-id="${driverId}" title="Edit Assignment">
                     <i class="fas fa-edit"></i>
                 </button>
-                <button type="button" class="btn btn-sm btn-outline-warning end-assignment-btn" 
+                <button type="button" class="btn btn-sm btn-warning end-assignment-btn" 
                         data-assignment-id="${assignment.id}" data-pattern-name="${assignment.patternName}" 
                         data-driver-id="${driverId}" title="End Assignment">
-                    <i class="fas fa-stop"></i> End
+                    <i class="fas fa-stop"></i>
                 </button>
             `;
         } else if (assignment.status === 'active' && assignment.hasEndDate) {
@@ -274,7 +278,7 @@ function loadAssignmentHistory(driverId) {
             const endingToday = endDate.getTime() === today.getTime();
 
             html += `
-                <button type="button" class="btn btn-sm btn-outline-primary edit-assignment-btn"
+                <button type="button" class="btn btn-sm btn-primary edit-assignment-btn"
                         data-assignment-id="${assignment.id}" data-driver-id="${driverId}" title="Edit Assignment">
                     <i class="fas fa-edit"></i>
                 </button>
@@ -282,16 +286,16 @@ function loadAssignmentHistory(driverId) {
 
             if (!endingToday) {
                 html += `
-                    <button type="button" class="btn btn-sm btn-outline-warning end-assignment-btn" 
+                    <button type="button" class="btn btn-sm btn-warning end-assignment-btn" 
                             data-assignment-id="${assignment.id}" data-pattern-name="${assignment.patternName}" 
                             data-driver-id="${driverId}" title="End Assignment Now">
-                        <i class="fas fa-stop"></i> End
+                        <i class="fas fa-stop"></i>
                     </button>
                 `;
             }
         } else if (assignment.status === 'ended') {
             html += `
-                <button type="button" class="btn btn-sm btn-outline-danger delete-assignment-btn" 
+                <button type="button" class="btn btn-sm btn-danger delete-assignment-btn" 
                         data-assignment-id="${assignment.id}" data-pattern-name="${assignment.patternName}" 
                         data-driver-id="${driverId}" title="Delete Assignment">
                     <i class="fas fa-trash"></i>
@@ -303,6 +307,13 @@ function loadAssignmentHistory(driverId) {
     });
 
     html += '</tbody></table></div>';
-    historyContent.innerHTML = html;
-    historySection.style.display = 'block';
+    if (historyContent) {
+        historyContent.innerHTML = html;
+    }
+    if (historySection) {
+        historySection.style.display = 'block';
+    }
+    if (panelContent) {
+        panelContent.innerHTML = html;
+    }
 }

@@ -123,12 +123,11 @@
                     {% endif %}
                     
                     <div class="text-center mt-3">
-                        <a href="{{ url_for('generate_daily_sheet') }}" class="btn btn-primary" method="POST" 
-                           onclick="event.preventDefault(); document.getElementById('todayForm').submit();">
-                            <i class="fas fa-list-alt"></i> View Today's Full Roster
-                        </a>
-                        <form id="todayForm" method="POST" action="{{ url_for('generate_daily_sheet') }}" style="display: none;">
+                        <form id="todayForm" method="POST" action="{{ url_for('generate_daily_sheet') }}" class="d-inline">
                             <input type="hidden" name="target_date" value="{{ today.strftime('%Y-%m-%d') }}">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-list-alt"></i> View Today's Full Roster
+                            </button>
                         </form>
                     </div>
                 {% else %}

@@ -54,14 +54,15 @@
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-sm table-hover mb-0">
+                <caption class="visually-hidden">Configured shift types and their usage in patterns</caption>
                 <thead class="table-light">
                     <tr>
-                        <th style="width: 60px;"></th>
-                        <th>Name</th>
-                        <th>Time</th>
-                        <th>Group Under</th>
-                        <th>Used in Patterns</th>
-                        <th class="text-end">Actions</th>
+                        <th scope="col" style="width: 60px;"></th>
+                        <th scope="col">Name</th>
+                        <th scope="col">Time</th>
+                        <th scope="col">Group Under</th>
+                        <th scope="col">Used in Patterns</th>
+                        <th scope="col" class="text-end">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="shiftTypesTableBody">
@@ -171,14 +172,15 @@
         <div class="card-body">
             <div class="table-responsive">
                 <table class="table table-hover">
+                    <caption class="visually-hidden">Shift patterns with cycle length, preview, and assignments</caption>
                     <thead>
                         <tr>
-                            <th>Pattern Name</th>
-                            <th>Description</th>
-                            <th>Cycle Length</th>
-                            <th>Pattern Preview</th>
-                            <th>Assigned To</th>
-                            <th>Actions</th>
+                            <th scope="col">Pattern Name</th>
+                            <th scope="col">Description</th>
+                            <th scope="col">Cycle Length</th>
+                            <th scope="col">Pattern Preview</th>
+                            <th scope="col">Assigned To</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -703,8 +705,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="{{ url_for('static', filename='js/shared.core.js') }}"></script>
-<script src="{{ url_for('static', filename='js/shifts.core.js') }}"></script>
-<script src="{{ url_for('static', filename='js/shifts.form-handlers.js') }}"></script>
-<script src="{{ url_for('static', filename='js/shifts.event-bindings.js') }}"></script>
+<script src="{{ bundle_url('shifts.bundle.js') }}"></script>
 {% endblock %}
