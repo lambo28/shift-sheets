@@ -4348,7 +4348,7 @@ def extra_cars():
 @app.route("/extra-cars/request/add", methods=["POST"])
 def add_extra_car_request():
     """Create a new extra car request."""
-    request_type = request.form.get("request_type", "").strip()
+    req_type = request.form.get("request_type", "").strip()
     req_date_str = request.form.get("date", "").strip()
     notes = request.form.get("notes", "").strip() or None
 
@@ -4357,7 +4357,7 @@ def add_extra_car_request():
         flash("Please provide a valid date.", "error")
         return redirect(url_for("extra_cars"))
 
-    if request_type not in ("shift_type", "time_window"):
+    if req_type not in ("shift_type", "time_window"):
         flash("Please select a valid request type.", "error")
         return redirect(url_for("extra_cars"))
 
@@ -4365,7 +4365,7 @@ def add_extra_car_request():
     window_start_val = None
     window_end_val = None
 
-    if request_type == "shift_type":
+    if req_type == "shift_type":
         shift_type_val = request.form.get("shift_type", "").strip()
         if not shift_type_val:
             flash("Please select a shift type.", "error")
@@ -4401,7 +4401,7 @@ def add_extra_car_request():
 
     new_req = ExtraCarRequest(
         date=req_date,
-        request_type=request_type,
+        request_type=req_type,
         shift_type=shift_type_val,
         window_start=window_start_val,
         window_end=window_end_val,
