@@ -146,11 +146,9 @@
             </div>
             <div class="card-body">
                 <div class="row text-center">
-                    {% set total_drivers = namespace(count=0) %}
-                    {% for d in drivers_by_shift.values() %}{% set total_drivers.count = total_drivers.count + (d | length) %}{% endfor %}
                     <div class="col-md-3">
                         <div class="border-end">
-                            <h3 class="text-primary">{{ total_drivers.count }}</h3>
+                            <h3 class="text-primary">{{ total_drivers }}</h3>
                             <p class="text-muted">Total Drivers</p>
                         </div>
                     </div>
@@ -168,9 +166,7 @@
     </div>
 </div>
 
-{% set total_ns = namespace(count=0) %}
-{% for d in drivers_by_shift.values() %}{% set total_ns.count = total_ns.count + (d | length) %}{% endfor %}
-{% if total_ns.count == 0 %}
+{% if total_drivers == 0 %}
 <div class="row mt-4">
     <div class="col-md-12">
         <div class="alert alert-info text-center">

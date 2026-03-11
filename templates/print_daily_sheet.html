@@ -140,11 +140,9 @@
                     <div class="card-body">
                         <table class="table table-sm table-bordered">
                             <caption class="visually-hidden">Daily total drivers and breakdown by shift</caption>
-                            {% set total_ns = namespace(count=0) %}
-                            {% for d in drivers_by_shift.values() %}{% set total_ns.count = total_ns.count + (d | length) %}{% endfor %}
                             <tr>
                                 <th>Total Drivers:</th>
-                                <td class="text-center"><strong>{{ total_ns.count }}</strong></td>
+                                <td class="text-center"><strong>{{ total_drivers }}</strong></td>
                             </tr>
                             {% for shift_type, drivers in drivers_by_shift.items() %}
                             <tr>

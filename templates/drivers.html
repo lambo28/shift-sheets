@@ -584,7 +584,7 @@
                         <div class="form-text">Choose a day from the selected assignment cycle.</div>
                     </div>
                     <div class="form-text mb-3">
-                        <strong>Shift Type</strong> is the <strong>Filter Shift</strong> (which pattern shift this rule applies to). If you choose day-of-week <strong>Override Shift</strong> mode, use <strong>Work this shift instead</strong> as the <strong>Override To</strong> shift.
+                        <strong>Shift Type</strong> is the <strong>Filter Shift</strong> (which pattern shift this rule applies to). For day-of-week rules, choose whether to <strong>Override shift type</strong>, <strong>Keep shift type and use custom times</strong>, or make the day <strong>Day off</strong>.
                     </div>
                     <div class="mb-3">
                         <label class="form-label small fw-semibold">Day of Week</label>
@@ -610,7 +610,13 @@
                         <div class="form-check">
                             <input type="radio" class="form-check-input" name="day_of_week_mode" id="ctFormModeCustomTimes" value="custom_times">
                             <label class="form-check-label small" for="ctFormModeCustomTimes">
-                                Use custom times only
+                                Keep shift type, use custom times
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input type="radio" class="form-check-input" name="day_of_week_mode" id="ctFormModeDayOff" value="day_off">
+                            <label class="form-check-label small" for="ctFormModeDayOff">
+                                Make this day off
                             </label>
                         </div>
                     </div>

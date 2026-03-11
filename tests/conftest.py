@@ -60,7 +60,7 @@ def make_driver(db, driver_number='1', name='Test Driver'):
     return d
 
 
-def make_shift_timing(db, shift_type='morning', start='06:00', end='14:00'):
+def make_shift_timing(db, shift_type='morning', start='06:00', end='14:00', parent_shift_type=None):
     st = ShiftTiming(
         shift_type=shift_type,
         display_name=shift_type.replace('_', ' ').title(),
@@ -68,6 +68,7 @@ def make_shift_timing(db, shift_type='morning', start='06:00', end='14:00'):
         end_time=time.fromisoformat(end),
         badge_color='bg-primary',
         icon='fas fa-clock',
+        parent_shift_type=parent_shift_type,
     )
     db.session.add(st)
     db.session.commit()

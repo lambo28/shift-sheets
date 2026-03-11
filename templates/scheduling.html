@@ -148,7 +148,7 @@
                                     </div>
                                     <div class="mb-3">
                                         <label for="holidayNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
-                                        <input type="text" class="form-control" id="holidayNotes" name="notes" maxlength="200" placeholder="e.g. Annual leave">
+                                        <input type="text" class="form-control" id="holidayNotes" name="notes" maxlength="200" placeholder="Optional">
                                     </div>
                                     <button type="submit" class="btn btn-primary w-100" id="saveHolidayBtn" disabled>
                                         <i class="fas fa-save"></i> Save Time Off
@@ -908,11 +908,11 @@
                         <h5 class="mb-0"><i class="fas fa-plus-circle"></i> Request Shift Swap</h5>
                     </div>
                     <div class="card-body">
-                        <p class="text-muted small mb-3">
-                            Select one driver, choose the day they are giving up, then choose the day they will work
-                            and the shift type to apply on that day. Validation is applied before saving.
-                        </p>
                         <form method="POST" action="{{ url_for('add_swap') }}" id="addSwapForm">
+                            <div class="alert alert-info py-2 mb-3" role="note">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Swap rules: pick one worked day to give up and one off day to work, choose a valid shift type, and keep at least <strong>8 hours</strong> rest; reusing a swap date is allowed once only if the shift type is different.
+                            </div>
                             <div class="row g-3 mb-3">
                                 <div class="col-12">
                                     <label for="swapDriver" class="form-label">Driver</label>
@@ -1033,6 +1033,7 @@
                                                 <li>
                                                     <a class="dropdown-item swap-shift-option" href="#" 
                                                        data-shift-type="{{ shift_type.shift_type }}" 
+                                                       data-parent-shift-type="{{ shift_type.parent_shift_type or '' }}"
                                                        data-color="{{ shift_type.badge_color }}"
                                                        data-icon="{{ shift_type.icon }}"
                                                        data-label="{{ shift_type.display_label or shift_label(shift_type.shift_type) }}">
@@ -1046,6 +1047,12 @@
                                         </ul>
                                     </div>
                                     <input type="hidden" id="swapWorkShiftType" name="work_shift_type" required>
+                                    <div id="swapSecondShiftWrapper" class="mt-2 d-none">
+                                        <label for="swapSecondShiftType" class="form-label mb-1">Second Shift (Optional)</label>
+                                        <select class="form-select" id="swapSecondShiftType" aria-label="Second Shift">
+                                            <option value="">None</option>
+                                        </select>
+                                    </div>
                                 </div>
                                 <div class="col-md-6">
                                     <label for="swapNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
@@ -1064,94 +1071,234 @@
                                     <i class="fas fa-exchange-alt"></i> Confirm Swap
                                 </button>
                             </div>
-
-                            <hr>
-                            <ul class="mb-0 small text-muted">
-                                <li>The selected driver must have a working shift on the give-up date.</li>
-                                <li>The selected driver must be off on the work date.</li>
-                                <li>Minimum <strong>8 hours rest</strong> between consecutive shifts.</li>
-                            </ul>
                         </form>
                     </div>
                 </div>
             </div>
 
-            <!-- Swaps Table -->
+            <!-- Swaps Records Table -->
             <div class="col-12">
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0"><i class="fas fa-list"></i> Swap Records</h5>
+                        <div class="d-flex gap-2">
+                            {% if finished_swap_count and finished_swap_count > 0 %}
+                            <button type="button" class="btn btn-sm btn-outline-danger"
+                                    onclick="showGlobalDeleteConfirm({
+                                        title: 'Delete All Finished Swaps',
+                                        message: 'Delete all finished swap records for all drivers?',
+                                        warning: 'This removes past swap records only and cannot be undone.',
+                                        action: '{{ url_for('delete_all_finished_swaps') }}',
+                                        submitLabel: 'Delete All Finished'
+                                    })">
+                                <i class="fas fa-trash-alt"></i> Delete All Finished
+                            </button>
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="card-body p-0">
-                        {% if swaps %}
+                        {% if swaps_by_driver %}
                             <div class="table-responsive">
-                                <table class="table table-hover table-sm mb-0">
+                                <table class="table table-hover table-sm mb-0 adjustments-records-table">
+                                    <caption class="visually-hidden">Current and upcoming shift swap records grouped by driver</caption>
                                     <thead class="table-light">
                                         <tr>
-                                            <th>Driver</th>
-                                            <th>Gives Up Shift</th>
-                                            <th>Works Shift</th>
-                                            <th>Notes</th>
-                                            <th class="text-end">Actions</th>
+                                            <th scope="col">Driver</th>
+                                            <th scope="col">Gives Up</th>
+                                            <th scope="col">Works</th>
+                                            <th scope="col">Notes</th>
+                                            <th scope="col" class="text-end">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {% for swap in swaps %}
+                                        {% for entry in swaps_by_driver %}
+                                            {% set driver = entry.driver %}
+                                            {% set swaps = entry.current_future_swaps %}
+                                            {% set finished_swaps = entry.finished_swaps %}
+                                            {% set swap = swaps[0] %}
                                         <tr>
                                             <td>
-                                                <span class="badge bg-primary me-1">{{ swap.driver.formatted_driver_number() }}</span>
-                                                {{ swap.driver.formatted_name() }}
+                                                <span class="badge bg-primary me-1">{{ driver.formatted_driver_number() }}</span>
+                                                {{ driver.formatted_name() }}
                                             </td>
                                             <td>
                                                 <div class="d-flex flex-wrap align-items-center gap-1">
                                                     <span>{{ swap.give_up_date.strftime('%d/%m/%Y') }}</span>
-                                                    {% if swap.give_up_shift_entries %}
-                                                        {% for entry in swap.give_up_shift_entries %}
-                                                            <span class="badge {{ entry.badge_color or 'bg-primary' }}">
-                                                                <i class="{{ entry.icon or 'fas fa-clock' }} me-1"></i>
-                                                                {{ entry.label or (entry.shift_type|shift_label) }}
-                                                            </span>
-                                                        {% endfor %}
-                                                    {% endif %}
+                                                    {% for entry in swap.give_up_shift_entries %}
+                                                        <span class="badge {{ entry.badge_color or 'bg-primary' }}">
+                                                            <i class="{{ entry.icon or 'fas fa-clock' }} me-1"></i>{{ entry.label or (entry.shift_type|shift_label) }}
+                                                        </span>
+                                                    {% endfor %}
                                                 </div>
                                             </td>
                                             <td>
                                                 <div class="d-flex flex-wrap align-items-center gap-1">
                                                     <span>{{ swap.work_date.strftime('%d/%m/%Y') }}</span>
-                                                    <span class="badge {{ swap.work_shift_badge_color or 'bg-info text-dark' }}">
-                                                        <i class="{{ swap.work_shift_icon or 'fas fa-clock' }} me-1"></i>
-                                                        {{ swap.work_shift_label or (swap.work_shift_type|shift_label) }}
-                                                    </span>
+                                                    {% for work_entry in swap.work_shift_entries %}
+                                                        <span class="badge {{ work_entry.badge_color or 'bg-info text-dark' }}">
+                                                            <i class="{{ work_entry.icon or 'fas fa-clock' }} me-1"></i>{{ work_entry.label or (work_entry.shift_type|shift_label) }}
+                                                        </span>
+                                                    {% endfor %}
                                                 </div>
                                             </td>
                                             <td>
-                                                {% if swap.notes %}
-                                                    <span class="text-muted">{{ swap.notes }}</span>
-                                                {% else %}
-                                                    <span class="text-muted">—</span>
-                                                {% endif %}
+                                                {% if swap.notes %}<span class="text-muted">{{ swap.notes }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
                                             </td>
                                             <td class="text-end">
-                                                <button type="button" class="btn btn-sm btn-danger"
-                                                        onclick="showGlobalDeleteConfirm({
-                                                            title: 'Remove Swap',
-                                                            message: 'Remove swap for',
-                                                            name: '{{ swap.driver.formatted_name() }} ({{ swap.give_up_date.strftime('%d/%m/%Y') }} → {{ swap.work_date.strftime('%d/%m/%Y') }})',
-                                                            action: '{{ url_for('delete_swap', swap_id=swap.id) }}'
-                                                        })"
-                                                        title="Delete">
-                                                    <i class="fas fa-trash"></i>
-                                                </button>
+                                                <div class="btn-group" role="group">
+                                                    {% if swaps|length > 1 %}
+                                                        <button type="button" class="btn btn-sm btn-secondary toggle-driver-blocks-btn"
+                                                                data-bs-toggle="collapse" data-bs-target=".swapDriverBlocks{{ driver.id }}"
+                                                                aria-expanded="false" title="Show more swaps">
+                                                            <i class="fas fa-chevron-down"></i>
+                                                        </button>
+                                                    {% endif %}
+                                                    {% if finished_swaps|length > 0 %}
+                                                        <button type="button" class="btn btn-sm btn-info"
+                                                                data-bs-toggle="modal" data-bs-target="#finishedSwapsModal{{ driver.id }}"
+                                                                title="View finished swaps">
+                                                            <i class="fas fa-history"></i>
+                                                        </button>
+                                                    {% endif %}
+                                                    <button type="button" class="btn btn-sm btn-danger"
+                                                            onclick="showGlobalDeleteConfirm({
+                                                                title: 'Remove Swap',
+                                                                message: 'Remove swap for',
+                                                                name: '{{ driver.formatted_name() }} ({{ swap.give_up_date.strftime('%d/%m/%Y') }} → {{ swap.work_date.strftime('%d/%m/%Y') }})',
+                                                                action: '{{ url_for('delete_swap', swap_id=swap.id) }}'
+                                                            })" title="Delete">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
+
+                                        {% if swaps|length > 1 %}
+                                            {% for swap in swaps[1:] %}
+                                            <tr class="collapse swapDriverBlocks{{ driver.id }}">
+                                                <td></td>
+                                                <td>
+                                                    <div class="d-flex flex-wrap align-items-center gap-1">
+                                                        <span>{{ swap.give_up_date.strftime('%d/%m/%Y') }}</span>
+                                                        {% for entry in swap.give_up_shift_entries %}
+                                                            <span class="badge {{ entry.badge_color or 'bg-primary' }}">
+                                                                <i class="{{ entry.icon or 'fas fa-clock' }} me-1"></i>{{ entry.label or (entry.shift_type|shift_label) }}
+                                                            </span>
+                                                        {% endfor %}
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="d-flex flex-wrap align-items-center gap-1">
+                                                        <span>{{ swap.work_date.strftime('%d/%m/%Y') }}</span>
+                                                        {% for work_entry in swap.work_shift_entries %}
+                                                            <span class="badge {{ work_entry.badge_color or 'bg-info text-dark' }}">
+                                                                <i class="{{ work_entry.icon or 'fas fa-clock' }} me-1"></i>{{ work_entry.label or (work_entry.shift_type|shift_label) }}
+                                                            </span>
+                                                        {% endfor %}
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    {% if swap.notes %}<span class="text-muted">{{ swap.notes }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+                                                </td>
+                                                <td class="text-end">
+                                                    <button type="button" class="btn btn-sm btn-danger"
+                                                            onclick="showGlobalDeleteConfirm({
+                                                                title: 'Remove Swap',
+                                                                message: 'Remove swap for',
+                                                                name: '{{ driver.formatted_name() }} ({{ swap.give_up_date.strftime('%d/%m/%Y') }} → {{ swap.work_date.strftime('%d/%m/%Y') }})',
+                                                                action: '{{ url_for('delete_swap', swap_id=swap.id) }}'
+                                                            })" title="Delete">
+                                                        <i class="fas fa-trash"></i>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        {% endif %}
+
                                         {% endfor %}
                                     </tbody>
                                 </table>
                             </div>
+
+                            {% for entry in swaps_with_finished %}
+                                {% set driver = entry.driver %}
+                                {% set finished_swaps = entry.finished_swaps %}
+                                {% if finished_swaps|length > 0 %}
+                                <div class="modal fade" id="finishedSwapsModal{{ driver.id }}" tabindex="-1" aria-hidden="true">
+                                    <div class="modal-dialog modal-lg">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title"><i class="fas fa-history"></i> Finished Swaps – {{ driver.formatted_driver_number() }} {{ driver.formatted_name() }}</h5>
+                                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <div class="table-responsive">
+                                                    <table class="table table-sm table-hover mb-0">
+                                                        <caption class="visually-hidden">Finished swap records for {{ driver.formatted_driver_number() }} {{ driver.formatted_name() }}</caption>
+                                                        <thead class="table-light">
+                                                            <tr>
+                                                                <th scope="col">Gave Up</th>
+                                                                <th scope="col">Worked</th>
+                                                                <th scope="col">Notes</th>
+                                                                <th scope="col" class="text-end">Actions</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {% for swap in finished_swaps %}
+                                                            <tr>
+                                                                <td>
+                                                                    <div class="d-flex flex-wrap align-items-center gap-1">
+                                                                        <span>{{ swap.give_up_date.strftime('%d/%m/%Y') }}</span>
+                                                                        {% for entry in swap.give_up_shift_entries %}
+                                                                            <span class="badge {{ entry.badge_color or 'bg-primary' }}">
+                                                                                <i class="{{ entry.icon or 'fas fa-clock' }} me-1"></i>{{ entry.label or (entry.shift_type|shift_label) }}
+                                                                            </span>
+                                                                        {% endfor %}
+                                                                    </div>
+                                                                </td>
+                                                                <td>
+                                                                    <div class="d-flex flex-wrap align-items-center gap-1">
+                                                                        <span>{{ swap.work_date.strftime('%d/%m/%Y') }}</span>
+                                                                        {% for work_entry in swap.work_shift_entries %}
+                                                                            <span class="badge {{ work_entry.badge_color or 'bg-info text-dark' }}">
+                                                                                <i class="{{ work_entry.icon or 'fas fa-clock' }} me-1"></i>{{ work_entry.label or (work_entry.shift_type|shift_label) }}
+                                                                            </span>
+                                                                        {% endfor %}
+                                                                    </div>
+                                                                </td>
+                                                                <td>
+                                                                    {% if swap.notes %}<span class="text-muted">{{ swap.notes }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+                                                                </td>
+                                                                <td class="text-end">
+                                                                    <button type="button" class="btn btn-sm btn-danger"
+                                                                            onclick="showGlobalDeleteConfirm({
+                                                                                title: 'Remove Swap',
+                                                                                message: 'Remove swap for',
+                                                                                name: '{{ driver.formatted_name() }} ({{ swap.give_up_date.strftime('%d/%m/%Y') }} → {{ swap.work_date.strftime('%d/%m/%Y') }})',
+                                                                                action: '{{ url_for('delete_swap', swap_id=swap.id) }}'
+                                                                            })" title="Delete">
+                                                                        <i class="fas fa-trash"></i>
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                            {% endfor %}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endif %}
+                            {% endfor %}
+
                         {% else %}
                             <div class="p-4 text-center text-muted">
                                 <i class="fas fa-exchange-alt fa-2x mb-2 d-block"></i>
-                                No shift swaps recorded yet. Use the form to request a swap.
+                                No current or upcoming shift swaps. Use the form above to request a swap.
                             </div>
                         {% endif %}
                     </div>

@@ -12,6 +12,7 @@ from app import (
     DriverHoliday, ShiftAdjustment, ShiftSwap, DriverCustomTiming,
     validate_swap, get_driver_shifts_for_date, get_cars_working_at_time,
     group_consecutive_holidays,
+    get_drivers_for_date,
 )
 from tests.conftest import make_driver, make_shift_timing, make_pattern, make_assignment
 
@@ -90,6 +91,70 @@ class TestSwapCalendarData:
         assert work_day['shifts'][0]['shift_type'] == 'morning'
         assert work_day['shifts'][0]['is_swap'] is True
         assert work_day['shifts'][0]['swap_role'] == 'work'
+
+    def test_calendar_data_same_day_swap_shows_swapped_to_shift_not_off(self, client, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'morning', '06:00', '14:00')
+            make_shift_timing(db, 'afternoon', '14:00', '22:00')
+            ref = date(2026, 6, 1)
+            pattern = make_pattern(db, 'Same Day Swap Pattern', 7,
+                ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            driver = make_driver(db, '1', 'Alice Smith')
+            driver_id = driver.id
+            make_assignment(db, driver, pattern, ref, start_day_of_cycle=1)
+
+            db.session.add(ShiftSwap(
+                driver_a_id=driver_id,
+                driver_b_id=driver_id,
+                date_a=date(2026, 6, 1),
+                date_b=date(2026, 6, 1),
+                work_shift_type='afternoon',
+            ))
+            db.session.commit()
+
+        resp = client.get(f'/driver/{driver_id}/calendar-data?month=2026-06')
+        assert resp.status_code == 200
+        payload = json.loads(resp.data)
+        assert payload.get('success') is True
+
+        target_day = next(d for d in payload['days'] if d['date'] == '2026-06-01')
+        assert len(target_day['shifts']) == 1
+        assert target_day['shifts'][0]['shift_type'] == 'afternoon'
+        assert target_day['shifts'][0]['is_swap'] is True
+        assert target_day['shifts'][0]['swap_role'] == 'work'
+
+
+class TestShiftGroupingAndOrdering:
+    def test_pattern_data_sorts_multi_shift_day_by_time(self, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'late', '14:00', '22:00')
+            make_shift_timing(db, 'early', '06:00', '14:00')
+
+            pattern = ShiftPattern(name='Ordered Split Pattern', cycle_length=1)
+            pattern.set_pattern_data([['late', 'early']])
+            db.session.add(pattern)
+            db.session.commit()
+
+            stored = ShiftPattern.query.filter_by(name='Ordered Split Pattern').first()
+            assert stored.get_pattern_data() == [['early', 'late']]
+
+    def test_get_drivers_for_date_groups_sub_shifts_under_parent_only(self, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'split', '06:00', '22:00')
+            make_shift_timing(db, 'split_early', '06:00', '10:00', parent_shift_type='split')
+            make_shift_timing(db, 'split_late', '16:00', '22:00', parent_shift_type='split')
+
+            ref = date(2026, 6, 1)
+            pattern = make_pattern(db, 'Split Group Pattern', 1, [['split_late', 'split_early']])
+            driver = make_driver(db, '77', 'Grouped Driver')
+            make_assignment(db, driver, pattern, ref, start_day_of_cycle=1)
+
+            grouped = get_drivers_for_date(ref)
+
+            assert 'split' in grouped
+            assert 'split_early' not in grouped
+            assert 'split_late' not in grouped
+            assert len(grouped['split']) == 2
 
 class TestHolidayModel:
 
@@ -373,6 +438,41 @@ class TestHolidayEffects:
         count = get_cars_working_at_time(date(2026, 6, 1), time(9, 0))
         assert count == 0
 
+    def test_swap_affects_cars_working_count(self, db):
+        driver = make_driver(db, driver_number='21', name='Swap Count Driver')
+        make_shift_timing(db, 'morning', '06:00', '14:00')
+        pattern = make_pattern(db, 'Swap Cars Pattern', 7, ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+        make_assignment(db, driver, pattern, date(2026, 6, 1), start_day_of_cycle=1)
+
+        db.session.add(ShiftSwap(
+            driver_a_id=driver.id,
+            driver_b_id=driver.id,
+            date_a=date(2026, 6, 1),
+            date_b=date(2026, 6, 2),
+            work_shift_type='morning',
+        ))
+        db.session.commit()
+
+        assert get_cars_working_at_time(date(2026, 6, 1), time(9, 0)) == 0
+        assert get_cars_working_at_time(date(2026, 6, 2), time(9, 0)) == 1
+
+    def test_adjustment_affects_cars_working_count(self, db):
+        driver = make_driver(db, driver_number='22', name='Adjustment Count Driver')
+        make_shift_timing(db, 'morning', '06:00', '14:00')
+        pattern = make_pattern(db, 'Adjustment Cars Pattern', 7, ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+        make_assignment(db, driver, pattern, date(2026, 6, 1), start_day_of_cycle=1)
+
+        db.session.add(ShiftAdjustment(
+            driver_id=driver.id,
+            adjustment_date=date(2026, 6, 1),
+            adjustment_type='late_start',
+            adjusted_time=time(10, 0),
+        ))
+        db.session.commit()
+
+        assert get_cars_working_at_time(date(2026, 6, 1), time(9, 0)) == 0
+        assert get_cars_working_at_time(date(2026, 6, 1), time(10, 30)) == 1
+
 
 # ===========================================================================
 # Shift adjustment tests
@@ -532,6 +632,41 @@ class TestAdjustmentRoutes:
 
         assert resp.status_code == 200
         assert ShiftAdjustment.query.filter_by(driver_id=driver.id, adjustment_date=date(2026, 7, 10), adjustment_type='late_start').count() == 1
+
+    def test_add_adjustment_rejects_split_shift_day(self, client, db):
+        make_shift_timing(db, 'morning', '06:00', '14:00')
+        make_shift_timing(db, 'afternoon', '14:00', '22:00')
+        ref = date(2026, 7, 10)
+        pattern = make_pattern(db, 'Split Day Adjustment Pattern', 7,
+            ['morning', 'day_off', 'morning', 'day_off', 'day_off', 'day_off', 'day_off'])
+        driver = make_driver(db, '33', 'Split Driver')
+        make_assignment(db, driver, pattern, ref, start_day_of_cycle=1)
+
+        db.session.add(ShiftSwap(
+            driver_a_id=driver.id,
+            driver_b_id=driver.id,
+            date_a=date(2026, 7, 10),
+            date_b=date(2026, 7, 11),
+            work_shift_type='morning',
+        ))
+        db.session.add(ShiftSwap(
+            driver_a_id=driver.id,
+            driver_b_id=driver.id,
+            date_a=date(2026, 7, 12),
+            date_b=date(2026, 7, 11),
+            work_shift_type='afternoon',
+        ))
+        db.session.commit()
+
+        resp = client.post('/scheduling/adjustment/add', data={
+            'driver_id': driver.id,
+            'adjustment_date': '2026-07-11',
+            'adjustment_type': 'late_start',
+            'adjusted_time': '08:00',
+        }, follow_redirects=True)
+
+        assert resp.status_code == 200
+        assert ShiftAdjustment.query.filter_by(driver_id=driver.id, adjustment_date=date(2026, 7, 11)).count() == 0
 
     def test_early_finish_uses_combined_custom_default_bounds(self, client, db):
         driver = self._make_driver_with_default_and_custom_window(db, date(2026, 7, 10))
@@ -924,9 +1059,10 @@ class TestSwapValidation:
             errors = validate_swap(driver, give_up_date, work_date, 'late')
             assert not any('rest' in e.lower() for e in errors), f"Did not expect rest violation, got: {errors}"
 
-    def test_swap_rejects_same_date(self, client, db):
-        """A swap with same give-up/work date should be rejected."""
+    def test_swap_rejects_same_date_when_shift_type_matches_current_shift(self, client, db):
+        """Same-day selection is allowed only when the chosen shift type differs from current shift."""
         make_shift_timing(db, 'morning', '06:00', '14:00')
+        make_shift_timing(db, 'afternoon', '14:00', '22:00')
         pattern = make_pattern(db, 'P', 7, ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
         driver = make_driver(db, '1', 'Alice Smith')
         make_assignment(db, driver, pattern, date(2026, 6, 1), start_day_of_cycle=1)
@@ -939,6 +1075,33 @@ class TestSwapValidation:
         }, follow_redirects=True)
         assert resp.status_code == 200
         assert ShiftSwap.query.count() == 0
+
+    def test_swap_allows_same_date_without_existing_swap_when_shift_type_differs(self, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'morning', '06:00', '14:00')
+            make_shift_timing(db, 'afternoon', '14:00', '22:00')
+            pattern = make_pattern(db, 'P2', 7, ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            driver = make_driver(db, '2', 'Bob Jones')
+            make_assignment(db, driver, pattern, date(2026, 6, 1), start_day_of_cycle=1)
+
+            errors = validate_swap(driver, date(2026, 6, 1), date(2026, 6, 1), 'afternoon')
+            assert errors == []
+
+    def test_swap_allows_same_date_with_existing_swap_and_different_shift_type(self, db):
+        with flask_app.app_context():
+            driver, give_up_date, work_date = self._setup_single_driver_swap(db)
+
+            db.session.add(ShiftSwap(
+                driver_a_id=driver.id,
+                driver_b_id=driver.id,
+                date_a=give_up_date,
+                date_b=work_date,
+                work_shift_type='morning',
+            ))
+            db.session.commit()
+
+            errors = validate_swap(driver, work_date, work_date, 'afternoon')
+            assert errors == []
 
     def test_swap_validate_endpoint_valid(self, client, db):
         """AJAX validate endpoint returns success for valid single-driver swap."""
@@ -994,7 +1157,7 @@ class TestSwapValidation:
         data = resp.get_json()
         assert data['success'] is False
 
-    def test_swap_rejects_dates_already_used_in_existing_swap(self, db):
+    def test_swap_rejects_same_shift_type_on_date_already_used_in_existing_swap(self, db):
         with flask_app.app_context():
             driver, give_up_date, work_date = self._setup_single_driver_swap(db)
 
@@ -1008,7 +1171,50 @@ class TestSwapValidation:
             db.session.commit()
 
             errors = validate_swap(driver, give_up_date, work_date, 'morning')
-            assert any('already belongs to an existing swap' in e.lower() for e in errors)
+            assert any('choose a different shift type' in e.lower() for e in errors)
+
+    def test_swap_allows_same_dates_when_shift_type_is_different(self, db):
+        with flask_app.app_context():
+            driver, give_up_date, work_date = self._setup_single_driver_swap(db)
+
+            db.session.add(ShiftSwap(
+                driver_a_id=driver.id,
+                driver_b_id=driver.id,
+                date_a=give_up_date,
+                date_b=work_date,
+                work_shift_type='morning',
+            ))
+            db.session.commit()
+
+            errors = validate_swap(driver, give_up_date, work_date, 'afternoon')
+            assert errors == []
+
+    def test_swap_allows_reusing_existing_swap_work_date_as_new_give_up_date(self, db):
+        with flask_app.app_context():
+            driver, first_give_up_date, first_work_date = self._setup_single_driver_swap(db)
+
+            db.session.add(ShiftSwap(
+                driver_a_id=driver.id,
+                driver_b_id=driver.id,
+                date_a=first_give_up_date,
+                date_b=first_work_date,
+                work_shift_type='morning',
+            ))
+            db.session.commit()
+
+            new_work_date = None
+            for i in range(1, 15):
+                current = date(2026, 6, 1) + timedelta(days=i)
+                if current in {first_give_up_date, first_work_date}:
+                    continue
+                if not self._has_working_shift(driver, current):
+                    new_work_date = current
+                    break
+
+            assert new_work_date is not None
+
+            errors = validate_swap(driver, first_work_date, new_work_date, 'afternoon')
+            assert errors == []
 
 
 class TestSwapRoutes:
@@ -1077,6 +1283,86 @@ class TestSwapRoutes:
         resp = client.post(f'/scheduling/swap/{swap.id}/delete', follow_redirects=True)
         assert resp.status_code == 200
         assert ShiftSwap.query.count() == 0
+
+    def test_delete_swap_removes_adjustments_when_work_date_reverts_to_day_off(self, client, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'morning', '06:00', '14:00')
+            ref = date(2026, 6, 1)
+            pattern = make_pattern(
+                db,
+                'Swap Cleanup Pattern',
+                7,
+                ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off']
+            )
+            driver = make_driver(db, '1', 'Alice Smith')
+            make_assignment(db, driver, pattern, ref, start_day_of_cycle=1)
+
+            swap = ShiftSwap(
+                driver_a_id=driver.id,
+                driver_b_id=driver.id,
+                date_a=date(2026, 6, 1),
+                date_b=date(2026, 6, 2),
+                work_shift_type='morning',
+            )
+            db.session.add(swap)
+            db.session.flush()
+
+            db.session.add(ShiftAdjustment(
+                driver_id=driver.id,
+                adjustment_date=date(2026, 6, 2),
+                adjustment_type='late_start',
+                adjusted_time=time(8, 0),
+            ))
+            db.session.commit()
+            swap_id = swap.id
+
+        assert ShiftAdjustment.query.count() == 1
+
+        resp = client.post(f'/scheduling/swap/{swap_id}/delete', follow_redirects=True)
+
+        assert resp.status_code == 200
+        assert ShiftSwap.query.count() == 0
+        assert ShiftAdjustment.query.count() == 0
+
+    def test_add_swap_removes_adjustment_when_work_date_becomes_split_shift_day(self, client, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'morning', '06:00', '14:00')
+            make_shift_timing(db, 'afternoon', '14:00', '22:00')
+            ref = date(2026, 6, 1)
+            pattern = make_pattern(db, 'Split Swap Cleanup Pattern', 7,
+                ['morning', 'day_off', 'morning', 'day_off', 'day_off', 'day_off', 'day_off'])
+            driver = make_driver(db, '1', 'Alice Smith')
+            make_assignment(db, driver, pattern, ref, start_day_of_cycle=1)
+
+            db.session.add(ShiftSwap(
+                driver_a_id=driver.id,
+                driver_b_id=driver.id,
+                date_a=date(2026, 6, 1),
+                date_b=date(2026, 6, 2),
+                work_shift_type='morning',
+            ))
+            db.session.add(ShiftAdjustment(
+                driver_id=driver.id,
+                adjustment_date=date(2026, 6, 2),
+                adjustment_type='late_start',
+                adjusted_time=time(8, 0),
+            ))
+            db.session.commit()
+            driver_id = driver.id
+
+        assert ShiftAdjustment.query.filter_by(adjustment_date=date(2026, 6, 2)).count() == 1
+
+        resp = client.post('/scheduling/swap/add', data={
+            'driver_id': driver_id,
+            'give_up_date': '2026-06-03',
+            'work_date': '2026-06-02',
+            'work_shift_type': 'afternoon',
+            'notes': 'Create split day',
+        }, follow_redirects=True)
+
+        assert resp.status_code == 200
+        assert ShiftSwap.query.count() == 2
+        assert ShiftAdjustment.query.filter_by(adjustment_date=date(2026, 6, 2)).count() == 0
 
     def test_scheduling_page_lists_swaps(self, client, db):
         driver = make_driver(db, '1', 'Alice Smith')

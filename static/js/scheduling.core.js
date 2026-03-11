@@ -472,7 +472,7 @@ function disposeTooltipsIn(containerEl) {
         let adjSelectedDate = null;
         let adjSelectedDriverId = null;
         let adjDriverShiftData = null;
-        let adjSelectedDateHasWorkingShift = false;
+        let adjSelectedDateAllowsAdjustment = false;
 
         async function fetchAdjustmentDriverShifts(driverId, monthStr) {
             if (!driverId) {
@@ -526,7 +526,7 @@ function disposeTooltipsIn(containerEl) {
             if (input) input.value = adjSelectedDate || '';
 
             const saveBtn = document.getElementById('saveAdjustmentBtn');
-            if (saveBtn) saveBtn.disabled = !adjSelectedDate || !adjSelectedDateHasWorkingShift;
+            if (saveBtn) saveBtn.disabled = !adjSelectedDate || !adjSelectedDateAllowsAdjustment;
         }
 
         function updateAdjustmentShiftStatus() {
@@ -534,7 +534,7 @@ function disposeTooltipsIn(containerEl) {
             if (!statusEl) return;
 
             if (!adjSelectedDriverId || !adjSelectedDate) {
-                adjSelectedDateHasWorkingShift = false;
+                adjSelectedDateAllowsAdjustment = false;
                 statusEl.innerHTML = '';
                 return;
             }
@@ -542,15 +542,23 @@ function disposeTooltipsIn(containerEl) {
             const dayData = getAdjustmentShiftsForDate(adjSelectedDate);
             const shifts = dayData && Array.isArray(dayData.shifts) ? dayData.shifts : [];
             const workingShifts = shifts.filter(shift => shift.shift_type !== 'day_off');
+            const isSplitShiftDay = workingShifts.length >= 2;
+
+            if (isSplitShiftDay) {
+                adjSelectedDateAllowsAdjustment = false;
+                const labels = workingShifts.map(shift => shift.label).join(', ');
+                statusEl.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Split shift day selected (${labels}). Late starts and early finishes are not used on split shift days.</span>`;
+                return;
+            }
 
             if (workingShifts.length > 0) {
-                adjSelectedDateHasWorkingShift = true;
+                adjSelectedDateAllowsAdjustment = true;
                 const labels = workingShifts.map(shift => shift.label).join(', ');
                 statusEl.innerHTML = `<span class="text-success"><i class="fas fa-check-circle me-1"></i>Shift on selected day: ${labels}</span>`;
                 return;
             }
 
-            adjSelectedDateHasWorkingShift = false;
+            adjSelectedDateAllowsAdjustment = false;
 
             if (dayData && dayData.is_holiday) {
                 const typeMap = {
@@ -835,7 +843,6 @@ async function validateSwapForm() {
         const dayData = getSwapDayData(dateStr);
         if (!dayData) return false;
         if (dayData.is_holiday) return false;
-        if (dayData.has_swap_give_up || dayData.has_swap_work) return false;
         return dayData.shifts && dayData.shifts.some(shift => shift.shift_type !== 'day_off');
     }
 
@@ -843,9 +850,8 @@ async function validateSwapForm() {
         const dayData = getSwapDayData(dateStr);
         if (!dayData) return false;
         if (dayData.is_holiday) return false;
-        if (dayData.has_swap_give_up || dayData.has_swap_work) return false;
         const hasWorkingShift = dayData.shifts && dayData.shifts.some(shift => shift.shift_type !== 'day_off');
-        return !hasWorkingShift;
+        return !hasWorkingShift || !!dayData.has_swap_work;
     }
 
     function updateSwapSelectionDisplay() {
@@ -912,17 +918,25 @@ async function validateSwapForm() {
             const visuals = buildUnifiedCalendarCellContent(dayData);
             const inlineRowHtml = `${visuals.contentHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
             const hasWorkingShift = !!(dayData?.shifts && dayData.shifts.some(shift => shift.shift_type !== 'day_off'));
+            const hasBaseWorkingShift = !!dayData?.has_base_working_shift;
             const isHoliday = !!dayData?.is_holiday;
             const isSwapUsed = !!(dayData?.has_swap_give_up || dayData?.has_swap_work);
+            const hasSwapWork = !!dayData?.has_swap_work;
             const isOffDay = !isHoliday && !hasWorkingShift;
 
             let classes = 'cal-day';
             let isClickable = true;
+            let isWorkingDayForPhase = hasWorkingShift;
+            const isMirroredSelection = (
+                (phase === 'giveup' && !!swapWorkDate && dateStr === swapWorkDate)
+                || (phase === 'work' && !!swapGiveUpDate && dateStr === swapGiveUpDate)
+            );
 
             if (phase === 'giveup') {
-                isClickable = !isHoliday && hasWorkingShift && !isSwapUsed;
+                isWorkingDayForPhase = hasWorkingShift || hasBaseWorkingShift;
+                isClickable = !isHoliday && (isMirroredSelection || (isWorkingDayForPhase && !isSwapUsed));
             } else if (phase === 'work') {
-                isClickable = isOffDay && !isSwapUsed;
+                isClickable = !isHoliday && (isMirroredSelection || (isOffDay && !isSwapUsed));
             }
 
             if (dateStr === todayStr) classes += ' cal-today';
@@ -934,7 +948,7 @@ async function validateSwapForm() {
             if (phase === 'giveup' && dateStr === swapGiveUpDate) classes += ' cal-swap-giveup';
             if (phase === 'work' && dateStr === swapWorkDate) classes += ' cal-swap-work';
 
-            html += `<td class="${classes}" data-date="${dateStr}" data-working-day="${hasWorkingShift ? '1' : '0'}" data-off-day="${isOffDay ? '1' : '0'}" data-swap-used="${isSwapUsed ? '1' : '0'}" ${!isClickable ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
+            html += `<td class="${classes}" data-date="${dateStr}" data-working-day="${isWorkingDayForPhase ? '1' : '0'}" data-off-day="${isOffDay ? '1' : '0'}" data-swap-used="${isSwapUsed ? '1' : '0'}" data-has-swap-work="${hasSwapWork ? '1' : '0'}" ${!isClickable ? 'style="opacity: 0.5; cursor: not-allowed;"' : ''}>
                 <div class="cal-day-header">
                     <div class="fw-bold small">${dayCounter}</div>
                 </div>
@@ -956,6 +970,7 @@ async function validateSwapForm() {
                     isWorkingDay: td.getAttribute('data-working-day') === '1',
                     isOffDay: td.getAttribute('data-off-day') === '1',
                     isSwapUsed: td.getAttribute('data-swap-used') === '1',
+                    hasSwapWork: td.getAttribute('data-has-swap-work') === '1',
                 };
                 if (phase === 'giveup') {
                     selectGiveUpDate(dateStr, dayMeta);
@@ -1020,14 +1035,12 @@ async function validateSwapForm() {
         if (dateStr === swapGiveUpDate) {
             swapGiveUpDate = null;
         } else {
-            const swapUsed = dayMeta ? dayMeta.isSwapUsed : false;
-            const validWorking = dayMeta ? dayMeta.isWorkingDay && !dayMeta.isSwapUsed : isSwapDayWorkingDay(dateStr);
+            const isMirroredSelection = !!swapWorkDate && dateStr === swapWorkDate;
+            const validWorking = dayMeta
+                ? (isMirroredSelection || (dayMeta.isWorkingDay && !dayMeta.isSwapUsed))
+                : (isMirroredSelection || isSwapDayWorkingDay(dateStr));
             if (!validWorking) {
-                if (swapUsed) {
-                    alert('This date already belongs to an existing swap and cannot be selected again.');
-                } else {
-                    alert('You can only select a worked day that the driver has a shift on.');
-                }
+                alert('You can only select a worked day that the driver has a shift on.');
                 return;
             }
             swapGiveUpDate = dateStr;
@@ -1036,17 +1049,21 @@ async function validateSwapForm() {
         updateSwapSelectionDisplay();
         syncSwapHiddenFields();
         renderGiveUpCalendar();
+        renderWorkCalendar();
     }
 
     function selectWorkDate(dateStr, dayMeta = null) {
         if (dateStr === swapWorkDate) {
             swapWorkDate = null;
         } else {
+            const isMirroredSelection = !!swapGiveUpDate && dateStr === swapGiveUpDate;
             const swapUsed = dayMeta ? dayMeta.isSwapUsed : false;
-            const validOff = dayMeta ? dayMeta.isOffDay && !dayMeta.isSwapUsed : isSwapDayOffDay(dateStr);
+            const validOff = dayMeta
+                ? (isMirroredSelection || (dayMeta.isOffDay && !dayMeta.isSwapUsed))
+                : (isMirroredSelection || isSwapDayOffDay(dateStr));
             if (!validOff) {
                 if (swapUsed) {
-                    alert('This date already belongs to an existing swap and cannot be selected again.');
+                    alert('This date is already swapped. Pick a non-swapped off day, or select the same date as the give-up side.');
                 } else {
                     alert('You can only select an off day that is not a holiday.');
                 }
@@ -1057,6 +1074,7 @@ async function validateSwapForm() {
 
         updateSwapSelectionDisplay();
         syncSwapHiddenFields();
+        renderGiveUpCalendar();
         renderWorkCalendar();
     }
 
@@ -1128,27 +1146,124 @@ async function validateSwapForm() {
             });
         }
 
-        // Handle shift type dropdown selection
+        const swapShiftMeta = {};
+        let selectedPrimarySwapShift = null;
+
+        document.querySelectorAll('.swap-shift-option').forEach(function(link) {
+            const shiftType = link.getAttribute('data-shift-type');
+            if (!shiftType) return;
+            swapShiftMeta[shiftType] = {
+                shiftType: shiftType,
+                parentShiftType: link.getAttribute('data-parent-shift-type') || '',
+                color: link.getAttribute('data-color') || 'bg-primary',
+                icon: link.getAttribute('data-icon') || 'fas fa-clock',
+                label: link.getAttribute('data-label') || shiftType
+            };
+        });
+
+        function isSwapSubShift(shiftType) {
+            return !!(swapShiftMeta[shiftType] && swapShiftMeta[shiftType].parentShiftType);
+        }
+
+        function getSwapSecondarySubShifts(primaryShiftType) {
+            if (!isSwapSubShift(primaryShiftType)) {
+                return [];
+            }
+            return Object.values(swapShiftMeta).filter(function(meta) {
+                return meta.shiftType !== primaryShiftType && !!meta.parentShiftType;
+            });
+        }
+
+        function syncSwapShiftTypeHidden() {
+            const hiddenInput = document.getElementById('swapWorkShiftType');
+            if (!hiddenInput) return;
+
+            const selected = [];
+            if (selectedPrimarySwapShift && selectedPrimarySwapShift.shiftType) {
+                selected.push(selectedPrimarySwapShift.shiftType);
+            }
+
+            const secondarySelect = document.getElementById('swapSecondShiftType');
+            const secondaryValue = secondarySelect ? String(secondarySelect.value || '').trim() : '';
+            if (secondaryValue) {
+                selected.push(secondaryValue);
+            }
+
+            hiddenInput.value = selected.join(',');
+            hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        function renderSwapShiftTypeDisplay() {
+            const displaySpan = document.getElementById('swapWorkShiftTypeDisplay');
+            if (!displaySpan) return;
+
+            const badges = [];
+            if (selectedPrimarySwapShift) {
+                badges.push('<span class="badge ' + selectedPrimarySwapShift.color + ' p-2 me-1"><i class="' + selectedPrimarySwapShift.icon + '"></i></span>' + selectedPrimarySwapShift.label);
+            }
+
+            const secondarySelect = document.getElementById('swapSecondShiftType');
+            const secondaryValue = secondarySelect ? String(secondarySelect.value || '').trim() : '';
+            if (secondaryValue && swapShiftMeta[secondaryValue]) {
+                const secondaryMeta = swapShiftMeta[secondaryValue];
+                badges.push('<span class="badge ' + secondaryMeta.color + ' p-2 me-1"><i class="' + secondaryMeta.icon + '"></i></span>' + secondaryMeta.label);
+            }
+
+            if (!badges.length) {
+                displaySpan.innerHTML = '— Select shift type —';
+                return;
+            }
+            displaySpan.innerHTML = badges.join(' ');
+        }
+
+        function renderSwapSecondaryShiftOptions() {
+            const wrapper = document.getElementById('swapSecondShiftWrapper');
+            const secondarySelect = document.getElementById('swapSecondShiftType');
+            if (!wrapper || !secondarySelect) return;
+
+            if (!selectedPrimarySwapShift || !isSwapSubShift(selectedPrimarySwapShift.shiftType)) {
+                secondarySelect.innerHTML = '<option value="">None</option>';
+                secondarySelect.value = '';
+                wrapper.classList.add('d-none');
+                return;
+            }
+
+            const siblings = getSwapSecondarySubShifts(selectedPrimarySwapShift.shiftType);
+            if (!siblings.length) {
+                secondarySelect.innerHTML = '<option value="">None</option>';
+                secondarySelect.value = '';
+                wrapper.classList.add('d-none');
+                return;
+            }
+
+            let options = '<option value="">None</option>';
+            siblings.forEach(function(meta) {
+                options += '<option value="' + meta.shiftType + '">' + meta.label + '</option>';
+            });
+            secondarySelect.innerHTML = options;
+            secondarySelect.value = '';
+            wrapper.classList.remove('d-none');
+        }
+
+        const secondarySelect = document.getElementById('swapSecondShiftType');
+        if (secondarySelect) {
+            secondarySelect.addEventListener('change', function() {
+                syncSwapShiftTypeHidden();
+                renderSwapShiftTypeDisplay();
+            });
+        }
+
         document.querySelectorAll('.swap-shift-option').forEach(function(link) {
             link.addEventListener('click', function(e) {
                 e.preventDefault();
                 const shiftType = this.getAttribute('data-shift-type');
-                const color = this.getAttribute('data-color');
-                const icon = this.getAttribute('data-icon');
-                const label = this.getAttribute('data-label');
-                
-                // Update the hidden input field
-                const hiddenInput = document.getElementById('swapWorkShiftType');
-                if (hiddenInput) {
-                    hiddenInput.value = shiftType;
-                    hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
-                }
-                
-                // Update the button display
-                const displaySpan = document.getElementById('swapWorkShiftTypeDisplay');
-                if (displaySpan) {
-                    displaySpan.innerHTML = '<span class="badge ' + color + ' p-2 me-2"><i class="' + icon + '"></i></span>' + label;
-                }
+                if (!shiftType || !swapShiftMeta[shiftType]) return;
+
+                selectedPrimarySwapShift = swapShiftMeta[shiftType];
+
+                renderSwapSecondaryShiftOptions();
+                syncSwapShiftTypeHidden();
+                renderSwapShiftTypeDisplay();
             });
         });
 

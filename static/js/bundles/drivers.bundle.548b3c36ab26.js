@@ -1388,14 +1388,15 @@ function renderDriverCalendar(data) {
                 ? `${startText}${startText && endText ? '–' : ''}${endText}`
                 : '';
 
-            const isChangedFromDefault =
+            const startChanged =
                 (effectiveStartMinutes !== null || defaultStartMinutes !== null)
                     ? effectiveStartMinutes !== defaultStartMinutes
-                    : false
-                ||
+                    : false;
+            const endChanged =
                 (effectiveEndMinutes !== null || defaultEndMinutes !== null)
                     ? effectiveEndMinutes !== defaultEndMinutes
                     : false;
+            const isChangedFromDefault = startChanged || endChanged;
 
             if (!day.is_holiday && !hasDayOffShift && rangeText && isChangedFromDefault) {
                 bottomTimeTokens.push(`<span class="cal-shift-time-changed">${rangeText}</span>`);
@@ -1784,13 +1785,23 @@ function loadCustomTimings(driverId) {
                                             const weekdayLabel = t.day_of_week !== null ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][t.day_of_week] : '';
                                             const hasCustomTimes = Boolean(t.start_time) || Boolean(t.end_time);
                                             const hasOverrideShift = Boolean(t.override_shift);
-                                            const isShiftOverride = Boolean(weekdayLabel) && hasOverrideShift;
+                                            const isDayOffMode = Boolean(weekdayLabel) && t.override_shift === 'day_off';
+                                            const isShiftOverride = Boolean(weekdayLabel) && hasOverrideShift && !isDayOffMode;
                                             const isCustomTimesMode = Boolean(weekdayLabel) && !hasOverrideShift && hasCustomTimes;
                                             const shiftMatchesCycle = !hasSpecificShiftType || !hasCycleDay || !hasShiftOnDay || t.day_cycle_shifts.includes(t.shift_type);
                                             const hasRuleCriteria = hasSpecificShiftType || hasCycleDay || Boolean(weekdayLabel);
 
                                             let ruleSummaryHtml = '';
-                                            if (isShiftOverride) {
+                                            if (isDayOffMode) {
+                                                ruleSummaryHtml = `
+                                                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
+                                                        <span>Every</span>
+                                                        <span class="badge bg-light text-dark border">${weekdayLabel}</span>
+                                                        ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, set as</span>` : `<span>, set as</span>`}
+                                                        <span class="badge bg-secondary">OFF</span><span>.</span>
+                                                    </div>
+                                                `;
+                                            } else if (isShiftOverride) {
                                                 const overrideShiftDisplay = getShiftDisplay(t.override_shift);
                                                 ruleSummaryHtml = `
                                                     <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
@@ -1852,7 +1863,9 @@ function loadCustomTimings(driverId) {
                                                 if (end) return `Finishing ${end}`;
                                                 return 'Time';
                                             })();
-                                            const rightBadgeHtml = isShiftOverride
+                                            const rightBadgeHtml = isDayOffMode
+                                                ? `<span class="badge bg-secondary fs-6 px-3 py-2 me-2">Day Off</span>`
+                                                : isShiftOverride
                                                 ? `<span class="badge bg-warning text-dark fs-6 px-3 py-2 me-2">Shift Override</span>`
                                                 : `<span class="badge bg-info text-dark fs-6 px-3 py-2 me-2">${isCustomTimesMode ? customTimeText : timeText}</span>`;
 
@@ -2328,6 +2341,8 @@ function updateDayOfWeekModeVisibility() {
         } else {
             modeGroup.classList.add('d-none');
             document.getElementById('ctFormModeOverride').checked = true;
+            const modeDayOff = document.getElementById('ctFormModeDayOff');
+            if (modeDayOff) modeDayOff.checked = false;
             setOverrideShiftValue('');
             updateDayOfWeekModeFieldsVisibility();
         }
@@ -2337,6 +2352,7 @@ function updateDayOfWeekModeVisibility() {
 function updateDayOfWeekModeFieldsVisibility() {
     const dayOfWeekValue = document.getElementById('ctFormDayOfWeek')?.value || '';
     const modeOverride = document.getElementById('ctFormModeOverride').checked;
+    const modeDayOff = document.getElementById('ctFormModeDayOff')?.checked;
     const overrideShiftGroup = document.getElementById('ctFormOverrideShiftGroup');
     const timeInputsRow = document.querySelector('.time-inputs-row');
 
@@ -2351,6 +2367,12 @@ function updateDayOfWeekModeFieldsVisibility() {
         if (timeInputsRow) timeInputsRow.classList.add('d-none');
         document.getElementById('ctFormStartTime').value = '';
         document.getElementById('ctFormEndTime').value = '';
+    } else if (modeDayOff) {
+        if (overrideShiftGroup) overrideShiftGroup.classList.add('d-none');
+        if (timeInputsRow) timeInputsRow.classList.add('d-none');
+        document.getElementById('ctFormStartTime').value = '';
+        document.getElementById('ctFormEndTime').value = '';
+        setOverrideShiftValue('day_off');
     } else {
         if (overrideShiftGroup) overrideShiftGroup.classList.add('d-none');
         if (timeInputsRow) timeInputsRow.classList.remove('d-none');
@@ -2366,6 +2388,7 @@ function updateAssignmentCriteriaMutualExclusion(preferred = 'day') {
     const dayOfWeekValue = document.getElementById('ctFormDayOfWeek')?.value || '';
     const dayOfWeekSelected = Boolean(dayOfWeekValue);
     const modeOverride = document.getElementById('ctFormModeOverride')?.checked;
+    const modeDayOff = document.getElementById('ctFormModeDayOff')?.checked;
 
     if (!assignmentSelected) {
         setDropdownButtonDisabled('ctFormShiftTypeButton', false);
@@ -2373,7 +2396,7 @@ function updateAssignmentCriteriaMutualExclusion(preferred = 'day') {
         return;
     }
 
-    if (dayOfWeekSelected && modeOverride) {
+    if (dayOfWeekSelected && (modeOverride || modeDayOff)) {
         setDropdownButtonDisabled('ctFormDayOfCycleButton', true);
         setDropdownButtonDisabled('ctFormShiftTypeButton', false);
         document.getElementById('ctFormDayOfCycle').value = '';
@@ -2467,6 +2490,8 @@ function openCustomTimingForm(driverId, driverName, driverNumber = '') {
     document.getElementById('customTimingForm').reset();
     document.getElementById('ctFormPriority').value = '4';
     document.getElementById('ctFormModeOverride').checked = true;
+    const modeDayOff = document.getElementById('ctFormModeDayOff');
+    if (modeDayOff) modeDayOff.checked = false;
     populateAssignmentOptions(driverId);
     initializeShiftTypeDropdown();
     initializeOverrideShiftDropdown();
@@ -2503,8 +2528,11 @@ function editCustomTiming(driverId, timingId, driverName, driverNumber = '') {
                 updateAssignmentCriteriaMutualExclusion('day');
                 document.getElementById('ctFormDayOfWeek').value = t.day_of_week !== null ? t.day_of_week : '';
                 const isOverrideMode = t.day_of_week !== null && Boolean(t.override_shift);
-                document.getElementById('ctFormModeOverride').checked = isOverrideMode;
+                const isDayOffMode = t.day_of_week !== null && t.override_shift === 'day_off';
+                document.getElementById('ctFormModeOverride').checked = isOverrideMode && !isDayOffMode;
                 document.getElementById('ctFormModeCustomTimes').checked = !isOverrideMode;
+                const modeDayOffEl = document.getElementById('ctFormModeDayOff');
+                if (modeDayOffEl) modeDayOffEl.checked = isDayOffMode;
                 setOverrideShiftValue(t.override_shift || '');
                 updateDayOfWeekModeVisibility();
                 updateDayOfWeekModeFieldsVisibility();

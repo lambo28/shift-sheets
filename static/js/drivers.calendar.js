@@ -84,14 +84,15 @@ function renderDriverCalendar(data) {
                 ? `${startText}${startText && endText ? '–' : ''}${endText}`
                 : '';
 
-            const isChangedFromDefault =
+            const startChanged =
                 (effectiveStartMinutes !== null || defaultStartMinutes !== null)
                     ? effectiveStartMinutes !== defaultStartMinutes
-                    : false
-                ||
+                    : false;
+            const endChanged =
                 (effectiveEndMinutes !== null || defaultEndMinutes !== null)
                     ? effectiveEndMinutes !== defaultEndMinutes
                     : false;
+            const isChangedFromDefault = startChanged || endChanged;
 
             if (!day.is_holiday && !hasDayOffShift && rangeText && isChangedFromDefault) {
                 bottomTimeTokens.push(`<span class="cal-shift-time-changed">${rangeText}</span>`);
