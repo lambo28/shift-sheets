@@ -117,17 +117,6 @@
                     </div>
                 </div>
 
-                <!-- Min partial hours -->
-                <div class="col-md-3">
-                    <label for="reqMinPartial" class="form-label">
-                        Min partial hours
-                        <i class="fas fa-question-circle text-muted"
-                           title="Assignments shorter than this (within the request window) do not count toward slot coverage."></i>
-                    </label>
-                    <input type="number" class="form-control" id="reqMinPartial" name="min_partial_hours"
-                           min="0" step="0.5" value="2">
-                </div>
-
                 <!-- Notes -->
                 <div class="col-md-6">
                     <label for="reqNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
@@ -297,7 +286,10 @@
                 data-request-window="{{ req.display_window() }}"
                 data-request-date="{{ req.date.isoformat() }}"
                 data-request-start="{{ req.get_time_window()[0].strftime('%H:%M') if req.get_time_window()[0] else '' }}"
-                data-request-end="{{ req.get_time_window()[1].strftime('%H:%M') if req.get_time_window()[1] else '' }}">
+                data-request-end="{{ req.get_time_window()[1].strftime('%H:%M') if req.get_time_window()[1] else '' }}"
+                data-available-start="{{ item.available_start.strftime('%H:%M') if item.available_start else '' }}"
+                data-available-end="{{ item.available_end.strftime('%H:%M') if item.available_end else '' }}"
+                data-assigned-driver-ids="{{ req.assignments | map(attribute='driver_id') | join(',') }}">
             <i class="fas fa-user-plus"></i> Add Driver
         </button>
         {% endif %}
@@ -359,10 +351,6 @@
 
                     <!-- Validation result area -->
                     <div id="validationResult" class="d-none"></div>
-
-                    <button type="button" class="btn btn-sm btn-outline-secondary" id="validateBtn">
-                        <i class="fas fa-check-circle"></i> Check legality
-                    </button>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>

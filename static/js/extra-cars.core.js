@@ -75,7 +75,73 @@
         var endInput = document.getElementById('modalEndTime');
         var notesInput = document.getElementById('modalNotes');
         var validationDiv = document.getElementById('validationResult');
-        var validateBtn = document.getElementById('validateBtn');
+
+        function runValidation() {
+            var requestId = form && form._requestId;
+            if (!requestId || !driverSelect) return;
+
+            var driverId = driverSelect.value;
+            if (!driverId) {
+                if (validationDiv) {
+                    validationDiv.innerHTML = '';
+                    validationDiv.classList.add('d-none');
+                }
+                return;
+            }
+
+            var payload = {
+                driver_id: driverId,
+                start_time: startInput ? startInput.value : '',
+                end_time: endInput ? endInput.value : ''
+            };
+
+            fetch('/extra-cars/request/' + requestId + '/assignment/validate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify(payload)
+            })
+            .then(function (resp) { return resp.json(); })
+            .then(function (data) {
+                if (!data.success) {
+                    showValidation(validationDiv, false, [data.error || 'Validation error.'], null, null);
+                    return;
+                }
+
+                if (!data.valid) {
+                    if (startInput && data.suggested_start) {
+                        startInput.value = data.suggested_start;
+                    }
+                    if (endInput && data.suggested_end) {
+                        endInput.value = data.suggested_end;
+                    }
+                }
+
+                showValidation(validationDiv, data.valid, data.errors, data.suggested_start, data.suggested_end);
+            })
+            .catch(function () {
+                showValidation(validationDiv, false, ['Network error during validation.'], null, null);
+            });
+        }
+
+        function applyAssignedDriverDisables(assignedIds) {
+            if (!driverSelect) return;
+            var assignedSet = new Set((assignedIds || []).map(function (id) { return String(id); }));
+            Array.prototype.forEach.call(driverSelect.options, function (opt) {
+                if (!opt.value) return;
+                var isAssigned = assignedSet.has(String(opt.value));
+                opt.disabled = isAssigned;
+                if (isAssigned) {
+                    if (!/\(already assigned\)$/.test(opt.textContent)) {
+                        opt.textContent += ' (already assigned)';
+                    }
+                } else {
+                    opt.textContent = opt.textContent.replace(/\s*\(already assigned\)$/, '');
+                }
+            });
+        }
 
         // Populate modal data when opened via "Add Driver" buttons
         modal.addEventListener('show.bs.modal', function (event) {
@@ -86,6 +152,13 @@
             var window_ = trigger.getAttribute('data-request-window');
             var reqStart = trigger.getAttribute('data-request-start');
             var reqEnd = trigger.getAttribute('data-request-end');
+            var availableStart = trigger.getAttribute('data-available-start');
+            var availableEnd = trigger.getAttribute('data-available-end');
+            var assignedIdsRaw = trigger.getAttribute('data-assigned-driver-ids') || '';
+            var assignedIds = assignedIdsRaw
+                .split(',')
+                .map(function (id) { return id.trim(); })
+                .filter(function (id) { return id.length > 0; });
 
             if (form) {
                 form.action = '/extra-cars/request/' + requestId + '/assignment/add';
@@ -98,61 +171,37 @@
 
             // Reset fields
             if (driverSelect) driverSelect.value = '';
-            if (startInput) startInput.value = '';
-            if (endInput) endInput.value = '';
+            if (startInput) startInput.value = availableStart || '';
+            if (endInput) endInput.value = availableEnd || '';
             if (notesInput) notesInput.value = '';
             if (validationDiv) {
                 validationDiv.innerHTML = '';
                 validationDiv.classList.add('d-none');
             }
+
+            applyAssignedDriverDisables(assignedIds);
         });
 
-        // Validate button
-        if (validateBtn) {
-            validateBtn.addEventListener('click', function () {
-                var requestId = form && form._requestId;
-                if (!requestId) return;
+        if (driverSelect) {
+            driverSelect.addEventListener('change', runValidation);
+        }
+        if (startInput) {
+            startInput.addEventListener('change', runValidation);
+            startInput.addEventListener('input', runValidation);
+        }
+        if (endInput) {
+            endInput.addEventListener('change', runValidation);
+            endInput.addEventListener('input', runValidation);
+        }
 
-                var driverId = driverSelect ? driverSelect.value : '';
-                if (!driverId) {
-                    showValidation(validationDiv, false, ['Please select a driver first.'], null, null);
-                    return;
+        if (form) {
+            form.addEventListener('submit', function (event) {
+                if (!driverSelect || !driverSelect.value) return;
+                var selectedOption = driverSelect.options[driverSelect.selectedIndex];
+                if (selectedOption && selectedOption.disabled) {
+                    event.preventDefault();
+                    showValidation(validationDiv, false, ['This driver is already assigned to this request.'], null, null);
                 }
-
-                validateBtn.disabled = true;
-                validateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking…';
-
-                var payload = {
-                    driver_id: driverId,
-                    start_time: startInput ? startInput.value : '',
-                    end_time: endInput ? endInput.value : ''
-                };
-
-                fetch('/extra-cars/request/' + requestId + '/assignment/validate', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Requested-With': 'XMLHttpRequest'
-                    },
-                    body: JSON.stringify(payload)
-                })
-                .then(function (resp) { return resp.json(); })
-                .then(function (data) {
-                    validateBtn.disabled = false;
-                    validateBtn.innerHTML = '<i class="fas fa-check-circle"></i> Check legality';
-
-                    if (!data.success) {
-                        showValidation(validationDiv, false, [data.error || 'Validation error.'], null, null);
-                        return;
-                    }
-
-                    showValidation(validationDiv, data.valid, data.errors, data.suggested_start, data.suggested_end);
-                })
-                .catch(function () {
-                    validateBtn.disabled = false;
-                    validateBtn.innerHTML = '<i class="fas fa-check-circle"></i> Check legality';
-                    showValidation(validationDiv, false, ['Network error during validation.'], null, null);
-                });
             });
         }
     }
@@ -177,7 +226,7 @@
                 suggestion =
                     '<p class="mb-0 mt-2">' +
                     '<i class="fas fa-lightbulb me-1 text-warning"></i>' +
-                    '<strong>Legal window:</strong> ' +
+                    '<strong>Suggested time window:</strong> ' +
                     escapeHtml(suggestedStart) + '–' + escapeHtml(suggestedEnd) +
                     '</p>';
             }
@@ -185,7 +234,7 @@
             container.innerHTML =
                 '<div class="alert alert-danger py-2 mb-0">' +
                 '<i class="fas fa-exclamation-triangle me-1"></i>' +
-                '<strong>Rule violations:</strong>' +
+                '<strong>Can’t assign this driver yet:</strong>' +
                 '<ul class="mb-0 mt-1">' + errorHtml + '</ul>' +
                 suggestion +
                 '</div>';

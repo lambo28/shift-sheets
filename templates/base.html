@@ -57,7 +57,7 @@
     {% endif %}
     {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body class="{{ 'dark-mode' if ui_theme == 'dark' else '' }}">
     <a class="skip-link" href="#mainContent">Skip to main content</a>
 
     {% if not is_modal_mode %}
@@ -106,6 +106,15 @@
                         <a class="nav-link {% if current_endpoint == 'extra_cars' %}active{% endif %}" href="{{ url_for('extra_cars') }}" {% if current_endpoint == 'extra_cars' %}aria-current="page"{% endif %}>
                             <i class="fas fa-car-side"></i> Extra Cars
                         </a>
+                    </li>
+                    <li class="nav-item">
+                        <form method="POST" action="{{ url_for('toggle_theme') }}" class="d-inline">
+                            <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                            <button type="submit" class="btn nav-link border-0 bg-transparent text-white" aria-label="Toggle theme">
+                                <i class="fas {{ 'fa-sun' if ui_theme == 'dark' else 'fa-moon' }}"></i>
+                                {{ 'Light' if ui_theme == 'dark' else 'Dark' }}
+                            </button>
+                        </form>
                     </li>
                 </ul>
             </div>

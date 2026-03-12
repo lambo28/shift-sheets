@@ -3,7 +3,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text, and_, or_
-from datetime import datetime, timedelta, date, time
+from datetime import datetime, timedelta, date, time, UTC
 import os
 import json
 from config import config
@@ -13,6 +13,9 @@ MIN_REST_HOURS = 8
 
 # Maximum hours a driver may work within any rolling 24-hour period
 MAX_WORK_HOURS_PER_24H = 16
+
+# Minimum effective overlap for extra-car coverage/capacity counting
+EXTRA_CAR_MIN_PARTIAL_HOURS = 2.0
 
 # -----------------------------------------------------------------------------
 # App Setup
@@ -30,6 +33,11 @@ os.makedirs(app.config.get('BASE_DIR') / 'data', exist_ok=True)
 db = SQLAlchemy(app)
 
 _bundle_manifest_cache = {"mtime": None, "data": {}}
+
+
+def utc_now():
+    """Return the current UTC timestamp as a naive datetime for DB storage."""
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def get_bundle_manifest():
@@ -69,7 +77,7 @@ class Driver(db.Model):
     pet_friendly = db.Column(db.Boolean, default=False)
     assistance_guide_dogs_exempt = db.Column(db.Boolean, default=False)
     electric_vehicle = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     
     # Relationships
     assignments = db.relationship('DriverAssignment', backref='driver', lazy=True, cascade='all, delete-orphan')
@@ -113,7 +121,7 @@ class ShiftPattern(db.Model):
     description = db.Column(db.Text)
     cycle_length = db.Column(db.Integer, nullable=False)  # number of days in cycle
     pattern_data = db.Column(db.Text, nullable=False)  # JSON string of daily shift assignments
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     
     # Relationships
     assignments = db.relationship('DriverAssignment', backref='shift_pattern', lazy=True, cascade='all, delete-orphan')
@@ -229,7 +237,7 @@ class DriverCustomTiming(db.Model):
     
     # Metadata
     notes = db.Column(db.Text)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     
     # Relationships
     driver = db.relationship('Driver', backref='custom_timings')
@@ -299,7 +307,7 @@ class DriverAssignment(db.Model):
     start_date = db.Column(db.Date, nullable=False)
     end_date = db.Column(db.Date)  # Optional - for temporary assignments
     start_day_of_cycle = db.Column(db.Integer, default=1, nullable=False)  # Which day of the pattern cycle to start on
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     
     # Track pause/resume relationships for temporary assignments
     paused_by_assignment_id = db.Column(db.Integer, db.ForeignKey('driver_assignment.id'), nullable=True)  # Which assignment caused this to pause
@@ -343,7 +351,7 @@ class DriverHoliday(db.Model):
     holiday_date = db.Column(db.Date, nullable=False)
     time_off_type = db.Column(db.String(20), nullable=False, default='holiday')  # holiday, sickness, vor, other
     notes = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
     driver = db.relationship('Driver', backref=db.backref('holidays', lazy=True, cascade='all, delete-orphan'))
 
@@ -360,7 +368,7 @@ class ShiftAdjustment(db.Model):
     adjustment_type = db.Column(db.String(20), nullable=False)  # 'late_start' or 'early_finish'
     adjusted_time = db.Column(db.Time, nullable=False)
     notes = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
     driver = db.relationship('Driver', backref=db.backref('shift_adjustments', lazy=True, cascade='all, delete-orphan'))
 
@@ -374,7 +382,7 @@ class ShiftSwap(db.Model):
     date_b = db.Column(db.Date, nullable=False)  # Date driver_b is giving up their shift
     work_shift_type = db.Column(db.String(50), nullable=True)
     notes = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
     driver_a = db.relationship('Driver', foreign_keys=[driver_a_id], backref=db.backref('swaps_as_a', lazy=True, cascade='all, delete-orphan'))
     driver_b = db.relationship('Driver', foreign_keys=[driver_b_id], backref=db.backref('swaps_as_b', lazy=True, cascade='all, delete-orphan'))
@@ -412,7 +420,7 @@ class ExtraCarRequest(db.Model):
     min_partial_hours = db.Column(db.Float, default=2.0, nullable=False)
     status = db.Column(db.String(20), default='OPEN', nullable=False)
     notes = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
     assignments = db.relationship(
         'ExtraCarAssignment',
@@ -445,29 +453,25 @@ class ExtraCarRequest(db.Model):
             return '—'
         return f"{start_dt.strftime('%H:%M')} – {end_dt.strftime('%H:%M')}"
 
-    def compute_coverage(self):
-        """
-        Compute how many independent coverage slots are filled by current assignments.
-
-        Coverage model:
-        - Only assignments whose effective overlap with the request window is >= min_partial_hours count.
-        - Assignments that are sequential (B starts when or after A ends) form one coverage *chain*,
-          which equals one filled slot. Parallel/overlapping assignments each start a new chain.
-        - Returns (filled_slots, suggested_status).
-        """
+    def _get_valid_coverage_intervals(self):
+        """Return (req_start, req_end, valid_intervals) for coverage/capacity checks."""
         req_start, req_end = self.get_time_window()
         if not req_start or not req_end:
-            return 0, self.status
+            return None, None, []
 
-        min_hours = self.min_partial_hours or 2.0
+        min_hours = EXTRA_CAR_MIN_PARTIAL_HOURS
         valid = []
-
         for asgn in self.assignments:
-            asgn_start = datetime.combine(self.date, asgn.start_time) if asgn.start_time else req_start
-            asgn_end = datetime.combine(self.date, asgn.end_time) if asgn.end_time else req_end
+            asgn_start = (
+                resolve_request_relative_datetime(req_start, req_end, asgn.start_time)
+                if asgn.start_time else req_start
+            )
+            asgn_end = (
+                resolve_request_relative_datetime(req_start, req_end, asgn.end_time)
+                if asgn.end_time else req_end
+            )
             if asgn_end <= asgn_start:
                 asgn_end += timedelta(days=1)
-            # Clip to request window
             eff_start = max(asgn_start, req_start)
             eff_end = min(asgn_end, req_end)
             if eff_end <= eff_start:
@@ -476,38 +480,153 @@ class ExtraCarRequest(db.Model):
                 continue
             valid.append((eff_start, eff_end))
 
-        valid.sort(key=lambda x: x[0])
+        return req_start, req_end, valid
 
-        # Greedy chain counting: track end-times of open chains.
-        # An assignment extends the chain whose end is <= the assignment's start
-        # (sequential / handover). When multiple chains qualify, pick the one
-        # ending latest to preserve earlier-ending chains for future assignments.
-        chain_ends = []
+    def get_available_capacity_segments(self):
+        """Return list of uncovered capacity segments as (start_dt, end_dt)."""
+        req_start, req_end, valid = self._get_valid_coverage_intervals()
+        if not req_start or not req_end:
+            return []
+
+        if self.unlimited:
+            return [(req_start, req_end)]
+
+        required = self.required_slots or 0
+        if required <= 0:
+            return [(req_start, req_end)]
+
+        min_hours = EXTRA_CAR_MIN_PARTIAL_HOURS
+        breakpoints = {req_start, req_end}
         for asgn_start, asgn_end in valid:
-            best_idx = None
-            best_end = None
-            for i, chain_end in enumerate(chain_ends):
-                if asgn_start >= chain_end:
-                    if best_end is None or chain_end > best_end:
-                        best_idx = i
-                        best_end = chain_end
-            if best_idx is not None:
-                chain_ends[best_idx] = max(chain_ends[best_idx], asgn_end)
-            else:
-                chain_ends.append(asgn_end)
+            breakpoints.add(asgn_start)
+            breakpoints.add(asgn_end)
 
-        filled_slots = len(chain_ends)
+        ordered = sorted(breakpoints)
+        raw_available_segments = []
+        for index in range(len(ordered) - 1):
+            segment_start = ordered[index]
+            segment_end = ordered[index + 1]
+            if segment_end <= segment_start:
+                continue
+            midpoint = segment_start + (segment_end - segment_start) / 2
+            active = sum(1 for s, e in valid if s <= midpoint < e)
+            if active < required:
+                raw_available_segments.append((segment_start, segment_end))
+
+        if not raw_available_segments:
+            return []
+
+        merged = [raw_available_segments[0]]
+        for segment_start, segment_end in raw_available_segments[1:]:
+            prev_start, prev_end = merged[-1]
+            if segment_start <= prev_end:
+                merged[-1] = (prev_start, max(prev_end, segment_end))
+            else:
+                merged.append((segment_start, segment_end))
+
+        # Only segments that are at least min_partial_hours are practically allocatable.
+        return [
+            (segment_start, segment_end)
+            for segment_start, segment_end in merged
+            if (segment_end - segment_start).total_seconds() / 3600 >= min_hours
+        ]
+
+    def get_recommended_available_window(self):
+        """Return best available segment (start_dt, end_dt) for a new assignment."""
+        segments = self.get_available_capacity_segments()
+        if not segments:
+            return None, None
+
+        min_hours = EXTRA_CAR_MIN_PARTIAL_HOURS
+        eligible = [
+            (s, e)
+            for s, e in segments
+            if (e - s).total_seconds() / 3600 >= min_hours
+        ]
+        candidates = eligible or segments
+        best = max(candidates, key=lambda item: (item[1] - item[0]).total_seconds())
+        return best
+
+    def compute_coverage(self):
+        """
+                Compute how many slot lanes are fully covered for the whole request window.
+
+                Coverage model:
+                - Only assignments whose effective overlap with the request window is >= min_partial_hours count.
+                - ``filled_slots`` equals the minimum number of active assignments across the entire
+                    request window (i.e., full continuous slot coverage).
+                - Any valid assignment activity (even if not continuous) yields PARTIALLY_FILLED status.
+                - Returns (filled_slots, suggested_status).
+        """
+        req_start, req_end, valid = self._get_valid_coverage_intervals()
+        if not req_start or not req_end:
+            return 0, self.status
+
+        min_hours = EXTRA_CAR_MIN_PARTIAL_HOURS
+
+        if not valid:
+            filled_slots = 0
+            has_any_coverage = False
+        else:
+            # Build timeline segments and count active assignments in each segment.
+            breakpoints = {req_start, req_end}
+            for asgn_start, asgn_end in valid:
+                breakpoints.add(asgn_start)
+                breakpoints.add(asgn_end)
+
+            ordered = sorted(breakpoints)
+            segments = []
+            for index in range(len(ordered) - 1):
+                segment_start = ordered[index]
+                segment_end = ordered[index + 1]
+                if segment_end <= segment_start:
+                    continue
+                midpoint = segment_start + (segment_end - segment_start) / 2
+                active = sum(1 for s, e in valid if s <= midpoint < e)
+                segments.append((segment_start, segment_end, active))
+
+            segment_counts = [active for _, _, active in segments]
+
+            def has_significant_deficit(threshold):
+                deficit_start = None
+                deficit_end = None
+                for segment_start, segment_end, active in segments:
+                    if active < threshold:
+                        if deficit_start is None:
+                            deficit_start = segment_start
+                        deficit_end = segment_end
+                    elif deficit_start is not None:
+                        hours = (deficit_end - deficit_start).total_seconds() / 3600
+                        if hours >= min_hours:
+                            return True
+                        deficit_start = None
+                        deficit_end = None
+
+                if deficit_start is not None:
+                    hours = (deficit_end - deficit_start).total_seconds() / 3600
+                    if hours >= min_hours:
+                        return True
+                return False
+
+            has_any_coverage = any(count > 0 for count in segment_counts)
+
+            max_active = max(segment_counts) if segment_counts else 0
+            filled_slots = 0
+            for threshold in range(1, max_active + 1):
+                if has_significant_deficit(threshold):
+                    break
+                filled_slots = threshold
 
         if self.status == 'CLOSED':
             return filled_slots, 'CLOSED'
 
         if self.unlimited:
-            new_status = 'PARTIALLY_FILLED' if filled_slots > 0 else 'OPEN'
+            new_status = 'PARTIALLY_FILLED' if has_any_coverage else 'OPEN'
         else:
             required = self.required_slots or 0
             if filled_slots >= required > 0:
                 new_status = 'FILLED'
-            elif filled_slots > 0:
+            elif has_any_coverage:
                 new_status = 'PARTIALLY_FILLED'
             else:
                 new_status = 'OPEN'
@@ -530,23 +649,23 @@ class ExtraCarAssignment(db.Model):
     start_time = db.Column(db.Time, nullable=True)
     end_time = db.Column(db.Time, nullable=True)
     notes = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
     request = db.relationship('ExtraCarRequest', back_populates='assignments')
     driver = db.relationship('Driver', backref=db.backref('extra_assignments', lazy=True))
 
     def effective_start(self):
         """Return the effective start datetime for this assignment."""
-        req_start, _ = self.request.get_time_window()
+        req_start, req_end = self.request.get_time_window()
         if self.start_time and req_start:
-            return datetime.combine(self.request.date, self.start_time)
+            return resolve_request_relative_datetime(req_start, req_end, self.start_time)
         return req_start
 
     def effective_end(self):
         """Return the effective end datetime for this assignment."""
-        _, req_end = self.request.get_time_window()
+        req_start, req_end = self.request.get_time_window()
         if self.end_time and req_end:
-            return datetime.combine(self.request.date, self.end_time)
+            return resolve_request_relative_datetime(req_start, req_end, self.end_time)
         return req_end
 
     def duration_hours(self):
@@ -563,6 +682,15 @@ class ExtraCarAssignment(db.Model):
         if eff_end <= eff_start:
             return 0.0
         return (eff_end - eff_start).total_seconds() / 3600
+
+
+class AppSetting(db.Model):
+    """Simple key-value store for lightweight app-wide settings."""
+    __tablename__ = 'app_setting'
+
+    key = db.Column(db.String(100), primary_key=True)
+    value = db.Column(db.String(255), nullable=False)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
 
 # -----------------------------------------------------------------------------
 # Initialization
@@ -716,7 +844,10 @@ def shift_abbrev(shift_type, all_shifts_str=''):
 # Add datetime to template context
 @app.context_processor
 def utility_processor():
-    return dict(datetime=datetime, bundle_url=bundle_url)
+    ui_theme = get_app_setting('ui_theme', 'light')
+    if ui_theme not in ('light', 'dark'):
+        ui_theme = 'light'
+    return dict(datetime=datetime, bundle_url=bundle_url, ui_theme=ui_theme)
 
 def is_ajax_request():
     return request.headers.get("X-Requested-With") == "XMLHttpRequest"
@@ -796,13 +927,29 @@ def get_drivers_for_date(target_date):
     for row in swap_workers:
         driver_ids.add(row.driver_a_id)
 
+    extra_workers = (
+        ExtraCarAssignment.query
+        .join(ExtraCarRequest, ExtraCarAssignment.request_id == ExtraCarRequest.id)
+        .filter(ExtraCarRequest.date == target_date)
+        .with_entities(ExtraCarAssignment.driver_id)
+        .all()
+    )
+    for row in extra_workers:
+        driver_ids.add(row.driver_id)
+
     if not driver_ids:
         return drivers_working
 
     drivers = Driver.query.filter(Driver.id.in_(driver_ids)).all()
 
     for driver in drivers:
-        effective_shifts = get_driver_shifts_for_date(driver, target_date, timings_dict, include_swaps=True)
+        effective_shifts = get_driver_shifts_for_date(
+            driver,
+            target_date,
+            timings_dict,
+            include_swaps=True,
+            include_extra=True,
+        )
         for entry in effective_shifts:
             shift_type = entry['shift_type']
             if shift_type == 'day_off':
@@ -834,13 +981,91 @@ def get_drivers_for_date(target_date):
     return drivers_working
 
 
-def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_swaps=True):
+def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_swaps=True, include_extra=False):
     if timings_dict is None:
         all_timings = ShiftTiming.query.all()
         timings_dict = {timing.shift_type: timing for timing in all_timings}
 
+    extra_entries = []
+    if include_extra:
+        extra_assignments = (
+            ExtraCarAssignment.query
+            .join(ExtraCarRequest, ExtraCarAssignment.request_id == ExtraCarRequest.id)
+            .filter(
+                ExtraCarAssignment.driver_id == driver.id,
+                ExtraCarRequest.date == target_date,
+            )
+            .order_by(ExtraCarAssignment.id.asc())
+            .all()
+        )
+
+        for extra_assignment in extra_assignments:
+            request_start, request_end = extra_assignment.request.get_time_window()
+            effective_start = extra_assignment.effective_start()
+            effective_end = extra_assignment.effective_end()
+            if not request_start or not request_end or not effective_start or not effective_end:
+                continue
+
+            _req = extra_assignment.request
+            is_custom_time = False
+            if _req.request_type == 'time_window':
+                extra_label = 'Custom'
+                is_custom_time = True
+            else:
+                # For shift_type requests: check if assignment times match the shift's nominal times
+                _timing = timings_dict.get(_req.shift_type)
+                assign_start = extra_assignment.effective_start()
+                assign_end = extra_assignment.effective_end()
+                if _timing and assign_start and assign_end:
+                    shift_start_datetime = datetime.combine(target_date, _timing.start_time)
+                    shift_end_datetime = datetime.combine(target_date, _timing.end_time)
+                    if shift_end_datetime <= shift_start_datetime:
+                        shift_end_datetime += timedelta(days=1)
+                    # If assignment times match shift's nominal times: use shift name, not custom
+                    if (assign_start.time() == _timing.start_time and 
+                        assign_end.time() == _timing.end_time):
+                        extra_label = _timing.display_label
+                        is_custom_time = False
+                    else:
+                        extra_label = 'Custom'
+                        is_custom_time = True
+                else:
+                    extra_label = _req.shift_type.replace('_', ' ').title() if _req.shift_type else 'Extra'
+                    is_custom_time = False
+            extra_entries.append({
+                'shift_type': 'extra_car',
+                'label': extra_label,
+                'badge_color': 'bg-danger',
+                'icon': 'fas fa-plus',
+                'start_time': effective_start.time(),
+                'end_time': effective_end.time(),
+                'default_start_time': request_start.time(),
+                'default_end_time': request_end.time(),
+                'is_override': False,
+                'is_custom_time': is_custom_time,
+                'is_adjusted': False,
+                'is_swap': False,
+                'swap_role': None,
+                'is_extra': True,
+            })
+
+    def finalize_entries(base_entries):
+        merged_entries = list(base_entries)
+        if extra_entries:
+            # Suppress plain day-off entries — the extra shift IS the work for this day
+            merged_entries = [e for e in merged_entries if e.get('shift_type') != 'day_off']
+            merged_entries.extend(extra_entries)
+        merged_entries.sort(
+            key=lambda item: (
+                item['start_time'] is None,
+                item['start_time'] or datetime.min.time(),
+                item['label'],
+            )
+        )
+        return merged_entries
+
     if is_driver_on_holiday(driver.id, target_date):
-        return []
+        return finalize_entries([])
 
     if include_swaps:
         swaps_for_date = ShiftSwap.query.filter(
@@ -897,14 +1122,14 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_s
 
             if swap_entries:
                 swap_entries.sort(key=lambda item: (item['start_time'] is None, item['start_time'] or datetime.min.time(), item['label']))
-                return swap_entries
+                return finalize_entries(swap_entries)
 
         give_up_only_swaps = [
             swap for swap in swaps_for_date
             if swap.date_a == target_date and swap.date_b != target_date
         ]
         if give_up_only_swaps:
-            return [{
+            return finalize_entries([{
                 'shift_type': 'day_off',
                 'label': 'OFF',
                 'badge_color': 'bg-secondary',
@@ -918,7 +1143,8 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_s
                 'is_adjusted': False,
                 'is_swap': True,
                 'swap_role': 'give_up',
-            }]
+                'is_extra': False,
+            }])
 
     latest_late_start, earliest_early_finish = get_adjustment_conflict_bounds(driver.id, target_date)
 
@@ -1017,10 +1243,10 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_s
                 'is_adjusted': is_adjusted,
                 'is_swap': False,
                 'swap_role': None,
+                'is_extra': False,
             })
 
-    entries.sort(key=lambda item: (item['start_time'] is None, item['start_time'] or datetime.min.time(), item['label']))
-    return entries
+    return finalize_entries(entries)
 
 
 def driver_has_working_shift_on_date(driver, target_date, timings_dict=None):
@@ -1146,14 +1372,18 @@ def get_adjustment_conflict_bounds(driver_id, target_date, exclude_adjustment_id
 
 
 def is_split_shift_day(driver, target_date, timings_dict=None, include_swaps=True):
-    """Return True when a date has two or more working shifts for the driver."""
+    """Return True when a date has two or more non-extra working shifts for the driver."""
     shifts = get_driver_shifts_for_date(
         driver,
         target_date,
         timings_dict=timings_dict,
+        include_extra=True,
         include_swaps=include_swaps,
     )
-    working_shifts = [shift for shift in shifts if shift.get('shift_type') != 'day_off']
+    working_shifts = [
+        shift for shift in shifts
+        if shift.get('shift_type') != 'day_off' and not shift.get('is_extra')
+    ]
     return len(working_shifts) >= 2
 
 
@@ -1388,8 +1618,14 @@ def get_driver_all_work_intervals(driver, ref_date, timings_dict=None, exclude_r
         req_start, req_end = ea.request.get_time_window()
         if not req_start or not req_end:
             continue
-        s = datetime.combine(ea.request.date, ea.start_time) if ea.start_time else req_start
-        e = datetime.combine(ea.request.date, ea.end_time) if ea.end_time else req_end
+        s = (
+            resolve_request_relative_datetime(req_start, req_end, ea.start_time)
+            if ea.start_time else req_start
+        )
+        e = (
+            resolve_request_relative_datetime(req_start, req_end, ea.end_time)
+            if ea.end_time else req_end
+        )
         if e <= s:
             e += timedelta(days=1)
         intervals.append(('extra', s, e))
@@ -1397,17 +1633,111 @@ def get_driver_all_work_intervals(driver, ref_date, timings_dict=None, exclude_r
     return intervals
 
 
+def merge_work_intervals(intervals):
+    """Merge overlapping or contiguous datetime intervals."""
+    normalized = []
+    for start_dt, end_dt in intervals:
+        if not start_dt or not end_dt:
+            continue
+        if end_dt <= start_dt:
+            continue
+        normalized.append((start_dt, end_dt))
+
+    if not normalized:
+        return []
+
+    normalized.sort(key=lambda item: item[0])
+    merged = [normalized[0]]
+
+    for start_dt, end_dt in normalized[1:]:
+        last_start, last_end = merged[-1]
+        if start_dt <= last_end:
+            merged[-1] = (last_start, max(last_end, end_dt))
+        else:
+            merged.append((start_dt, end_dt))
+
+    return merged
+
+
+def interval_within_any_segment(start_dt, end_dt, segments):
+    """Return True if [start_dt, end_dt] is fully inside one segment."""
+    tolerance = timedelta(seconds=1)
+    return any(
+        start_dt >= (seg_start - tolerance) and end_dt <= (seg_end + tolerance)
+        for seg_start, seg_end in segments
+    )
+
+
+def resolve_request_relative_datetime(req_start_dt, req_end_dt, time_value):
+    """Resolve a time-of-day into the correct datetime inside a request window span.
+
+    For overnight windows (e.g. 16:00–02:00), times earlier than request start
+    belong to the next day (01:00 -> next day 01:00).
+    """
+    candidate = datetime.combine(req_start_dt.date(), time_value)
+    is_overnight_window = req_end_dt.date() > req_start_dt.date()
+    if is_overnight_window and candidate < req_start_dt:
+        candidate += timedelta(days=1)
+    return candidate
+
+
+def get_app_setting(key, default=None):
+    """Fetch an app setting value by key, returning default if unset."""
+    setting = db.session.get(AppSetting, key)
+    if setting is None:
+        return default
+    return setting.value
+
+
+def get_app_setting_float(key, default):
+    """Fetch an app setting parsed as float; fall back to default if invalid."""
+    raw_value = get_app_setting(key, None)
+    if raw_value is None:
+        return default
+    try:
+        parsed = float(raw_value)
+        if parsed < 0:
+            return default
+        return parsed
+    except (TypeError, ValueError):
+        return default
+
+
+def set_app_setting(key, value):
+    """Create or update an app setting value."""
+    setting = db.session.get(AppSetting, key)
+    if setting is None:
+        setting = AppSetting(key=key, value=str(value))
+        db.session.add(setting)
+    else:
+        setting.value = str(value)
+
+
 def validate_extra_car_assignment(driver, request, proposed_start_dt, proposed_end_dt, timings_dict=None):
     """Validate a proposed extra-car assignment against driver work rules.
 
-    Enforces:
-    - Minimum rest of ``MIN_REST_HOURS`` hours between consecutive working periods.
-    - Maximum of ``MAX_WORK_HOURS_PER_24H`` hours worked within any rolling 24-hour window.
+    Rules enforced:
+    1. The combined work block containing the proposed period must have at least
+       MIN_REST_HOURS hours of clear rest *before* it (measured from the end of the
+       previous separate work block) and at least MIN_REST_HOURS hours of clear rest
+       *after* it (measured to the start of the next separate work block).
 
-    Returns a tuple ``(is_valid, errors, suggested_start_dt, suggested_end_dt)`` where
-    ``suggested_*`` are the tightest legal boundaries found.  When validation passes they
-    match the proposed values.
+       Crucially, if the proposed extra is directly adjacent to (or overlapping with)
+       an existing shift, they form ONE continuous block — the rest gap is only checked
+       at the outer boundaries of that combined block, not at the internal join.
+
+    2. The total worked hours within any rolling 24-hour window must not exceed
+       MAX_WORK_HOURS_PER_24H.
+
+    3. If the proposed period *overlaps* an existing shift, only the non-overlapping
+       net-new hours count toward the check.  The assignment is allowed if the
+       net-new hours >= MIN_OVERLAP_BENEFIT (2h by default), and the suggested
+       window is trimmed to the non-overlapping portion.
+
+    Returns ``(is_valid, errors, suggested_start_dt, suggested_end_dt)``.
     """
+    MIN_OVERLAP_BENEFIT = 2.0  # hours; minimum net-new hours that make an overlapping extra worthwhile
+
     if timings_dict is None:
         timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
 
@@ -1420,13 +1750,98 @@ def validate_extra_car_assignment(driver, request, proposed_start_dt, proposed_e
     suggested_start = proposed_start_dt
     suggested_end = proposed_end_dt
 
-    # --- Rest before ---
-    prev_ends = [e for s, e in existing_intervals if e <= proposed_start_dt]
+    # -----------------------------------------------------------------------
+    # Step 1: Detect overlap with existing work and compute net-new window
+    # -----------------------------------------------------------------------
+    # Build the merged existing work so we can find what portion of the proposed
+    # assignment is truly new hours vs already covered.
+    merged_existing = merge_work_intervals(existing_intervals)
+
+    def compute_net_new_hours(p_start, p_end, merged):
+        """Return hours in [p_start, p_end] not covered by any interval in merged."""
+        covered = 0.0
+        for s, e in merged:
+            overlap_start = max(p_start, s)
+            overlap_end = min(p_end, e)
+            if overlap_end > overlap_start:
+                covered += (overlap_end - overlap_start).total_seconds() / 3600
+        proposed_hours = (p_end - p_start).total_seconds() / 3600
+        return max(0.0, proposed_hours - covered)
+
+    net_new = compute_net_new_hours(proposed_start_dt, proposed_end_dt, merged_existing)
+    proposed_hours = (proposed_end_dt - proposed_start_dt).total_seconds() / 3600
+
+    # Is there any overlap at all?
+    has_overlap = net_new < proposed_hours - 0.001
+
+    if has_overlap:
+        if net_new < MIN_OVERLAP_BENEFIT:
+            errors.append(
+                f"Driver already works during most of this window. "
+                f"This would only add {net_new:.1f}h of extra coverage "
+                f"(minimum {MIN_OVERLAP_BENEFIT:.0f}h)."
+            )
+            return False, errors, suggested_start, suggested_end
+
+        # Find the non-overlapping segments to suggest a trimmed window.
+        # We take the earliest and latest non-covered portions.
+        # Simple approach: suggest the first contiguous free segment.
+        check_dt = proposed_start_dt
+        delta = timedelta(minutes=1)
+        seg_start = None
+        best_seg = (None, None)
+        best_dur = 0.0
+        while check_dt < proposed_end_dt:
+            seg_end = check_dt + delta
+            is_free = not any(s <= check_dt < e for s, e in merged_existing)
+            if is_free and seg_start is None:
+                seg_start = check_dt
+            elif not is_free and seg_start is not None:
+                dur = (check_dt - seg_start).total_seconds() / 3600
+                if dur > best_dur:
+                    best_dur = dur
+                    best_seg = (seg_start, check_dt)
+                seg_start = None
+            check_dt = seg_end
+        if seg_start is not None:
+            dur = (proposed_end_dt - seg_start).total_seconds() / 3600
+            if dur > best_dur:
+                best_seg = (seg_start, proposed_end_dt)
+
+        if best_seg[0]:
+            suggested_start = best_seg[0]
+            suggested_end = best_seg[1]
+
+    # -----------------------------------------------------------------------
+    # Step 2: Build the merged combined block (existing + proposed) for rest checks
+    # -----------------------------------------------------------------------
+    # The merged view after adding the proposed period shows which continuous
+    # blocks of work result.  Rest gaps are only checked at the outer edges of
+    # the block that contains the proposed work — not at internal joins.
+    merged_with_proposed = merge_work_intervals(existing_intervals + [(proposed_start_dt, proposed_end_dt)])
+
+    # Find the block in merged_with_proposed that contains the proposed period
+    combined_block = None
+    for blk_start, blk_end in merged_with_proposed:
+        if blk_start <= proposed_start_dt and blk_end >= proposed_end_dt:
+            combined_block = (blk_start, blk_end)
+            break
+    if combined_block is None:
+        combined_block = (proposed_start_dt, proposed_end_dt)
+
+    cb_start, cb_end = combined_block
+
+    # --- Rest before the combined block ---
+    prev_ends = [e for s, e in merged_existing if e <= cb_start]
     if prev_ends:
         latest_prev_end = max(prev_ends)
-        rest_before = (proposed_start_dt - latest_prev_end).total_seconds() / 3600
+        rest_before = (cb_start - latest_prev_end).total_seconds() / 3600
         if rest_before < MIN_REST_HOURS:
-            min_start = latest_prev_end + timedelta(hours=MIN_REST_HOURS)
+            min_block_start = latest_prev_end + timedelta(hours=MIN_REST_HOURS)
+            # Suggest the earliest the *proposed* period can start:
+            # shift the proposed start right by the same amount the block must shift
+            shift = min_block_start - cb_start
+            min_start = proposed_start_dt + shift
             errors.append(
                 f"Insufficient rest before assignment: {rest_before:.1f}h "
                 f"(minimum {MIN_REST_HOURS}h required). "
@@ -1434,13 +1849,15 @@ def validate_extra_car_assignment(driver, request, proposed_start_dt, proposed_e
             )
             suggested_start = min_start
 
-    # --- Rest after ---
-    next_starts = [s for s, e in existing_intervals if s >= proposed_end_dt]
+    # --- Rest after the combined block ---
+    next_starts = [s for s, e in merged_existing if s >= cb_end]
     if next_starts:
         earliest_next_start = min(next_starts)
-        rest_after = (earliest_next_start - proposed_end_dt).total_seconds() / 3600
+        rest_after = (earliest_next_start - cb_end).total_seconds() / 3600
         if rest_after < MIN_REST_HOURS:
-            max_end = earliest_next_start - timedelta(hours=MIN_REST_HOURS)
+            max_block_end = earliest_next_start - timedelta(hours=MIN_REST_HOURS)
+            shift = cb_end - max_block_end
+            max_end = proposed_end_dt - shift
             errors.append(
                 f"Insufficient rest after assignment: {rest_after:.1f}h "
                 f"(minimum {MIN_REST_HOURS}h required). "
@@ -1448,9 +1865,19 @@ def validate_extra_car_assignment(driver, request, proposed_start_dt, proposed_e
             )
             suggested_end = max_end
 
-    # --- Max hours in any rolling 24-hour window ---
-    all_intervals = existing_intervals + [(proposed_start_dt, proposed_end_dt)]
-    exceeded = False
+    # If rest-before and rest-after constraints conflict, there is no legal window.
+    if suggested_start and suggested_end and suggested_end <= suggested_start:
+        errors = [
+            "No legal assignment window is available for this driver in this request "
+            "once 8-hour rest is enforced before and after surrounding shifts."
+        ]
+        suggested_start = None
+        suggested_end = None
+
+    # -----------------------------------------------------------------------
+    # Step 3: Max hours in any rolling 24-hour window
+    # -----------------------------------------------------------------------
+    all_intervals = merge_work_intervals(existing_intervals + [(proposed_start_dt, proposed_end_dt)])
     for window_start, _ in all_intervals:
         window_end = window_start + timedelta(hours=24)
         total = sum(
@@ -1463,7 +1890,6 @@ def validate_extra_car_assignment(driver, request, proposed_start_dt, proposed_e
                 f"Would exceed maximum {MAX_WORK_HOURS_PER_24H}h work in a 24-hour period "
                 f"({total:.1f}h total)."
             )
-            exceeded = True
             break
 
     return (not errors), errors, suggested_start, suggested_end
@@ -1965,7 +2391,7 @@ def add_shift_pattern():
 @app.route("/shift-pattern/<int:pattern_id>/edit-data")
 def get_shift_pattern_edit_data(pattern_id):
     """Get shift pattern data for editing"""
-    pattern = ShiftPattern.query.get_or_404(pattern_id)
+    pattern = db.get_or_404(ShiftPattern, pattern_id)
     return jsonify({
         'id': pattern.id,
         'name': pattern.name,
@@ -1977,7 +2403,7 @@ def get_shift_pattern_edit_data(pattern_id):
 @app.route("/shift-pattern/<int:pattern_id>/edit", methods=["POST"])
 def edit_shift_pattern(pattern_id):
     """Edit existing shift pattern"""
-    pattern = ShiftPattern.query.get_or_404(pattern_id)
+    pattern = db.get_or_404(ShiftPattern, pattern_id)
     
     try:
         # Update basic info
@@ -2009,7 +2435,7 @@ def edit_shift_pattern(pattern_id):
 @app.route("/shift-pattern/<int:pattern_id>/delete", methods=["POST"])
 def delete_shift_pattern(pattern_id):
     """Delete shift pattern"""
-    pattern = ShiftPattern.query.get_or_404(pattern_id)
+    pattern = db.get_or_404(ShiftPattern, pattern_id)
     today = datetime.now().date()
 
     # Block deletion if any assignment is active or scheduled.
@@ -2054,7 +2480,7 @@ def delete_shift_pattern(pattern_id):
 @app.route("/driver/<int:driver_id>/assign-pattern", methods=["GET", "POST"])
 def assign_pattern_to_driver(driver_id):
     """Assign a shift pattern to a driver"""
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
     patterns = ShiftPattern.query.all()
     
     if request.method == "POST":
@@ -2163,8 +2589,8 @@ def assign_pattern_to_driver(driver_id):
 @app.route("/driver/<int:driver_id>/assignment/<int:assignment_id>/end", methods=["POST"])
 def end_assignment(driver_id, assignment_id):
     """End an active driver assignment"""
-    driver = Driver.query.get_or_404(driver_id)
-    assignment = DriverAssignment.query.get_or_404(assignment_id)
+    driver = db.get_or_404(Driver, driver_id)
+    assignment = db.get_or_404(DriverAssignment, assignment_id)
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     
     # Verify the assignment belongs to this driver
@@ -2243,8 +2669,8 @@ def end_assignment(driver_id, assignment_id):
 @app.route("/driver/<int:driver_id>/assignment/<int:assignment_id>/edit", methods=["POST"])
 def edit_assignment(driver_id, assignment_id):
     """Edit an existing driver assignment"""
-    driver = Driver.query.get_or_404(driver_id)
-    assignment = DriverAssignment.query.get_or_404(assignment_id)
+    driver = db.get_or_404(Driver, driver_id)
+    assignment = db.get_or_404(DriverAssignment, assignment_id)
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
     if assignment.driver_id != driver_id:
@@ -2369,8 +2795,8 @@ def edit_assignment(driver_id, assignment_id):
 @app.route("/driver/<int:driver_id>/assignment/<int:assignment_id>/delete", methods=["POST"])
 def delete_assignment(driver_id, assignment_id):
     """Delete a driver assignment completely"""
-    driver = Driver.query.get_or_404(driver_id)
-    assignment = DriverAssignment.query.get_or_404(assignment_id)
+    driver = db.get_or_404(Driver, driver_id)
+    assignment = db.get_or_404(DriverAssignment, assignment_id)
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     
     # Verify the assignment belongs to this driver
@@ -2440,7 +2866,7 @@ def delete_assignment(driver_id, assignment_id):
 @app.route("/driver/<int:driver_id>/data", methods=["GET"])
 def get_driver_data(driver_id):
     """Get current driver data for background refresh"""
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
     today = datetime.now().date()
     
     current_assignment = driver.get_current_assignment()
@@ -2521,7 +2947,7 @@ def add_driver():
 @app.route("/driver/<int:driver_id>/edit", methods=["GET", "POST"])
 def edit_driver(driver_id):
     """Edit existing driver"""
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
     if request.method == "GET":
@@ -2555,7 +2981,7 @@ def edit_driver(driver_id):
 @app.route("/driver/<int:driver_id>/delete", methods=["POST"])
 def delete_driver(driver_id):
     """Delete driver"""
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
     is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     
     try:
@@ -2710,13 +3136,13 @@ def cars_working():
 @app.route("/driver/<int:driver_id>/custom-timings")
 def driver_custom_timings(driver_id):
     """Legacy route: redirect to integrated custom timings panel in Drivers."""
-    Driver.query.get_or_404(driver_id)
+    db.get_or_404(Driver, driver_id)
     return redirect_to_driver_custom_timings_panel(driver_id)
 
 @app.route("/driver/<int:driver_id>/custom-timings/add", methods=["GET", "POST"])
 def add_custom_timing(driver_id):
     """Add a new custom timing for a driver"""
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
     
     if request.method == "POST":
         try:
@@ -2785,7 +3211,7 @@ def add_custom_timing(driver_id):
 @app.route("/custom-timing/<int:timing_id>/delete", methods=["POST"])
 def delete_custom_timing(timing_id):
     """Delete a custom timing"""
-    timing = DriverCustomTiming.query.get_or_404(timing_id)
+    timing = db.get_or_404(DriverCustomTiming, timing_id)
     driver_id = timing.driver_id
     modal = request.form.get("modal") == "1"
     
@@ -2812,7 +3238,7 @@ def delete_custom_timing(timing_id):
 @app.route("/custom-timing/<int:timing_id>/edit", methods=["POST"])
 def edit_custom_timing(timing_id):
     """Edit an existing custom timing"""
-    timing = DriverCustomTiming.query.get_or_404(timing_id)
+    timing = db.get_or_404(DriverCustomTiming, timing_id)
     driver_id = timing.driver_id
     modal = request.args.get("modal") == "1"
 
@@ -2930,7 +3356,7 @@ def edit_custom_timing(timing_id):
 @app.route("/driver/<int:driver_id>/custom-timings/list")
 def get_driver_custom_timings_list(driver_id):
     """Get list of custom timings for a driver (AJAX)"""
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
     timings = DriverCustomTiming.query.filter_by(driver_id=driver_id).order_by(
         DriverCustomTiming.priority.asc(),
         DriverCustomTiming.id.asc()
@@ -2965,7 +3391,7 @@ def get_driver_custom_timings_list(driver_id):
 
 @app.route("/driver/<int:driver_id>/calendar-data")
 def get_driver_calendar_data(driver_id):
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
 
     month_param = request.args.get("month", "").strip()
     if month_param:
@@ -3051,7 +3477,7 @@ def get_driver_calendar_data(driver_id):
         day_adjustments = adjustment_dates.get(date_str, [])
         
         # If on holiday, show no shifts (holiday overrides)
-        day_entries = [] if is_holiday else get_driver_shifts_for_date(driver, current_date, timings_dict)
+        day_entries = [] if is_holiday else get_driver_shifts_for_date(driver, current_date, timings_dict, include_extra=True)
         base_day_entries = [] if is_holiday else get_driver_shifts_for_date(driver, current_date, timings_dict, include_swaps=False)
         has_base_working_shift = any(entry.get("shift_type") != "day_off" for entry in base_day_entries)
 
@@ -3090,6 +3516,7 @@ def get_driver_calendar_data(driver_id):
                     "is_custom_time": entry["is_custom_time"],
                     "is_swap": bool(entry.get("is_swap")),
                     "swap_role": entry.get("swap_role"),
+                    "is_extra": bool(entry.get("is_extra")),
                 }
                 for entry in day_entries
             ]
@@ -3152,7 +3579,7 @@ def scheduling_calendar_view():
 @app.route("/custom-timing/<int:timing_id>/get")
 def get_custom_timing(timing_id):
     """Get a specific custom timing (AJAX)"""
-    timing = DriverCustomTiming.query.get_or_404(timing_id)
+    timing = db.get_or_404(DriverCustomTiming, timing_id)
     
     return jsonify({
         "success": True,
@@ -3173,7 +3600,7 @@ def get_custom_timing(timing_id):
 @app.route("/driver/<int:driver_id>/custom-timing/add", methods=["POST"])
 def add_custom_timing_ajax(driver_id):
     """Add custom timing via AJAX"""
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
     
     try:
         assignment_id = parse_optional_int(request.form.get("assignment_id"))
@@ -3731,7 +4158,7 @@ def add_holiday():
         flash("Please select a driver.", "error")
         return redirect(url_for("scheduling"))
 
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
 
     try:
         start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
@@ -3748,7 +4175,7 @@ def add_holiday():
         DriverHoliday.driver_id == driver_id,
         DriverHoliday.holiday_date >= start_date,
         DriverHoliday.holiday_date <= end_date,
-    ).delete(synchronize_session=False)
+    ).delete(synchronize_session='fetch')
 
     current_date = start_date
     days_added = 0
@@ -3783,7 +4210,7 @@ def add_holiday():
 @app.route("/scheduling/holiday/<int:holiday_id>/delete", methods=["POST"])
 def delete_holiday(holiday_id):
     """Delete a time off record."""
-    holiday = DriverHoliday.query.get_or_404(holiday_id)
+    holiday = db.get_or_404(DriverHoliday, holiday_id)
     driver_name = holiday.driver.formatted_name()
     date_str = holiday.holiday_date.strftime('%d/%m/%Y')
     db.session.delete(holiday)
@@ -3795,7 +4222,7 @@ def delete_holiday(holiday_id):
 @app.route("/scheduling/holiday/<int:holiday_id>/delete-group", methods=["POST"])
 def delete_holiday_group(holiday_id):
     """Delete all time off in a group (consecutive dates) identified by first record."""
-    first_holiday = DriverHoliday.query.get_or_404(holiday_id)
+    first_holiday = db.get_or_404(DriverHoliday, holiday_id)
     driver_id = first_holiday.driver_id
     time_off_type = first_holiday.time_off_type or "holiday"
     notes = first_holiday.notes or ""
@@ -3836,7 +4263,7 @@ def delete_holiday_group(holiday_id):
 @app.route("/scheduling/holiday/<int:driver_id>/delete-finished", methods=["POST"])
 def delete_finished_holidays_for_driver(driver_id):
     """Delete all finished time off records (past dates) for a driver."""
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
     today = datetime.now().date()
 
     deleted_count = DriverHoliday.query.filter(
@@ -3887,7 +4314,7 @@ def update_holiday():
     notes = data.get("notes", "").strip()
     
     try:
-        driver = Driver.query.get_or_404(driver_id)
+        driver = db.get_or_404(Driver, driver_id)
         old_start = datetime.strptime(old_start_str, "%Y-%m-%d").date()
         old_end = datetime.strptime(old_end_str, "%Y-%m-%d").date()
         new_start = datetime.strptime(new_start_str, "%Y-%m-%d").date()
@@ -3906,14 +4333,14 @@ def update_holiday():
             DriverHoliday.driver_id == driver_id,
             DriverHoliday.holiday_date >= old_start,
             DriverHoliday.holiday_date <= old_end,
-        ).delete(synchronize_session=False)
+        ).delete(synchronize_session='fetch')
 
         # Enforce non-overlap by clearing any remaining records in target range
         replaced_count = DriverHoliday.query.filter(
             DriverHoliday.driver_id == driver_id,
             DriverHoliday.holiday_date >= new_start,
             DriverHoliday.holiday_date <= new_end,
-        ).delete(synchronize_session=False)
+        ).delete(synchronize_session='fetch')
 
         # Write updated block
         current_date = new_start
@@ -3942,7 +4369,7 @@ def update_holiday():
 @app.route("/api/driver/<int:driver_id>", methods=["GET"])
 def api_get_driver(driver_id):
     """Get basic driver info for AJAX endpoints."""
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
     return jsonify({
         "id": driver.id,
         "formatted_name": driver.formatted_name(),
@@ -3964,7 +4391,7 @@ def add_adjustment():
         flash("Please select a driver.", "error")
         return redirect(url_for("scheduling"))
 
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
 
     if adjustment_type not in ("late_start", "early_finish"):
         flash("Adjustment type must be 'late_start' or 'early_finish'.", "error")
@@ -4013,7 +4440,7 @@ def add_adjustment():
 @app.route("/scheduling/adjustment/<int:adjustment_id>/edit", methods=["POST"])
 def edit_adjustment(adjustment_id):
     """Edit a shift adjustment."""
-    adjustment = ShiftAdjustment.query.get_or_404(adjustment_id)
+    adjustment = db.get_or_404(ShiftAdjustment, adjustment_id)
     date_str = request.form.get("adjustment_date", "").strip()
     adjustment_type = request.form.get("adjustment_type", "").strip()
     time_str = request.form.get("adjusted_time", "").strip()
@@ -4068,7 +4495,7 @@ def edit_adjustment(adjustment_id):
 @app.route("/scheduling/adjustment/<int:adjustment_id>/delete", methods=["POST"])
 def delete_adjustment(adjustment_id):
     """Delete a shift adjustment."""
-    adjustment = ShiftAdjustment.query.get_or_404(adjustment_id)
+    adjustment = db.get_or_404(ShiftAdjustment, adjustment_id)
     db.session.delete(adjustment)
     db.session.commit()
     flash("Adjustment removed.", "success")
@@ -4078,7 +4505,7 @@ def delete_adjustment(adjustment_id):
 @app.route("/scheduling/adjustment/<int:driver_id>/delete-finished", methods=["POST"])
 def delete_finished_adjustments_for_driver(driver_id):
     """Delete all finished (past-date) adjustments for a driver."""
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
     today = datetime.now().date()
 
     deleted_count = ShiftAdjustment.query.filter(
@@ -4182,7 +4609,7 @@ def add_swap():
         flash("Please select a driver.", "error")
         return redirect(url_for("scheduling"))
 
-    driver = Driver.query.get_or_404(driver_id)
+    driver = db.get_or_404(Driver, driver_id)
 
     try:
         give_up_date = datetime.strptime(give_up_date_str, "%Y-%m-%d").date()
@@ -4255,7 +4682,7 @@ def add_swap():
 @app.route("/scheduling/swap/<int:swap_id>/delete", methods=["POST"])
 def delete_swap(swap_id):
     """Delete a swap record."""
-    swap = ShiftSwap.query.get_or_404(swap_id)
+    swap = db.get_or_404(ShiftSwap, swap_id)
     driver = swap.driver
     work_date = swap.work_date
 
@@ -4322,17 +4749,19 @@ def extra_cars():
     )
     all_drivers = Driver.query.order_by(Driver.driver_number).all()
     all_shift_timings = ShiftTiming.query.order_by(ShiftTiming.shift_type).all()
-
     # Attach coverage info to each request
     requests_with_coverage = []
     for req in all_requests:
         filled_slots, suggested_status = req.compute_coverage()
+        available_start, available_end = req.get_recommended_available_window()
         # Auto-update status when it changes (skip CLOSED requests)
         if req.status != 'CLOSED' and suggested_status != req.status:
             req.status = suggested_status
         requests_with_coverage.append({
             'request': req,
             'filled_slots': filled_slots,
+            'available_start': available_start,
+            'available_end': available_end,
         })
     db.session.commit()
 
@@ -4343,6 +4772,24 @@ def extra_cars():
         all_shift_timings=all_shift_timings,
         today=datetime.now().date(),
     )
+
+
+@app.route("/theme/toggle", methods=["POST"])
+def toggle_theme():
+    """Toggle UI theme between light and dark from the top navigation."""
+    ui_theme = get_app_setting('ui_theme', 'light')
+    if ui_theme not in ('light', 'dark'):
+        ui_theme = 'light'
+    next_theme = 'dark' if ui_theme == 'light' else 'light'
+
+    set_app_setting('ui_theme', next_theme)
+    db.session.commit()
+    flash(f"Theme switched to {next_theme} mode.", "success")
+
+    next_url = (request.form.get('next') or '').strip()
+    if next_url and next_url.startswith('/'):
+        return redirect(next_url)
+    return redirect(url_for('index'))
 
 
 @app.route("/extra-cars/request/add", methods=["POST"])
@@ -4391,13 +4838,7 @@ def add_extra_car_request():
             flash("Please enter a positive number of required slots, or select unlimited.", "error")
             return redirect(url_for("extra_cars"))
 
-    min_partial_raw = request.form.get("min_partial_hours", "2")
-    try:
-        min_partial_hours = float(min_partial_raw)
-        if min_partial_hours < 0:
-            raise ValueError
-    except (ValueError, TypeError):
-        min_partial_hours = 2.0
+    min_partial_hours = EXTRA_CAR_MIN_PARTIAL_HOURS
 
     new_req = ExtraCarRequest(
         date=req_date,
@@ -4421,7 +4862,7 @@ def add_extra_car_request():
 @app.route("/extra-cars/request/<int:request_id>/delete", methods=["POST"])
 def delete_extra_car_request(request_id):
     """Delete an extra car request and its assignments."""
-    req = ExtraCarRequest.query.get_or_404(request_id)
+    req = db.get_or_404(ExtraCarRequest, request_id)
     db.session.delete(req)
     db.session.commit()
     flash("Extra car request deleted.", "success")
@@ -4431,7 +4872,7 @@ def delete_extra_car_request(request_id):
 @app.route("/extra-cars/request/<int:request_id>/status", methods=["POST"])
 def update_extra_car_request_status(request_id):
     """Manually update the status of an extra car request."""
-    req = ExtraCarRequest.query.get_or_404(request_id)
+    req = db.get_or_404(ExtraCarRequest, request_id)
     new_status = request.form.get("status", "").strip()
     valid_statuses = ("DRAFT", "OPEN", "PARTIALLY_FILLED", "FILLED", "CLOSED")
     if new_status not in valid_statuses:
@@ -4446,7 +4887,18 @@ def update_extra_car_request_status(request_id):
 @app.route("/extra-cars/request/<int:request_id>/assignment/validate", methods=["POST"])
 def validate_extra_car_assignment_ajax(request_id):
     """AJAX endpoint to validate a proposed extra-car assignment before saving."""
-    req = ExtraCarRequest.query.get_or_404(request_id)
+    req = db.get_or_404(ExtraCarRequest, request_id)
+
+    available_segments = req.get_available_capacity_segments() if not req.unlimited else None
+    if not req.unlimited:
+        if not available_segments:
+            return jsonify({
+                "success": True,
+                "valid": False,
+                "errors": ["Request capacity is already fully covered for the whole window."],
+                "suggested_start": "",
+                "suggested_end": "",
+            })
 
     data = request.get_json(silent=True) or request.form
     driver_id = parse_positive_int(data.get("driver_id"))
@@ -4460,15 +4912,54 @@ def validate_extra_car_assignment_ajax(request_id):
     if not driver:
         return json_error("Driver not found.")
 
+    existing_assignment = ExtraCarAssignment.query.filter_by(
+        request_id=req.id,
+        driver_id=driver.id,
+    ).first()
+    if existing_assignment:
+        return jsonify({
+            "success": True,
+            "valid": False,
+            "errors": ["This driver is already assigned to this request."],
+            "suggested_start": "",
+            "suggested_end": "",
+        })
+
     req_start, req_end = req.get_time_window()
     if not req_start or not req_end:
         return json_error("Request has an invalid or incomplete time window.")
 
     # Resolve proposed times (fall back to full request window)
-    proposed_start = datetime.combine(req.date, parse_time_string(start_str)) if start_str else req_start
-    proposed_end = datetime.combine(req.date, parse_time_string(end_str)) if end_str else req_end
+    proposed_start = (
+        resolve_request_relative_datetime(req_start, req_end, parse_time_string(start_str))
+        if start_str else req_start
+    )
+    proposed_end = (
+        resolve_request_relative_datetime(req_start, req_end, parse_time_string(end_str))
+        if end_str else req_end
+    )
     if proposed_end <= proposed_start:
         proposed_end += timedelta(days=1)
+
+    if not req.unlimited and available_segments is not None:
+        if not interval_within_any_segment(proposed_start, proposed_end, available_segments):
+            suggested_start, suggested_end = req.get_recommended_available_window()
+            suggestion = ""
+            if suggested_start and suggested_end:
+                suggestion = (
+                    f" Only {suggested_start.strftime('%H:%M')}–{suggested_end.strftime('%H:%M')} "
+                    "is currently available."
+                )
+            return jsonify({
+                "success": True,
+                "valid": False,
+                "errors": [
+                    "Proposed assignment exceeds currently available capacity window."
+                    + suggestion
+                ],
+                "suggested_start": suggested_start.strftime("%H:%M") if suggested_start else "",
+                "suggested_end": suggested_end.strftime("%H:%M") if suggested_end else "",
+            })
 
     timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
     is_valid, errors, suggested_start, suggested_end = validate_extra_car_assignment(
@@ -4479,15 +4970,21 @@ def validate_extra_car_assignment_ajax(request_id):
         "success": True,
         "valid": is_valid,
         "errors": errors,
-        "suggested_start": suggested_start.strftime("%H:%M"),
-        "suggested_end": suggested_end.strftime("%H:%M"),
+        "suggested_start": suggested_start.strftime("%H:%M") if suggested_start else "",
+        "suggested_end": suggested_end.strftime("%H:%M") if suggested_end else "",
     })
 
 
 @app.route("/extra-cars/request/<int:request_id>/assignment/add", methods=["POST"])
 def add_extra_car_assignment(request_id):
     """Add a driver assignment to an extra car request."""
-    req = ExtraCarRequest.query.get_or_404(request_id)
+    req = db.get_or_404(ExtraCarRequest, request_id)
+
+    available_segments = req.get_available_capacity_segments() if not req.unlimited else None
+    if not req.unlimited:
+        if not available_segments:
+            flash("Request capacity is already fully covered for the whole window.", "error")
+            return redirect(url_for("extra_cars"))
 
     driver_id = parse_positive_int(request.form.get("driver_id"))
     start_str = request.form.get("start_time", "").strip()
@@ -4503,6 +5000,14 @@ def add_extra_car_assignment(request_id):
         flash("Driver not found.", "error")
         return redirect(url_for("extra_cars"))
 
+    existing_assignment = ExtraCarAssignment.query.filter_by(
+        request_id=req.id,
+        driver_id=driver.id,
+    ).first()
+    if existing_assignment:
+        flash("This driver is already assigned to this request.", "error")
+        return redirect(url_for("extra_cars"))
+
     req_start, req_end = req.get_time_window()
     if not req_start or not req_end:
         flash("Request has an invalid or incomplete time window.", "error")
@@ -4511,13 +5016,42 @@ def add_extra_car_assignment(request_id):
     start_time = parse_time_string(start_str) if start_str else None
     end_time = parse_time_string(end_str) if end_str else None
 
-    proposed_start = datetime.combine(req.date, start_time) if start_time else req_start
-    proposed_end = datetime.combine(req.date, end_time) if end_time else req_end
-    if proposed_end <= proposed_start:
-        proposed_end += timedelta(days=1)
+    if not req.unlimited and not start_str and not end_str:
+        suggested_start, suggested_end = req.get_recommended_available_window()
+        if not suggested_start or not suggested_end:
+            flash("No available capacity window for this request.", "error")
+            return redirect(url_for("extra_cars"))
+        proposed_start = suggested_start
+        proposed_end = suggested_end
+        start_time = proposed_start.time()
+        end_time = proposed_end.time()
+    else:
+        proposed_start = (
+            resolve_request_relative_datetime(req_start, req_end, start_time)
+            if start_time else req_start
+        )
+        proposed_end = (
+            resolve_request_relative_datetime(req_start, req_end, end_time)
+            if end_time else req_end
+        )
+        if proposed_end <= proposed_start:
+            proposed_end += timedelta(days=1)
+
+    if not req.unlimited and available_segments is not None:
+        if not interval_within_any_segment(proposed_start, proposed_end, available_segments):
+            suggested_start, suggested_end = req.get_recommended_available_window()
+            if suggested_start and suggested_end:
+                flash(
+                    "Proposed assignment exceeds available capacity. "
+                    f"Use {suggested_start.strftime('%H:%M')}–{suggested_end.strftime('%H:%M')}.",
+                    "error",
+                )
+            else:
+                flash("Proposed assignment exceeds available capacity.", "error")
+            return redirect(url_for("extra_cars"))
 
     timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
-    is_valid, errors, _, _ = validate_extra_car_assignment(
+    is_valid, errors, suggested_start, suggested_end = validate_extra_car_assignment(
         driver, req, proposed_start, proposed_end, timings_dict
     )
 
@@ -4526,11 +5060,25 @@ def add_extra_car_assignment(request_id):
             flash(err, "error")
         return redirect(url_for("extra_cars"))
 
+    final_start = suggested_start or proposed_start
+    final_end = suggested_end or proposed_end
+
+    if final_end <= final_start:
+        flash("No valid extra-shift time window is available for this driver.", "error")
+        return redirect(url_for("extra_cars"))
+
+    if final_start != proposed_start or final_end != proposed_end:
+        flash(
+            f"Assignment adjusted to non-overlapping time: {final_start.strftime('%H:%M')}–{final_end.strftime('%H:%M')}.",
+            "info",
+        )
+
+    # Always save the final times so they're preserved
     assignment = ExtraCarAssignment(
         request_id=req.id,
         driver_id=driver.id,
-        start_time=start_time,
-        end_time=end_time,
+        start_time=final_start.time(),
+        end_time=final_end.time(),
         notes=notes,
     )
     db.session.add(assignment)
@@ -4545,7 +5093,7 @@ def add_extra_car_assignment(request_id):
 
     flash(
         f"{driver.formatted_name()} added to extra car request "
-        f"({proposed_start.strftime('%H:%M')}–{proposed_end.strftime('%H:%M')}).",
+        f"({final_start.strftime('%H:%M')}–{final_end.strftime('%H:%M')}).",
         "success",
     )
     return redirect(url_for("extra_cars"))
@@ -4557,7 +5105,7 @@ def add_extra_car_assignment(request_id):
 )
 def delete_extra_car_assignment(request_id, assignment_id):
     """Remove a driver assignment from an extra car request."""
-    req = ExtraCarRequest.query.get_or_404(request_id)
+    req = db.get_or_404(ExtraCarRequest, request_id)
     asgn = ExtraCarAssignment.query.filter_by(id=assignment_id, request_id=request_id).first_or_404()
 
     db.session.delete(asgn)
