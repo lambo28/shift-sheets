@@ -32,11 +32,14 @@ def db(app):
     """Provide a fresh database session per test."""
     with app.app_context():
         _db.session.remove()
+        _db.session.expunge_all()
         # Truncate all tables
         for table in reversed(_db.metadata.sorted_tables):
             _db.session.execute(table.delete())
         _db.session.commit()
+        _db.session.expunge_all()
         yield _db
+        _db.session.expunge_all()
         _db.session.remove()
 
 

@@ -186,6 +186,7 @@ function editShiftType(shiftType) {
             document.getElementById('edit_shift_end').value = data.end_time || '';
             document.getElementById('edit_shift_color').value = data.badge_color || 'bg-primary';
             document.getElementById('edit_shift_icon').value = data.icon || 'fas fa-clock';
+            document.getElementById('edit_shift_school_term_only').checked = !!data.school_term_only;
             
             // Populate parent select with all available shift types  
             const parentSelect = document.getElementById('edit_shift_parent');

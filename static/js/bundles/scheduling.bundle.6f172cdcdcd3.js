@@ -215,6 +215,7 @@ function buildUnifiedCalendarCellContent(dayData) {
     const bottomTimeTokens = [];
 
     shifts.forEach((shift) => {
+        const isExtraShift = !!shift.is_extra;
         const startMinutes = calToMinutes(shift.start_time);
         const endMinutes = calToMinutes(shift.end_time);
         const defaultStartMinutes = calToMinutes(shift.default_start_time) ?? startMinutes;
@@ -232,6 +233,10 @@ function buildUnifiedCalendarCellContent(dayData) {
 
         if (!safeDayData?.is_holiday && !hasDayOffShift && rangeText && isChangedFromDefault) {
             bottomTimeTokens.push(`<span class="cal-shift-time-changed">${rangeText}</span>`);
+        }
+
+        if (isExtraShift) {
+            return;
         }
 
         const shiftIconHtml = (shift.shift_type === 'day_off' || shift.label === 'OFF')
@@ -257,12 +262,22 @@ function buildUnifiedCalendarCellContent(dayData) {
     const swapGiveUpCount = safeDayData?.swap_give_up_count || 0;
     const swapWorkCount = safeDayData?.swap_work_count || 0;
 
+    // Check for extra shifts
+    const extraShifts = shifts.filter((s) => s.is_extra);
+    const extraShiftTooltip = extraShifts.length
+        ? `Extra shift${extraShifts.length > 1 ? 's' : ''}: ${extraShifts.map((s) => `${s.label} (${s.start_time}–${s.end_time})`).join(', ')}`
+        : null;
+
     const lateStartIconHtml = lateStart
         ? `<span class="cal-adjustment-icon badge-late-start-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${lateStart.label} at ${lateStart.time}${lateStart.notes ? ` — ${lateStart.notes}` : ''}`)}"><i class="fas fa-hourglass-start"></i></span>`
         : '';
 
     const earlyFinishIconHtml = earlyFinish
         ? `<span class="cal-adjustment-icon badge-early-finish-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${earlyFinish.label} at ${earlyFinish.time}${earlyFinish.notes ? ` — ${earlyFinish.notes}` : ''}`)}"><i class="fas fa-hourglass-end"></i></span>`
+        : '';
+
+    const extraShiftIconHtml = extraShiftTooltip
+        ? `<span class="cal-adjustment-icon badge-extra-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(extraShiftTooltip)}"><i class="fas fa-plus"></i></span>`
         : '';
 
     const swapGiveUpIconHtml = hasSwapGiveUp
@@ -281,18 +296,17 @@ function buildUnifiedCalendarCellContent(dayData) {
         ? `<i class="fas fa-exchange-alt ms-1" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(swapTooltipParts.join(' • '))}"></i>`
         : '';
 
-    const baseContentHtml = `${shiftBadges.join('')}${timeOffHtml}` || '<small class="text-muted">No shift</small>';
-    const contentHtml = swapInlineMarkerHtml
-        ? (baseContentHtml.includes('</span></span>')
-            ? baseContentHtml.replace('</span></span>', `${swapInlineMarkerHtml}</span></span>`)
-            : `${baseContentHtml}${swapInlineMarkerHtml}`)
-        : baseContentHtml;
+    const baseContentHtml = `${shiftBadges.join('')}${timeOffHtml}`;
+    const contentHtml = (baseContentHtml || swapInlineMarkerHtml)
+        ? `${baseContentHtml}${swapInlineMarkerHtml}`
+        : '<small class="text-muted">No shift</small>';
 
     return {
         contentHtml,
         bottomTimesHtml: bottomTimeTokens.join(''),
         lateStartIconHtml,
         earlyFinishIconHtml,
+        extraShiftIconHtml,
         swapGiveUpIconHtml,
         swapWorkIconHtml,
     };
@@ -426,7 +440,7 @@ function disposeTooltipsIn(containerEl) {
 
                 const dayData = getShiftsForDate(dateStr);
                 const visuals = buildUnifiedCalendarCellContent(dayData);
-                const inlineRowHtml = `${visuals.contentHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
+                const inlineRowHtml = `${visuals.contentHtml}${visuals.extraShiftIconHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
 
                 html += `<td class="${classes}" data-date="${dateStr}">
                     <div class="cal-day-header">
@@ -709,7 +723,8 @@ function disposeTooltipsIn(containerEl) {
             const dayData = getAdjustmentShiftsForDate(adjSelectedDate);
             const shifts = dayData && Array.isArray(dayData.shifts) ? dayData.shifts : [];
             const workingShifts = shifts.filter(shift => shift.shift_type !== 'day_off');
-            const isSplitShiftDay = workingShifts.length >= 2;
+            const nonExtraWorkingShifts = workingShifts.filter(shift => !shift.is_extra);
+            const isSplitShiftDay = nonExtraWorkingShifts.length >= 2;
 
             if (isSplitShiftDay) {
                 adjSelectedDateAllowsAdjustment = false;
@@ -739,7 +754,7 @@ function disposeTooltipsIn(containerEl) {
                 return;
             }
 
-            statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>No shift assigned on selected day.</span>';
+            statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is marked as Day Off on selected day.</span>';
         }
 
         async function renderAdjustmentCalendar() {
@@ -789,7 +804,7 @@ function disposeTooltipsIn(containerEl) {
 
                 const dayData = getAdjustmentShiftsForDate(dateStr);
                 const visuals = buildUnifiedCalendarCellContent(dayData);
-                const inlineRowHtml = `${visuals.contentHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
+                const inlineRowHtml = `${visuals.contentHtml}${visuals.extraShiftIconHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
 
                 html += `<td class="${classes}" data-date="${dateStr}">
                     <div class="cal-day-header">
@@ -1083,7 +1098,7 @@ async function validateSwapForm() {
             const dateStr = swapFormatDateISO(new Date(year, month, dayCounter));
             const dayData = getSwapDayData(dateStr);
             const visuals = buildUnifiedCalendarCellContent(dayData);
-            const inlineRowHtml = `${visuals.contentHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
+            const inlineRowHtml = `${visuals.contentHtml}${visuals.extraShiftIconHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
             const hasWorkingShift = !!(dayData?.shifts && dayData.shifts.some(shift => shift.shift_type !== 'day_off'));
             const hasBaseWorkingShift = !!dayData?.has_base_working_shift;
             const isHoliday = !!dayData?.is_holiday;
@@ -1661,6 +1676,8 @@ function escapeHtml(str) {
         // Restore active tab from sessionStorage to preserve tab after form submission
         restoreActiveTab();
 
+        initSchoolCalendarWeekendValidation();
+
         // Activate tab from URL hash
         const hash = window.location.hash;
         if (hash) {
@@ -1673,6 +1690,79 @@ function escapeHtml(str) {
 
         initDriverBlockToggleButtons();
     });
+
+    function isWeekendDate(dateValue) {
+        if (!dateValue) return false;
+        const parsed = new Date(`${dateValue}T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) return false;
+        const day = parsed.getDay();
+        return day === 0 || day === 6;
+    }
+
+    function setWeekendValidity(inputEl, message) {
+        if (!inputEl) return;
+        if (isWeekendDate(inputEl.value)) {
+            inputEl.setCustomValidity(message);
+        } else {
+            inputEl.setCustomValidity('');
+        }
+    }
+
+    function initSchoolCalendarWeekendValidation() {
+        const termForm = document.querySelector('form[action="/scheduling/term/add"]');
+        const closureForm = document.querySelector('form[action="/scheduling/school-closure/add"]');
+
+        const termStartInput = document.getElementById('termStartDate');
+        const termEndInput = document.getElementById('termEndDate');
+        const closureDateInput = document.getElementById('closureDate');
+
+        if (termStartInput) {
+            termStartInput.addEventListener('change', function () {
+                setWeekendValidity(termStartInput, 'Start date cannot be Saturday or Sunday.');
+                termStartInput.reportValidity();
+            });
+        }
+
+        if (termEndInput) {
+            termEndInput.addEventListener('change', function () {
+                setWeekendValidity(termEndInput, 'End date cannot be Saturday or Sunday.');
+                termEndInput.reportValidity();
+            });
+        }
+
+        if (closureDateInput) {
+            closureDateInput.addEventListener('change', function () {
+                setWeekendValidity(closureDateInput, 'Closure date cannot be Saturday or Sunday.');
+                closureDateInput.reportValidity();
+            });
+        }
+
+        if (termForm) {
+            termForm.addEventListener('submit', function (e) {
+                setWeekendValidity(termStartInput, 'Start date cannot be Saturday or Sunday.');
+                setWeekendValidity(termEndInput, 'End date cannot be Saturday or Sunday.');
+
+                if ((termStartInput && !termStartInput.checkValidity()) || (termEndInput && !termEndInput.checkValidity())) {
+                    e.preventDefault();
+                    termStartInput && termStartInput.reportValidity();
+                    termEndInput && termEndInput.reportValidity();
+                    showPageAlert('Weekend dates are not allowed in School Calendar entries.', 'danger');
+                }
+            });
+        }
+
+        if (closureForm) {
+            closureForm.addEventListener('submit', function (e) {
+                setWeekendValidity(closureDateInput, 'Closure date cannot be Saturday or Sunday.');
+
+                if (closureDateInput && !closureDateInput.checkValidity()) {
+                    e.preventDefault();
+                    closureDateInput.reportValidity();
+                    showPageAlert('Weekend dates are not allowed in School Calendar entries.', 'danger');
+                }
+            });
+        }
+    }
 
     function initDriverBlockToggleButtons() {
         const buttons = document.querySelectorAll('.toggle-driver-blocks-btn');

@@ -16,6 +16,72 @@ body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
+body.dark-mode {
+    background-color: #121212;
+    color: #e9ecef;
+}
+
+body.dark-mode .card,
+body.dark-mode .modal-content,
+body.dark-mode .dropdown-menu,
+body.dark-mode .table,
+body.dark-mode .list-group-item,
+body.dark-mode .alert {
+    background-color: #1d1f23;
+    color: #e9ecef;
+}
+
+body.dark-mode .card-header,
+body.dark-mode .table th,
+body.dark-mode .modal-header,
+body.dark-mode .modal-footer,
+body.dark-mode footer {
+    background-color: #262a30 !important;
+    color: #e9ecef;
+    border-color: #3a4048;
+}
+
+body.dark-mode .table td,
+body.dark-mode .table th,
+body.dark-mode .card,
+body.dark-mode .list-group-item,
+body.dark-mode .modal-header,
+body.dark-mode .modal-footer,
+body.dark-mode .modal-body {
+    border-color: #3a4048;
+}
+
+body.dark-mode .form-control,
+body.dark-mode .form-select,
+body.dark-mode .input-group-text {
+    background-color: #111318;
+    color: #e9ecef;
+    border-color: #3a4048;
+}
+
+body.dark-mode .form-control::placeholder {
+    color: #adb5bd;
+}
+
+body.dark-mode .text-muted {
+    color: #adb5bd !important;
+}
+
+body.dark-mode .btn-outline-secondary,
+body.dark-mode .btn-outline-danger,
+body.dark-mode .btn-outline-primary {
+    color: #e9ecef;
+}
+
+body.dark-mode .table-hover tbody tr:hover {
+    background-color: rgba(13, 110, 253, 0.2);
+}
+
+body.dark-mode .skip-link {
+    background: #fff;
+    color: #000;
+}
+
 .skip-link {
     position: absolute;
     left: -9999px;
@@ -690,6 +756,18 @@ footer {
 .badge-early-finish-icon {
     background-color: #6f42c1;
     color: #fff;
+}
+
+.badge-extra-icon {
+    background-color: #dc3545;
+    color: #fff;
+    border-radius: 0.35rem;
+}
+
+.holiday-calendar.compact .badge-extra-icon {
+    width: 16px;
+    height: 14px;
+    font-size: 0.58rem;
 }
 
 .alert-success {

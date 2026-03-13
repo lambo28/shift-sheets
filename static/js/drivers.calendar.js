@@ -94,10 +94,6 @@ function renderDriverCalendar(data) {
                     : false;
             const isChangedFromDefault = startChanged || endChanged;
 
-            if (!day.is_holiday && !hasDayOffShift && rangeText && isChangedFromDefault) {
-                bottomTimeTokens.push(`<span class="cal-shift-time-changed">${rangeText}</span>`);
-            }
-
             const shiftIconHtml = (shift.shift_type === 'day_off' || shift.label === 'OFF')
                 ? ''
                 : `<i class="${shift.icon || 'fas fa-clock'} text-white"></i>`;
@@ -106,6 +102,35 @@ function renderDriverCalendar(data) {
                 : '';
             shiftBadges.push(`<span class="badge ${shift.badge_color || 'bg-primary'} cal-shift-box"><span class="cal-shift-label">${shiftIconHtml}${shift.label}${swapIconHtml}</span></span>`);
         });
+
+        const workingShifts = (day.shifts || []).filter((shift) => shift.shift_type !== 'day_off' && shift.label !== 'OFF');
+        const standardShifts = workingShifts.filter((shift) => !shift.is_extra);
+        const extraShifts = workingShifts.filter((shift) => shift.is_extra);
+
+        const toWindow = (shift) => {
+            const startMinutes = toMinutes(shift.start_time);
+            const endMinutes = toMinutes(shift.end_time);
+            if (startMinutes === null || endMinutes === null) return null;
+            let normalizedEnd = endMinutes;
+            if (normalizedEnd <= startMinutes) normalizedEnd += 24 * 60;
+            return { start: startMinutes, end: normalizedEnd };
+        };
+
+        const allWindows = workingShifts.map(toWindow).filter(Boolean);
+        const standardWindows = standardShifts.map(toWindow).filter(Boolean);
+
+        // Check if any shift has custom times or if there are adjustments/extras
+        const hasCustomTimes = workingShifts.some((shift) => shift.is_custom_time);
+        const hasAdjustments = lateStart || earlyFinish;
+        const shouldShowBottomTime = hasCustomTimes || extraShifts.length > 0 || hasAdjustments;
+
+        if (!day.is_holiday && !hasDayOffShift && allWindows.length && shouldShowBottomTime) {
+            const allStart = Math.min(...allWindows.map((window) => window.start));
+            const allEnd = Math.max(...allWindows.map((window) => window.end));
+            bottomTimeTokens.push(
+                `<span class="cal-shift-time-changed">${toTimeText(allStart % (24 * 60))}–${toTimeText(allEnd % (24 * 60))}</span>`
+            );
+        }
 
         const shiftsHtml = shiftBadges.join('');
         const bottomTimesHtml = bottomTimeTokens.join('');

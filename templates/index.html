@@ -89,6 +89,12 @@
                 } %}
                 {% if today_total > 0 %}
                     {% if all_shift_types %}
+                    {% if today_shift_counts.get('extra_car', 0) > 0 %}
+                    <div class="alert alert-danger py-2 mb-3">
+                        <i class="fas fa-car-side"></i>
+                        Extra shifts assigned today: <strong>{{ today_shift_counts.get('extra_car', 0) }}</strong>
+                    </div>
+                    {% endif %}
                     <div class="row text-center mb-4">
                         {% for st in all_shift_types %}
                         <div class="col">
