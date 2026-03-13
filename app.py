@@ -186,6 +186,7 @@ class ShiftTiming(db.Model):
     badge_color = db.Column(db.String(50), default='bg-primary')  # Bootstrap badge color class
     icon = db.Column(db.String(100), default='fas fa-clock')  # Font Awesome icon class
     parent_shift_type = db.Column(db.String(50), nullable=True)  # If set, this is a sub-shift grouped under parent
+    school_term_only = db.Column(db.Boolean, default=False, nullable=False)
 
     @property
     def display_label(self):
@@ -404,6 +405,28 @@ class ShiftSwap(db.Model):
         return self.date_b
 
 
+class SchoolTerm(db.Model):
+    """Global school term date ranges."""
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    start_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+
+class SchoolClosureDate(db.Model):
+    """Global school-closed days (e.g., bank holidays and training days)."""
+    id = db.Column(db.Integer, primary_key=True)
+    closure_date = db.Column(db.Date, nullable=False)
+    closure_type = db.Column(db.String(30), nullable=False)  # bank_holiday | training_day
+    notes = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+    __table_args__ = (
+        db.UniqueConstraint('closure_date', 'closure_type', name='uq_school_closure_date_type'),
+    )
+
+
 class ExtraCarRequest(db.Model):
     """A request for additional cars beyond normal shifted coverage."""
     __tablename__ = 'extra_car_request'
@@ -562,6 +585,10 @@ class ExtraCarRequest(db.Model):
         if not req_start or not req_end:
             return 0, self.status
 
+        now = datetime.now()
+        if req_end <= now:
+            return 0, 'CLOSED'
+
         min_hours = EXTRA_CAR_MIN_PARTIAL_HOURS
 
         if not valid:
@@ -715,6 +742,9 @@ with app.app_context():
 
     if 'parent_shift_type' not in existing_columns:
         db.session.execute(text("ALTER TABLE shift_timing ADD COLUMN parent_shift_type VARCHAR(50)"))
+
+    if 'school_term_only' not in existing_columns:
+        db.session.execute(text("ALTER TABLE shift_timing ADD COLUMN school_term_only BOOLEAN DEFAULT 0"))
 
     shift_swap_columns = {
         row[1]
@@ -1064,6 +1094,35 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_s
         )
         return merged_entries
 
+    def build_day_off_entry(is_swap=False, swap_role=None):
+        return {
+            'shift_type': 'day_off',
+            'label': 'OFF',
+            'badge_color': 'bg-secondary',
+            'icon': 'fas fa-user-clock',
+            'start_time': None,
+            'end_time': None,
+            'default_start_time': None,
+            'default_end_time': None,
+            'is_override': False,
+            'is_custom_time': False,
+            'is_adjusted': False,
+            'is_swap': is_swap,
+            'swap_role': swap_role,
+            'is_extra': False,
+        }
+
+    school_term_day_allowed = None
+
+    def is_shift_allowed_for_date(shift_type):
+        nonlocal school_term_day_allowed
+        timing = timings_dict.get(shift_type)
+        if not timing or not timing.school_term_only:
+            return True
+        if school_term_day_allowed is None:
+            school_term_day_allowed = is_school_term_operational_day(target_date)
+        return school_term_day_allowed
+
     if is_driver_on_holiday(driver.id, target_date):
         return finalize_entries([])
 
@@ -1129,22 +1188,7 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_s
             if swap.date_a == target_date and swap.date_b != target_date
         ]
         if give_up_only_swaps:
-            return finalize_entries([{
-                'shift_type': 'day_off',
-                'label': 'OFF',
-                'badge_color': 'bg-secondary',
-                'icon': 'fas fa-user-clock',
-                'start_time': None,
-                'end_time': None,
-                'default_start_time': None,
-                'default_end_time': None,
-                'is_override': False,
-                'is_custom_time': False,
-                'is_adjusted': False,
-                'is_swap': True,
-                'swap_role': 'give_up',
-                'is_extra': False,
-            }])
+            return finalize_entries([build_day_off_entry(is_swap=True, swap_role='give_up')])
 
     latest_late_start, earliest_early_finish = get_adjustment_conflict_bounds(driver.id, target_date)
 
@@ -1158,6 +1202,7 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_s
     ).all()
 
     entries = []
+    filtered_term_only_shift = False
     for assignment in assignments:
         shift_types = assignment.get_shifts_for_date(target_date) or []
         if not shift_types:
@@ -1179,6 +1224,12 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_s
             effective_shift_type = base_shift_type
             if custom_timing and custom_timing.override_shift and custom_timing.override_shift in timings_dict:
                 effective_shift_type = custom_timing.override_shift
+
+            if not is_shift_allowed_for_date(effective_shift_type):
+                timing_meta_for_filter = timings_dict.get(effective_shift_type) or timings_dict.get(base_shift_type)
+                if timing_meta_for_filter and timing_meta_for_filter.school_term_only:
+                    filtered_term_only_shift = True
+                continue
 
             default_timing = timings_dict.get(effective_shift_type) or timings_dict.get(base_shift_type)
 
@@ -1246,6 +1297,9 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_s
                 'is_extra': False,
             })
 
+    if not entries and filtered_term_only_shift:
+        entries.append(build_day_off_entry())
+
     return finalize_entries(entries)
 
 
@@ -1290,6 +1344,17 @@ def get_driver_adjustment_time_window(driver, target_date, timings_dict=None):
         # Give-up day becomes a day off, no adjustment window
         return None, None
 
+    school_term_day_allowed = None
+
+    def is_shift_allowed_for_date(shift_type):
+        nonlocal school_term_day_allowed
+        timing = timings_dict.get(shift_type)
+        if not timing or not timing.school_term_only:
+            return True
+        if school_term_day_allowed is None:
+            school_term_day_allowed = is_school_term_operational_day(target_date)
+        return school_term_day_allowed
+
     assignments = DriverAssignment.query.filter(
         DriverAssignment.driver_id == driver.id,
         DriverAssignment.start_date <= target_date,
@@ -1326,6 +1391,9 @@ def get_driver_adjustment_time_window(driver, target_date, timings_dict=None):
             effective_shift_type = base_shift_type
             if custom_timing and custom_timing.override_shift and custom_timing.override_shift in timings_dict:
                 effective_shift_type = custom_timing.override_shift
+
+            if not is_shift_allowed_for_date(effective_shift_type):
+                continue
 
             default_timing = timings_dict.get(effective_shift_type) or timings_dict.get(base_shift_type)
 
@@ -1713,6 +1781,52 @@ def set_app_setting(key, value):
         setting.value = str(value)
 
 
+def is_date_in_school_term(target_date):
+    """Return True when date falls within any configured school term range."""
+    if not target_date:
+        return False
+    if target_date.weekday() >= 5:
+        return False
+    return (
+        SchoolTerm.query
+        .filter(SchoolTerm.start_date <= target_date, SchoolTerm.end_date >= target_date)
+        .first()
+        is not None
+    )
+
+
+def is_school_closed_day(target_date):
+    """Return True when date is marked as a school-closed day."""
+    if not target_date:
+        return False
+    return SchoolClosureDate.query.filter_by(closure_date=target_date).first() is not None
+
+
+def is_school_term_operational_day(target_date):
+    """Return True when date is in term time and not a closed day."""
+    return is_date_in_school_term(target_date) and not is_school_closed_day(target_date)
+
+
+def school_term_finished_at(term):
+    """Return the datetime when a school term is considered finished."""
+    return datetime.combine(term.end_date, time.max)
+
+
+def school_term_delete_allowed_at(term):
+    """Return the datetime when deleting a finished school term becomes allowed."""
+    return school_term_finished_at(term) + timedelta(hours=24)
+
+
+def school_closure_finished_at(closure):
+    """Return the datetime when a school closure day is considered finished."""
+    return datetime.combine(closure.closure_date, time.max)
+
+
+def school_closure_delete_allowed_at(closure):
+    """Return the datetime when deleting a finished school closure becomes allowed."""
+    return school_closure_finished_at(closure) + timedelta(hours=24)
+
+
 def validate_extra_car_assignment(driver, request, proposed_start_dt, proposed_end_dt, timings_dict=None):
     """Validate a proposed extra-car assignment against driver work rules.
 
@@ -1749,6 +1863,14 @@ def validate_extra_car_assignment(driver, request, proposed_start_dt, proposed_e
 
     suggested_start = proposed_start_dt
     suggested_end = proposed_end_dt
+
+    min_assignment_hours = EXTRA_CAR_MIN_PARTIAL_HOURS
+    proposed_duration_hours = (proposed_end_dt - proposed_start_dt).total_seconds() / 3600
+    if proposed_duration_hours < min_assignment_hours:
+        errors.append(
+            f"Driver assignment must be at least {min_assignment_hours:g} hours."
+        )
+        return False, errors, suggested_start, suggested_end
 
     # -----------------------------------------------------------------------
     # Step 1: Detect overlap with existing work and compute net-new window
@@ -1873,6 +1995,13 @@ def validate_extra_car_assignment(driver, request, proposed_start_dt, proposed_e
         ]
         suggested_start = None
         suggested_end = None
+
+    if suggested_start and suggested_end:
+        suggested_duration_hours = (suggested_end - suggested_start).total_seconds() / 3600
+        if suggested_duration_hours < min_assignment_hours:
+            errors.append(
+                f"Driver assignment must be at least {min_assignment_hours:g} hours."
+            )
 
     # -----------------------------------------------------------------------
     # Step 3: Max hours in any rolling 24-hour window
@@ -2095,6 +2224,7 @@ def update_shift_types():
             badge_color = request.form.get(f"{old_shift_type}_color", "bg-primary")
             icon = request.form.get(f"{old_shift_type}_icon", "fas fa-clock")
             parent_shift_type = request.form.get(f"{old_shift_type}_parent", "").strip() or None
+            school_term_only = request.form.get(f"{old_shift_type}_school_term_only") in ("1", "true", "on", "yes")
 
             if not start_time_str or not end_time_str:
                 continue
@@ -2122,6 +2252,7 @@ def update_shift_types():
                 timing.badge_color = badge_color
                 timing.icon = icon
                 timing.parent_shift_type = parent_shift_type
+                timing.school_term_only = school_term_only
             else:
                 timing = ShiftTiming(
                     shift_type=new_shift_type,
@@ -2130,7 +2261,8 @@ def update_shift_types():
                     end_time=end_time,
                     badge_color=badge_color,
                     icon=icon,
-                    parent_shift_type=parent_shift_type
+                    parent_shift_type=parent_shift_type,
+                    school_term_only=school_term_only,
                 )
                 db.session.add(timing)
 
@@ -2178,6 +2310,7 @@ def add_shift_type():
         badge_color = request.form.get("badge_color", "bg-primary")
         icon = request.form.get("icon", "fas fa-clock")
         parent_shift_type = request.form.get("parent_shift_type", "").strip() or None
+        school_term_only = request.form.get("school_term_only") in ("1", "true", "on", "yes")
 
         if parent_shift_type == '_none':
             parent_shift_type = None
@@ -2215,7 +2348,8 @@ def add_shift_type():
         end_time = datetime.strptime(end_time_str, '%H:%M').time()
 
         timing = ShiftTiming(shift_type=shift_type, display_name=display_name, start_time=start_time, end_time=end_time,
-                           badge_color=badge_color, icon=icon, parent_shift_type=parent_shift_type)
+                   badge_color=badge_color, icon=icon, parent_shift_type=parent_shift_type,
+                   school_term_only=school_term_only)
         db.session.add(timing)
         db.session.commit()
         return json_success()
@@ -2276,7 +2410,8 @@ def get_shift_type_data(shift_type):
         'end_time': timing.end_time.strftime('%H:%M'),
         'badge_color': timing.badge_color,
         'icon': timing.icon,
-        'parent_shift_type': timing.parent_shift_type
+        'parent_shift_type': timing.parent_shift_type,
+        'school_term_only': bool(timing.school_term_only),
     })
 
 @app.route("/shift-types/<shift_type>/edit", methods=["POST"])
@@ -2293,6 +2428,7 @@ def edit_shift_type(shift_type):
         badge_color = request.form.get("badge_color", "bg-primary")
         icon = request.form.get("icon", "fas fa-clock")
         parent_shift_type = request.form.get("parent_shift_type", "").strip() or None
+        school_term_only = request.form.get("school_term_only") in ("1", "true", "on", "yes")
 
         if parent_shift_type == '_none':
             parent_shift_type = None
@@ -2315,6 +2451,7 @@ def edit_shift_type(shift_type):
         timing.badge_color = badge_color
         timing.icon = icon
         timing.parent_shift_type = parent_shift_type
+        timing.school_term_only = school_term_only
         
         db.session.commit()
         return json_success()
@@ -3737,6 +3874,15 @@ def validate_swap(driver, give_up_date, work_date, work_shift_types):
             errors.append("Please choose a valid shift type for the work date.")
             return errors
 
+    if not is_school_term_operational_day(work_date):
+        term_only_selected = [wst for wst in work_shift_types if timings_dict.get(wst) and timings_dict[wst].school_term_only]
+        if term_only_selected:
+            labels = ', '.join(shift_label(wst) for wst in term_only_selected)
+            errors.append(
+                f"{work_date.strftime('%d/%m/%Y')} is outside operational school term time; term-only shifts cannot be used ({labels})."
+            )
+            return errors
+
     if len(work_shift_types) > 1:
         if len(work_shift_types) != len(set(work_shift_types)):
             errors.append("Duplicate shift types selected.")
@@ -3881,6 +4027,7 @@ def validate_swap(driver, give_up_date, work_date, work_shift_types):
 def scheduling():
     """Scheduling management: holidays, one-off adjustments, shift swaps."""
     all_drivers = Driver.query.order_by(Driver.driver_number).all()
+    now_dt = datetime.now()
     today = datetime.now().date()
     holidays = (
         DriverHoliday.query
@@ -3888,6 +4035,42 @@ def scheduling():
         .order_by(DriverHoliday.holiday_date.desc())
         .all()
     )
+    all_school_terms = SchoolTerm.query.order_by(SchoolTerm.start_date.asc(), SchoolTerm.id.asc()).all()
+    all_school_closures = SchoolClosureDate.query.order_by(SchoolClosureDate.closure_date.asc(), SchoolClosureDate.id.asc()).all()
+
+    school_terms = []
+    school_terms_finished = []
+    for term in all_school_terms:
+        finished_at = school_term_finished_at(term)
+        delete_allowed_at = school_term_delete_allowed_at(term)
+        if now_dt > finished_at:
+            school_terms_finished.append({
+                "term": term,
+                "delete_allowed": now_dt >= delete_allowed_at,
+                "delete_allowed_at": delete_allowed_at,
+            })
+        else:
+            school_terms.append(term)
+
+    school_terms_finished.sort(key=lambda entry: entry["term"].end_date, reverse=True)
+    finished_school_term_count = len(school_terms_finished)
+
+    school_closures = []
+    school_closures_finished = []
+    for closure in all_school_closures:
+        finished_at = school_closure_finished_at(closure)
+        delete_allowed_at = school_closure_delete_allowed_at(closure)
+        if now_dt > finished_at:
+            school_closures_finished.append({
+                "closure": closure,
+                "delete_allowed": now_dt >= delete_allowed_at,
+                "delete_allowed_at": delete_allowed_at,
+            })
+        else:
+            school_closures.append(closure)
+
+    school_closures_finished.sort(key=lambda entry: entry["closure"].closure_date, reverse=True)
+    finished_school_closure_count = len(school_closures_finished)
 
     holiday_groups = group_consecutive_holidays(holidays)
     grouped_by_driver = {}
@@ -4132,6 +4315,12 @@ def scheduling():
         "scheduling.html",
         drivers=all_drivers,
         holidays=holidays,
+        school_terms=school_terms,
+        school_terms_finished=school_terms_finished,
+        finished_school_term_count=finished_school_term_count,
+        school_closures=school_closures,
+        school_closures_finished=school_closures_finished,
+        finished_school_closure_count=finished_school_closure_count,
         time_off_by_driver=time_off_by_driver,
         finished_time_off_days=finished_time_off_days,
         adjustments=adjustments,
@@ -4143,6 +4332,208 @@ def scheduling():
         finished_swap_count=finished_swap_count,
         swap_shift_types=swap_shift_types,
     )
+
+
+@app.route("/scheduling/term/add", methods=["POST"])
+def add_school_term():
+    """Add a school term date range."""
+    name = (request.form.get("name") or "").strip()
+    start_date = parse_date_string((request.form.get("start_date") or "").strip())
+    end_date = parse_date_string((request.form.get("end_date") or "").strip())
+
+    if not name:
+        flash("Please enter a term name.", "error")
+        return redirect(url_for("scheduling"))
+
+    if not start_date or not end_date:
+        flash("Please provide valid start and end dates for the term.", "error")
+        return redirect(url_for("scheduling"))
+
+    if end_date < start_date:
+        flash("Term end date must be on or after the start date.", "error")
+        return redirect(url_for("scheduling"))
+
+    if start_date.weekday() >= 5 or end_date.weekday() >= 5:
+        flash("School term start/end dates cannot be on Saturday or Sunday.", "error")
+        return redirect(url_for("scheduling"))
+
+    db.session.add(SchoolTerm(name=name, start_date=start_date, end_date=end_date))
+    db.session.commit()
+    flash("School term added.", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/term/<int:term_id>/delete", methods=["POST"])
+def delete_school_term(term_id):
+    """Delete a school term range."""
+    term = db.get_or_404(SchoolTerm, term_id)
+    now_dt = datetime.now()
+    if now_dt > school_term_finished_at(term) and now_dt < school_term_delete_allowed_at(term):
+        flash("Finished school terms can be deleted 24 hours after they finish.", "error")
+        return redirect(url_for("scheduling"))
+
+    db.session.delete(term)
+    db.session.commit()
+    flash("School term deleted.", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/term/<int:term_id>/edit", methods=["POST"])
+def edit_school_term(term_id):
+    """Edit an existing school term."""
+    term = db.get_or_404(SchoolTerm, term_id)
+
+    name = (request.form.get("name") or "").strip()
+    start_date = parse_date_string((request.form.get("start_date") or "").strip())
+    end_date = parse_date_string((request.form.get("end_date") or "").strip())
+
+    if not name:
+        flash("Please enter a term name.", "error")
+        return redirect(url_for("scheduling"))
+
+    if not start_date or not end_date:
+        flash("Please provide valid start and end dates for the term.", "error")
+        return redirect(url_for("scheduling"))
+
+    if end_date < start_date:
+        flash("Term end date must be on or after the start date.", "error")
+        return redirect(url_for("scheduling"))
+
+    if start_date.weekday() >= 5 or end_date.weekday() >= 5:
+        flash("School term start/end dates cannot be on Saturday or Sunday.", "error")
+        return redirect(url_for("scheduling"))
+
+    term.name = name
+    term.start_date = start_date
+    term.end_date = end_date
+    db.session.commit()
+    flash("School term updated.", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/term/delete-finished-old", methods=["POST"])
+def delete_finished_school_terms_old():
+    """Delete finished school terms that are at least 24 hours past finish."""
+    now_dt = datetime.now()
+    deletable_terms = [
+        term
+        for term in SchoolTerm.query.all()
+        if now_dt > school_term_finished_at(term) and now_dt >= school_term_delete_allowed_at(term)
+    ]
+
+    if not deletable_terms:
+        flash("No finished school terms are old enough to delete yet.", "warning")
+        return redirect(url_for("scheduling"))
+
+    for term in deletable_terms:
+        db.session.delete(term)
+    db.session.commit()
+    flash(f"Deleted {len(deletable_terms)} old finished school term(s).", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/school-closure/add", methods=["POST"])
+def add_school_closure():
+    """Add a school-closed date (bank holiday/training day)."""
+    closure_date = parse_date_string((request.form.get("closure_date") or "").strip())
+    closure_type = (request.form.get("closure_type") or "").strip()
+    notes = (request.form.get("notes") or "").strip() or None
+
+    if not closure_date:
+        flash("Please provide a valid closure date.", "error")
+        return redirect(url_for("scheduling"))
+
+    if closure_date.weekday() >= 5:
+        flash("Saturday and Sunday cannot be added to school calendar entries.", "error")
+        return redirect(url_for("scheduling"))
+
+    if closure_type not in ("bank_holiday", "training_day"):
+        flash("Please choose a valid closure type.", "error")
+        return redirect(url_for("scheduling"))
+
+    existing = SchoolClosureDate.query.filter_by(closure_date=closure_date, closure_type=closure_type).first()
+    if existing:
+        flash("That school closure date already exists.", "warning")
+        return redirect(url_for("scheduling"))
+
+    db.session.add(SchoolClosureDate(closure_date=closure_date, closure_type=closure_type, notes=notes))
+    db.session.commit()
+    flash("School closure date added.", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/school-closure/<int:closure_id>/delete", methods=["POST"])
+def delete_school_closure(closure_id):
+    """Delete a school closure date entry."""
+    closure = db.get_or_404(SchoolClosureDate, closure_id)
+    now_dt = datetime.now()
+    if now_dt > school_closure_finished_at(closure) and now_dt < school_closure_delete_allowed_at(closure):
+        flash("Finished school closed days can be deleted 24 hours after they finish.", "error")
+        return redirect(url_for("scheduling"))
+
+    db.session.delete(closure)
+    db.session.commit()
+    flash("School closure date deleted.", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/school-closure/<int:closure_id>/edit", methods=["POST"])
+def edit_school_closure(closure_id):
+    """Edit an existing school-closed day entry."""
+    closure = db.get_or_404(SchoolClosureDate, closure_id)
+
+    closure_date = parse_date_string((request.form.get("closure_date") or "").strip())
+    closure_type = (request.form.get("closure_type") or "").strip()
+    notes = (request.form.get("notes") or "").strip() or None
+
+    if not closure_date:
+        flash("Please provide a valid closure date.", "error")
+        return redirect(url_for("scheduling"))
+
+    if closure_date.weekday() >= 5:
+        flash("Saturday and Sunday cannot be added to school calendar entries.", "error")
+        return redirect(url_for("scheduling"))
+
+    if closure_type not in ("bank_holiday", "training_day"):
+        flash("Please choose a valid closure type.", "error")
+        return redirect(url_for("scheduling"))
+
+    existing = SchoolClosureDate.query.filter(
+        SchoolClosureDate.closure_date == closure_date,
+        SchoolClosureDate.closure_type == closure_type,
+        SchoolClosureDate.id != closure.id,
+    ).first()
+    if existing:
+        flash("That school closure date already exists.", "warning")
+        return redirect(url_for("scheduling"))
+
+    closure.closure_date = closure_date
+    closure.closure_type = closure_type
+    closure.notes = notes
+    db.session.commit()
+    flash("School closure date updated.", "success")
+    return redirect(url_for("scheduling"))
+
+
+@app.route("/scheduling/school-closure/delete-finished-old", methods=["POST"])
+def delete_finished_school_closures_old():
+    """Delete finished school closed days that are at least 24 hours past finish."""
+    now_dt = datetime.now()
+    deletable_closures = [
+        closure
+        for closure in SchoolClosureDate.query.all()
+        if now_dt > school_closure_finished_at(closure) and now_dt >= school_closure_delete_allowed_at(closure)
+    ]
+
+    if not deletable_closures:
+        flash("No finished school closed days are old enough to delete yet.", "warning")
+        return redirect(url_for("scheduling"))
+
+    for closure in deletable_closures:
+        db.session.delete(closure)
+    db.session.commit()
+    flash(f"Deleted {len(deletable_closures)} old finished school closed day(s).", "success")
+    return redirect(url_for("scheduling"))
 
 
 @app.route("/scheduling/holiday/add", methods=["POST"])
@@ -4744,30 +5135,46 @@ def extra_cars():
     """Extra car requests management page."""
     all_requests = (
         ExtraCarRequest.query
-        .order_by(ExtraCarRequest.date.desc(), ExtraCarRequest.id.desc())
+        .order_by(ExtraCarRequest.date.asc(), ExtraCarRequest.id.asc())
         .all()
     )
     all_drivers = Driver.query.order_by(Driver.driver_number).all()
     all_shift_timings = ShiftTiming.query.order_by(ShiftTiming.shift_type).all()
-    # Attach coverage info to each request
+    # Attach coverage info and split into current vs finished
     requests_with_coverage = []
+    finished_requests_with_coverage = []
     for req in all_requests:
         filled_slots, suggested_status = req.compute_coverage()
         available_start, available_end = req.get_recommended_available_window()
         # Auto-update status when it changes (skip CLOSED requests)
         if req.status != 'CLOSED' and suggested_status != req.status:
             req.status = suggested_status
-        requests_with_coverage.append({
+
+        payload = {
             'request': req,
             'filled_slots': filled_slots,
             'available_start': available_start,
             'available_end': available_end,
-        })
+        }
+
+        if req.status == 'CLOSED':
+            _, req_end_dt = req.get_time_window()
+            if req_end_dt is not None:
+                delete_cutoff = req_end_dt + timedelta(hours=24)
+                payload['deletable'] = datetime.now() >= delete_cutoff
+                payload['delete_available_from'] = delete_cutoff.strftime('%-d %b %Y %H:%M')
+            else:
+                payload['deletable'] = True
+                payload['delete_available_from'] = None
+            finished_requests_with_coverage.append(payload)
+        else:
+            requests_with_coverage.append(payload)
     db.session.commit()
 
     return render_template(
         'extra_cars.html',
         requests_with_coverage=requests_with_coverage,
+        finished_requests_with_coverage=finished_requests_with_coverage,
         all_drivers=all_drivers,
         all_shift_timings=all_shift_timings,
         today=datetime.now().date(),
@@ -4804,6 +5211,16 @@ def add_extra_car_request():
         flash("Please provide a valid date.", "error")
         return redirect(url_for("extra_cars"))
 
+    now = datetime.now()
+    today = now.date()
+    if req_date < today:
+        flash(
+            f"Cannot create an extra car request for past date {req_date.strftime('%d/%m/%Y')}. "
+            f"Please choose today or a future date.",
+            "error",
+        )
+        return redirect(url_for("extra_cars"))
+
     if req_type not in ("shift_type", "time_window"):
         flash("Please select a valid request type.", "error")
         return redirect(url_for("extra_cars"))
@@ -4821,12 +5238,55 @@ def add_extra_car_request():
         if not timing:
             flash("Selected shift type not found.", "error")
             return redirect(url_for("extra_cars"))
+        if not timing.start_time or not timing.end_time:
+            flash("Selected shift type has invalid timing.", "error")
+            return redirect(url_for("extra_cars"))
+        if timing.school_term_only and not is_school_term_operational_day(req_date):
+            flash(
+                f"{timing.display_label} is marked as school term only and cannot be used on {req_date.strftime('%d/%m/%Y')}.",
+                "error",
+            )
+            return redirect(url_for("extra_cars"))
+
+        req_start_dt = datetime.combine(req_date, timing.start_time)
+        req_end_dt = datetime.combine(req_date, timing.end_time)
+        if req_end_dt <= req_start_dt:
+            req_end_dt += timedelta(days=1)
+
+        if req_date == today and req_end_dt <= now:
+            flash(
+                f"Cannot create {timing.display_label} for today because it already finished at "
+                f"{req_end_dt.strftime('%H:%M')} (current time: {now.strftime('%H:%M')}).",
+                "error",
+            )
+            return redirect(url_for("extra_cars"))
     else:
         window_start_val = parse_time_string(request.form.get("window_start", "").strip())
         window_end_val = parse_time_string(request.form.get("window_end", "").strip())
         if not window_start_val or not window_end_val:
             flash("Please provide valid start and end times.", "error")
             return redirect(url_for("extra_cars"))
+
+        req_start_dt = datetime.combine(req_date, window_start_val)
+        req_end_dt = datetime.combine(req_date, window_end_val)
+        if req_end_dt <= req_start_dt:
+            req_end_dt += timedelta(days=1)
+
+        if req_date == today and req_start_dt <= now:
+            flash(
+                f"Cannot create a custom window starting at {req_start_dt.strftime('%H:%M')} for today. "
+                f"Start time must be after current time ({now.strftime('%H:%M')}).",
+                "error",
+            )
+            return redirect(url_for("extra_cars"))
+
+    request_duration_hours = (req_end_dt - req_start_dt).total_seconds() / 3600
+    if request_duration_hours < EXTRA_CAR_MIN_PARTIAL_HOURS:
+        flash(
+            f"Extra car request window must be at least {EXTRA_CAR_MIN_PARTIAL_HOURS:g} hours.",
+            "error",
+        )
+        return redirect(url_for("extra_cars"))
 
     unlimited_raw = request.form.get("unlimited", "")
     unlimited = unlimited_raw in ("1", "true", "on", "yes")
@@ -4866,6 +5326,110 @@ def delete_extra_car_request(request_id):
     db.session.delete(req)
     db.session.commit()
     flash("Extra car request deleted.", "success")
+    return redirect(url_for("extra_cars"))
+
+
+@app.route("/extra-cars/request/<int:request_id>/edit", methods=["POST"])
+def edit_extra_car_request(request_id):
+    """Edit an existing extra car request."""
+    req = db.get_or_404(ExtraCarRequest, request_id)
+
+    req_type = request.form.get("request_type", "").strip()
+    req_date_str = request.form.get("date", "").strip()
+    notes = request.form.get("notes", "").strip() or None
+
+    req_date = parse_date_string(req_date_str)
+    if not req_date:
+        flash("Please provide a valid date.", "error")
+        return redirect(url_for("extra_cars"))
+
+    today = datetime.now().date()
+    if req_date < today:
+        flash("Cannot set an extra car request to a past date.", "error")
+        return redirect(url_for("extra_cars"))
+
+    if req_type not in ("shift_type", "time_window"):
+        flash("Please select a valid request type.", "error")
+        return redirect(url_for("extra_cars"))
+
+    if req_type == "shift_type":
+        shift_type_val = request.form.get("shift_type", "").strip()
+        if not shift_type_val:
+            flash("Please select a shift type.", "error")
+            return redirect(url_for("extra_cars"))
+        timing = ShiftTiming.query.filter_by(shift_type=shift_type_val).first()
+        if not timing:
+            flash("Selected shift type not found.", "error")
+            return redirect(url_for("extra_cars"))
+        if not timing.start_time or not timing.end_time:
+            flash("Selected shift type has invalid timing.", "error")
+            return redirect(url_for("extra_cars"))
+        if timing.school_term_only and not is_school_term_operational_day(req_date):
+            flash(
+                f"{timing.display_label} is marked as school term only and cannot be used on {req_date.strftime('%d/%m/%Y')}.",
+                "error",
+            )
+            return redirect(url_for("extra_cars"))
+
+        req_start_dt = datetime.combine(req_date, timing.start_time)
+        req_end_dt = datetime.combine(req_date, timing.end_time)
+        if req_end_dt <= req_start_dt:
+            req_end_dt += timedelta(days=1)
+
+        req.shift_type = shift_type_val
+        req.window_start = None
+        req.window_end = None
+    else:
+        window_start_val = parse_time_string(request.form.get("window_start", "").strip())
+        window_end_val = parse_time_string(request.form.get("window_end", "").strip())
+        if not window_start_val or not window_end_val:
+            flash("Please provide valid start and end times.", "error")
+            return redirect(url_for("extra_cars"))
+
+        req_start_dt = datetime.combine(req_date, window_start_val)
+        req_end_dt = datetime.combine(req_date, window_end_val)
+        if req_end_dt <= req_start_dt:
+            req_end_dt += timedelta(days=1)
+
+        req.shift_type = None
+        req.window_start = window_start_val
+        req.window_end = window_end_val
+
+    request_duration_hours = (req_end_dt - req_start_dt).total_seconds() / 3600
+    if request_duration_hours < EXTRA_CAR_MIN_PARTIAL_HOURS:
+        flash(
+            f"Extra car request window must be at least {EXTRA_CAR_MIN_PARTIAL_HOURS:g} hours.",
+            "error",
+        )
+        return redirect(url_for("extra_cars"))
+
+    if req_end_dt <= datetime.now():
+        flash("Cannot set an extra car request to a past time window.", "error")
+        return redirect(url_for("extra_cars"))
+
+    unlimited_raw = request.form.get("unlimited", "")
+    unlimited = unlimited_raw in ("1", "true", "on", "yes")
+
+    required_slots = None
+    if not unlimited:
+        required_slots = parse_positive_int(request.form.get("required_slots", ""))
+        if not required_slots:
+            flash("Please enter a positive number of required slots, or select unlimited.", "error")
+            return redirect(url_for("extra_cars"))
+
+    new_status = request.form.get("status", "").strip()
+    valid_statuses = ("DRAFT", "OPEN", "PARTIALLY_FILLED", "FILLED", "CLOSED")
+    if new_status in valid_statuses:
+        req.status = new_status
+
+    req.date = req_date
+    req.request_type = req_type
+    req.unlimited = unlimited
+    req.required_slots = required_slots
+    req.notes = notes
+    db.session.commit()
+
+    flash("Extra car request updated.", "success")
     return redirect(url_for("extra_cars"))
 
 
@@ -5065,6 +5629,14 @@ def add_extra_car_assignment(request_id):
 
     if final_end <= final_start:
         flash("No valid extra-shift time window is available for this driver.", "error")
+        return redirect(url_for("extra_cars"))
+
+    final_duration_hours = (final_end - final_start).total_seconds() / 3600
+    if final_duration_hours < EXTRA_CAR_MIN_PARTIAL_HOURS:
+        flash(
+            f"Driver assignment must be at least {EXTRA_CAR_MIN_PARTIAL_HOURS:g} hours.",
+            "error",
+        )
         return redirect(url_for("extra_cars"))
 
     if final_start != proposed_start or final_end != proposed_end:

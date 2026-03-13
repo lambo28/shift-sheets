@@ -30,6 +30,34 @@
 .extra-car-card.status-CLOSED     { border-left-color: #adb5bd; }
 .extra-car-card.status-PARTIALLY_FILLED { border-left-color: #fd7e14; }
 
+.toggle-driver-blocks-btn:focus,
+.toggle-driver-blocks-btn:active:focus {
+    box-shadow: none;
+}
+
+.toggle-driver-blocks-btn:focus-visible {
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+#alertBannerContainer {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 1080;
+    width: min(420px, calc(100vw - 2rem));
+}
+
+.alert-banner {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    margin-bottom: 0.5rem;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.alert-banner.dismissing {
+    opacity: 0;
+    transform: translateX(12px);
+}
+
 #validationResult .alert { font-size: 0.875rem; }
 </style>
 {% endblock %}
@@ -48,13 +76,19 @@
     </div>
     <div class="card-body">
         <form method="POST" action="{{ url_for('add_extra_car_request') }}" id="addRequestForm">
+            <div class="alert alert-info py-2 mb-3" role="note">
+                <i class="fas fa-info-circle me-1"></i>
+                <strong>Extra car slot rules:</strong> Minimum slot and assignment length is <strong>2 hours</strong>.
+                A slot can be split across multiple drivers where each covered portion is at least <strong>2 hours</strong>.
+                Normal driver <strong>break requirements</strong> and <strong>maximum daily hours</strong> still apply.
+            </div>
 
             <div class="row g-3">
                 <!-- Date -->
                 <div class="col-md-3">
                     <label for="reqDate" class="form-label">Date <span class="text-danger">*</span></label>
                     <input type="date" class="form-control" id="reqDate" name="date"
-                           value="{{ today.isoformat() }}" required>
+                           value="{{ today.isoformat() }}" min="{{ today.isoformat() }}" required>
                 </div>
 
                 <!-- Request type toggle -->
@@ -81,7 +115,7 @@
                         <option value="">— Select —</option>
                         {% for st in all_shift_timings %}
                             {% if st.shift_type != 'day_off' %}
-                            <option value="{{ st.shift_type }}">
+                            <option value="{{ st.shift_type }}" data-start="{{ st.start_time.strftime('%H:%M') if st.start_time }}" data-end="{{ st.end_time.strftime('%H:%M') if st.end_time }}">
                                 {{ st.display_label }} ({{ st.start_time.strftime('%H:%M') if st.start_time }}–{{ st.end_time.strftime('%H:%M') if st.end_time }})
                             </option>
                             {% endif %}
@@ -117,14 +151,13 @@
                     </div>
                 </div>
 
-                <!-- Notes -->
-                <div class="col-md-6">
+                <!-- Notes + Submit -->
+                <div class="col">
                     <label for="reqNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
                     <input type="text" class="form-control" id="reqNotes" name="notes"
                            maxlength="300" placeholder="Optional notes">
                 </div>
-
-                <div class="col-12">
+                <div class="col-auto d-flex align-items-end">
                     <button type="submit" class="btn btn-primary">
                         <i class="fas fa-plus"></i> Create Request
                     </button>
@@ -137,18 +170,30 @@
 <!-- ============================================================
      REQUEST LIST
      ============================================================ -->
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-list"></i> Current Requests</h5>
+        <div class="d-flex gap-2">
+            {% if finished_requests_with_coverage and finished_requests_with_coverage|length > 0 %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#finishedRequestsModal">
+                <i class="fas fa-history"></i> Finished Requests ({{ finished_requests_with_coverage|length }})
+            </button>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body">
 {% if not requests_with_coverage %}
-<div class="alert alert-info">
-    <i class="fas fa-info-circle me-1"></i>
-    No extra car requests yet. Create one above.
-</div>
+        <div class="alert alert-info mb-0">
+            <i class="fas fa-info-circle me-1"></i>
+            No current extra car requests. Create one above.
+        </div>
 {% else %}
-
 {% for item in requests_with_coverage %}
 {% set req = item.request %}
 {% set filled = item.filled_slots %}
 {% set cap = req.required_slots if not req.unlimited else None %}
 {% set pct = [(filled / cap * 100)|int, 100]|min if cap else None %}
+{% set req_timing = (all_shift_timings | selectattr('shift_type', 'equalto', req.shift_type) | list | first) if req.request_type == 'shift_type' else None %}
 
 <div class="card mb-3 extra-car-card status-{{ req.status }}">
     <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -159,12 +204,16 @@
             <strong>{{ req.date.strftime('%a %d %b %Y') }}</strong>
             <span class="text-muted ms-2">
                 {% if req.request_type == 'shift_type' %}
-                    <i class="fas fa-calendar-week"></i>
-                    {{ req.shift_type | shift_label }}
+                    <span class="badge {{ req_timing.badge_color if req_timing and req_timing.badge_color else 'bg-primary' }}">
+                        <i class="{{ req_timing.icon if req_timing and req_timing.icon else 'fas fa-clock' }} me-1"></i>{{ req_timing.display_label if req_timing else (req.shift_type | shift_label) }}
+                    </span>
                     ({{ req.display_window() }})
                 {% else %}
                     <i class="fas fa-clock"></i>
                     {{ req.display_window() }}
+                {% endif %}
+                {% if req.notes %}
+                <span class="ms-2"><i class="fas fa-sticky-note me-1"></i>{{ req.notes }}</span>
                 {% endif %}
             </span>
         </div>
@@ -186,49 +235,59 @@
             </div>
             {% endif %}
 
-            <!-- Status update -->
-            <form method="POST"
-                  action="{{ url_for('update_extra_car_request_status', request_id=req.id) }}"
-                  class="d-inline">
-                <select name="status" class="form-select form-select-sm" style="width:auto;"
-                        onchange="this.form.submit()">
-                    {% for s in ['DRAFT','OPEN','PARTIALLY_FILLED','FILLED','CLOSED'] %}
-                    <option value="{{ s }}" {{ 'selected' if req.status == s }}>
-                        {{ s.replace('_',' ') }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </form>
-
-            <!-- Delete request -->
-            <button type="button" class="btn btn-sm btn-outline-danger"
-                    data-bs-toggle="modal" data-bs-target="#deleteModal"
-                    data-delete-url="{{ url_for('delete_extra_car_request', request_id=req.id) }}"
-                    data-delete-title="Delete Extra Car Request"
-                    data-delete-message="Delete this extra car request and all its assignments?"
-                    data-delete-name="{{ req.date.strftime('%d/%m/%Y') }} – {{ req.display_window() }}">
-                <i class="fas fa-trash"></i>
-            </button>
+            <div class="btn-group" role="group">
+                <button type="button" class="btn btn-sm btn-secondary toggle-driver-blocks-btn"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#requestBody{{ req.id }}"
+                        aria-expanded="false"
+                        title="Toggle assignments">
+                    <i class="fas fa-chevron-down request-chevron" id="chevron{{ req.id }}"></i>
+                </button>
+                {% if req.status != 'CLOSED' %}
+                <button type="button" class="btn btn-sm btn-success"
+                        data-bs-toggle="modal" data-bs-target="#addAssignmentModal"
+                        data-request-id="{{ req.id }}"
+                        data-request-window="{{ req.display_window() }}"
+                        data-request-date="{{ req.date.isoformat() }}"
+                        data-request-start="{{ req.get_time_window()[0].strftime('%H:%M') if req.get_time_window()[0] else '' }}"
+                        data-request-end="{{ req.get_time_window()[1].strftime('%H:%M') if req.get_time_window()[1] else '' }}"
+                        data-available-start="{{ item.available_start.strftime('%H:%M') if item.available_start else '' }}"
+                        data-available-end="{{ item.available_end.strftime('%H:%M') if item.available_end else '' }}"
+                        data-assigned-driver-ids="{{ req.assignments | map(attribute='driver_id') | join(',') }}"
+                        title="Add driver">
+                    <i class="fas fa-user-plus"></i>
+                </button>
+                {% endif %}
+                <button type="button" class="btn btn-sm btn-primary"
+                        data-bs-toggle="modal" data-bs-target="#editRequestModal"
+                        data-request-id="{{ req.id }}"
+                        data-request-date="{{ req.date.isoformat() }}"
+                        data-request-type="{{ req.request_type }}"
+                        data-request-shift-type="{{ req.shift_type or '' }}"
+                        data-request-window-start="{{ req.window_start.strftime('%H:%M') if req.window_start else '' }}"
+                        data-request-window-end="{{ req.window_end.strftime('%H:%M') if req.window_end else '' }}"
+                        data-request-unlimited="{{ '1' if req.unlimited else '0' }}"
+                        data-request-slots="{{ req.required_slots or '' }}"
+                        data-request-status="{{ req.status }}"
+                        data-request-notes="{{ (req.notes or '') | e }}"
+                        title="Edit request">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-danger"
+                        onclick="showGlobalDeleteConfirm({
+                            title: 'Delete Extra Car Request',
+                            message: 'Delete this extra car request and all its assignments?',
+                            name: '{{ req.date.strftime('%d/%m/%Y') }} – {{ req.display_window() }}',
+                            action: '{{ url_for('delete_extra_car_request', request_id=req.id) }}'
+                        })">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
         </div>
     </div>
 
+    <div class="collapse" id="requestBody{{ req.id }}">
     <div class="card-body">
-        {% if req.notes %}
-        <p class="text-muted small mb-2"><i class="fas fa-sticky-note me-1"></i>{{ req.notes }}</p>
-        {% endif %}
-
-        <div class="row g-1 mb-2 small text-muted">
-            <div class="col-auto">
-                <i class="fas fa-puzzle-piece me-1"></i>
-                {% if req.unlimited %}Unlimited{% else %}{{ cap }} slot{{ 's' if cap != 1 }} required{% endif %}
-            </div>
-            <div class="col-auto">·</div>
-            <div class="col-auto">
-                <i class="fas fa-hourglass-half me-1"></i>
-                Min partial: {{ req.min_partial_hours }}h
-            </div>
-        </div>
-
         <!-- Assignments table -->
         {% if req.assignments %}
         <div class="table-responsive mb-3">
@@ -260,14 +319,15 @@
                         <td>{{ '%.1f'|format(asgn.duration_hours()) }}h</td>
                         <td class="text-muted small">{{ asgn.notes or '' }}</td>
                         <td class="text-end">
-                            <form method="POST"
-                                  action="{{ url_for('delete_extra_car_assignment', request_id=req.id, assignment_id=asgn.id) }}"
-                                  class="d-inline">
-                                <button type="submit" class="btn btn-sm btn-outline-danger"
-                                        onclick="return confirm('Remove this assignment?')">
-                                    <i class="fas fa-times"></i>
-                                </button>
-                            </form>
+                            <button type="button" class="btn btn-sm btn-danger"
+                                    onclick="showGlobalDeleteConfirm({
+                                        title: 'Remove Assignment',
+                                        message: 'Remove assignment for',
+                                        name: '{{ asgn.driver.formatted_name() }}',
+                                        action: '{{ url_for('delete_extra_car_assignment', request_id=req.id, assignment_id=asgn.id) }}'
+                                    })">
+                                <i class="fas fa-trash"></i>
+                            </button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -277,30 +337,207 @@
         {% else %}
         <p class="text-muted small mb-2">No assignments yet.</p>
         {% endif %}
-
-        <!-- Add assignment button -->
-        {% if req.status != 'CLOSED' %}
-        <button type="button" class="btn btn-sm btn-outline-primary"
-                data-bs-toggle="modal" data-bs-target="#addAssignmentModal"
-                data-request-id="{{ req.id }}"
-                data-request-window="{{ req.display_window() }}"
-                data-request-date="{{ req.date.isoformat() }}"
-                data-request-start="{{ req.get_time_window()[0].strftime('%H:%M') if req.get_time_window()[0] else '' }}"
-                data-request-end="{{ req.get_time_window()[1].strftime('%H:%M') if req.get_time_window()[1] else '' }}"
-                data-available-start="{{ item.available_start.strftime('%H:%M') if item.available_start else '' }}"
-                data-available-end="{{ item.available_end.strftime('%H:%M') if item.available_end else '' }}"
-                data-assigned-driver-ids="{{ req.assignments | map(attribute='driver_id') | join(',') }}">
-            <i class="fas fa-user-plus"></i> Add Driver
-        </button>
-        {% endif %}
+    </div>
     </div>
 </div>
 {% endfor %}
 {% endif %}
+    </div>
+</div>
+
+{% if finished_requests_with_coverage and finished_requests_with_coverage|length > 0 %}
+<div class="modal fade" id="finishedRequestsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-history"></i> Finished Extra Car Requests</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Date</th>
+                                <th>Window</th>
+                                <th>Coverage</th>
+                                <th>Status</th>
+                                <th>Notes</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in finished_requests_with_coverage %}
+                            {% set req = item.request %}
+                            {% set filled = item.filled_slots %}
+                            {% set cap = req.required_slots if not req.unlimited else None %}
+                            {% set req_timing = (all_shift_timings | selectattr('shift_type', 'equalto', req.shift_type) | list | first) if req.request_type == 'shift_type' else None %}
+                            <tr>
+                                <td><strong>{{ req.date.strftime('%a %d %b %Y') }}</strong></td>
+                                <td>
+                                    {% if req.request_type == 'shift_type' %}
+                                        <span class="badge {{ req_timing.badge_color if req_timing and req_timing.badge_color else 'bg-primary' }}">
+                                            <i class="{{ req_timing.icon if req_timing and req_timing.icon else 'fas fa-clock' }} me-1"></i>{{ req_timing.display_label if req_timing else (req.shift_type | shift_label) }}
+                                        </span>
+                                        <span class="ms-1">({{ req.display_window() }})</span>
+                                    {% else %}
+                                        <i class="fas fa-clock"></i>
+                                        {{ req.display_window() }}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if req.unlimited %}
+                                        <i class="fas fa-infinity text-muted"></i> {{ filled }} assignment{{ 's' if filled != 1 }}
+                                    {% else %}
+                                        {{ filled }}/{{ cap }} slot{{ 's' if cap != 1 }}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge status-badge-{{ req.status }}">{{ req.status.replace('_', ' ') }}</span>
+                                </td>
+                                <td class="text-muted small">{{ req.notes or '—' }}</td>
+                                <td class="text-end">
+                                    {% if item.deletable %}
+                                    <button type="button" class="btn btn-sm btn-danger"
+                                            onclick="showGlobalDeleteConfirm({
+                                                title: 'Delete Finished Extra Car Request',
+                                                message: 'Delete finished extra car request?',
+                                                name: '{{ req.date.strftime('%d/%m/%Y') }} – {{ req.display_window() }}',
+                                                action: '{{ url_for('delete_extra_car_request', request_id=req.id) }}'
+                                            })">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                    {% else %}
+                                    <button type="button" class="btn btn-sm btn-secondary" disabled
+                                            title="Available to delete after {{ item.delete_available_from }}">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <!-- ============================================================
-     ADD ASSIGNMENT MODAL
+        EDIT REQUEST MODAL
      ============================================================ -->
+<div class="modal fade" id="editRequestModal" tabindex="-1" aria-labelledby="editRequestModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editRequestModalLabel">
+                    <i class="fas fa-edit"></i> Edit Extra Car Request
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" id="editRequestForm" action="">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <!-- Date -->
+                        <div class="col-md-6">
+                            <label for="editReqDate" class="form-label">Date <span class="text-danger">*</span></label>
+                            <input type="date" class="form-control" id="editReqDate" name="date" min="{{ today.isoformat() }}" required>
+                        </div>
+
+                        <!-- Status -->
+                        <div class="col-md-6">
+                            <label for="editReqStatus" class="form-label">Status</label>
+                            <select class="form-select" id="editReqStatus" name="status">
+                                {% for s in ['DRAFT','OPEN','PARTIALLY_FILLED','FILLED','CLOSED'] %}
+                                <option value="{{ s }}">{{ s.replace('_', ' ') }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Request type toggle -->
+                        <div class="col-12">
+                            <label class="form-label">Window type <span class="text-danger">*</span></label>
+                            <div class="d-flex gap-2">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="request_type"
+                                           id="editRtShift" value="shift_type">
+                                    <label class="form-check-label" for="editRtShift">Shift type</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="request_type"
+                                           id="editRtWindow" value="time_window">
+                                    <label class="form-check-label" for="editRtWindow">Custom window</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Shift type picker -->
+                        <div class="col-12" id="editShiftTypeField">
+                            <label for="editReqShiftType" class="form-label">Shift type</label>
+                            <select class="form-select" id="editReqShiftType" name="shift_type">
+                                <option value="">— Select —</option>
+                                {% for st in all_shift_timings %}
+                                    {% if st.shift_type != 'day_off' %}
+                                    <option value="{{ st.shift_type }}" data-start="{{ st.start_time.strftime('%H:%M') if st.start_time }}" data-end="{{ st.end_time.strftime('%H:%M') if st.end_time }}">
+                                        {{ st.display_label }} ({{ st.start_time.strftime('%H:%M') if st.start_time }}–{{ st.end_time.strftime('%H:%M') if st.end_time }})
+                                    </option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- Custom window -->
+                        <div class="col-12 d-none" id="editTimeWindowField">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label for="editReqWindowStart" class="form-label">Start</label>
+                                    <input type="time" class="form-control" id="editReqWindowStart" name="window_start">
+                                </div>
+                                <div class="col-6">
+                                    <label for="editReqWindowEnd" class="form-label">End</label>
+                                    <input type="time" class="form-control" id="editReqWindowEnd" name="window_end">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Capacity -->
+                        <div class="col-12">
+                            <label class="form-label">Capacity</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="editReqSlots" name="required_slots"
+                                       min="1" placeholder="Slots required">
+                                <div class="input-group-text">
+                                    <input class="form-check-input me-1" type="checkbox"
+                                           id="editReqUnlimited" name="unlimited" value="1">
+                                    <label class="form-check-label" for="editReqUnlimited">Unlimited</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Notes -->
+                        <div class="col-12">
+                            <label for="editReqNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                            <input type="text" class="form-control" id="editReqNotes" name="notes"
+                                   maxlength="300" placeholder="Optional notes">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="addAssignmentModal" tabindex="-1" aria-labelledby="addAssignmentModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -315,6 +552,10 @@
                     <p class="text-muted small mb-3">
                         Request window: <strong id="modalRequestWindow"></strong>
                     </p>
+                    <div class="alert alert-info py-2 mb-3" role="note">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Normal driver break requirements and maximum daily hours apply.
+                    </div>
 
                     <div class="mb-3">
                         <label for="modalDriverSelect" class="form-label">Driver <span class="text-danger">*</span></label>
@@ -362,8 +603,11 @@
         </div>
     </div>
 </div>
+<div id="alertBannerContainer"></div>
 {% endblock %}
 
 {% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/shared.core.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scheduling.flash-banner.js') }}"></script>
 <script src="{{ url_for('static', filename='js/extra-cars.core.js') }}"></script>
 {% endblock %}

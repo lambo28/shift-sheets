@@ -69,6 +69,12 @@
     background-color: #d1e7dd !important;
     box-shadow: inset 0 0 0 2px #198754;
 }
+
+.school-calendar-list-box {
+    max-height: 320px;
+    overflow-y: auto;
+}
+
 </style>
 {% endblock %}
 
@@ -102,6 +108,12 @@
         <button class="nav-link" id="swaps-tab" data-bs-toggle="tab" data-bs-target="#swapsPanel"
                 type="button" role="tab" aria-controls="swapsPanel" aria-selected="false">
             <i class="fas fa-exchange-alt"></i> Shift Swaps
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="school-calendar-tab" data-bs-toggle="tab" data-bs-target="#schoolCalendarPanel"
+                type="button" role="tab" aria-controls="schoolCalendarPanel" aria-selected="false">
+            <i class="fas fa-school"></i> School Calendar
         </button>
     </li>
 </ul>
@@ -462,7 +474,7 @@
                         <form method="POST" action="{{ url_for('add_adjustment') }}" id="addAdjustmentForm">
                             <div class="alert alert-info py-2 mb-3" role="note">
                                 <i class="fas fa-info-circle me-1"></i>
-                                Time Adjustments apply to a selected working day only. You can set one Late Start and one Early Finish per day, and both must stay within that day's valid shift time window.
+                                Time Adjustments apply to a selected regular working day only — not extra shifts. You can set one Late Start and one Early Finish per day, and both must stay within that day's valid shift time window.
                             </div>
                             <div class="row g-3">
                                 <div class="col-md-6">
@@ -1307,7 +1319,474 @@
         </div>
     </div>
 
+    <!-- ===================== SCHOOL CALENDAR PANEL ===================== -->
+    <div class="tab-pane fade" id="schoolCalendarPanel" role="tabpanel" aria-labelledby="school-calendar-tab">
+        <div class="row g-4">
+            <div class="col-12">
+                <div class="alert alert-info py-2 mb-0" role="note">
+                    <i class="fas fa-info-circle me-1"></i>
+                    Weekend dates are not allowed in School Calendar entries.
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-calendar-plus"></i> Add School Term</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('add_school_term') }}">
+                            <div class="alert alert-info py-2 mb-3" role="note">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Select a date range to define a school term period.
+                            </div>
+                            <div class="mb-3">
+                                <label for="termName" class="form-label">Term Name</label>
+                                <input type="text" class="form-control" id="termName" name="name" placeholder="e.g. Spring Term 2026" required>
+                            </div>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="termStartDate" class="form-label">Start Date</label>
+                                    <input type="date" class="form-control" id="termStartDate" name="start_date" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="termEndDate" class="form-label">End Date</label>
+                                    <input type="date" class="form-control" id="termEndDate" name="end_date" required>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <button type="submit" class="btn btn-primary w-100">
+                                    <i class="fas fa-save"></i> Save Term
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-list"></i> School Terms</h5>
+                        {% if finished_school_term_count and finished_school_term_count > 0 %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#finishedSchoolTermsModal">
+                            <i class="fas fa-history"></i> Finished ({{ finished_school_term_count }})
+                        </button>
+                        {% endif %}
+                    </div>
+                    <div class="card-body p-0">
+                        {% if school_terms %}
+                        <div class="table-responsive school-calendar-list-box">
+                            <table class="table table-sm table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Range</th>
+                                        <th class="text-end">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for term in school_terms %}
+                                    <tr>
+                                        <td><strong>{{ term.name }}</strong></td>
+                                        <td>{{ term.start_date.strftime('%d/%m/%Y') }} – {{ term.end_date.strftime('%d/%m/%Y') }}</td>
+                                        <td class="text-end">
+                                            <div class="btn-group" role="group">
+                                                <button type="button" class="btn btn-sm btn-primary"
+                                                        data-bs-toggle="modal" data-bs-target="#editSchoolTermModal"
+                                                        data-term-id="{{ term.id }}"
+                                                        data-term-name="{{ term.name }}"
+                                                        data-term-start="{{ term.start_date.strftime('%Y-%m-%d') }}"
+                                                        data-term-end="{{ term.end_date.strftime('%Y-%m-%d') }}"
+                                                        title="Edit">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-danger"
+                                                        onclick="showGlobalDeleteConfirm({
+                                                            title: 'Delete School Term',
+                                                            message: 'Delete school term',
+                                                            name: '{{ term.name }}',
+                                                            action: '{{ url_for('delete_school_term', term_id=term.id) }}'
+                                                        })">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="p-4 text-center text-muted">
+                            <i class="fas fa-calendar-times fa-2x mb-2 d-block"></i>
+                            No school terms configured yet.
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-ban"></i> Add School Closed Day</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('add_school_closure') }}">
+                            <div class="alert alert-info py-2 mb-3" role="note">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Bank holidays and training days are treated as school closed, even inside term dates.
+                            </div>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label for="closureDate" class="form-label">Date</label>
+                                    <input type="date" class="form-control" id="closureDate" name="closure_date" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="closureType" class="form-label">Type</label>
+                                    <select class="form-select" id="closureType" name="closure_type" required>
+                                        <option value="bank_holiday">Bank Holiday</option>
+                                        <option value="training_day">Training Day</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <label for="closureNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                                <input type="text" class="form-control" id="closureNotes" name="notes" maxlength="200">
+                            </div>
+                            <div class="mt-3">
+                                <button type="submit" class="btn btn-primary w-100">
+                                    <i class="fas fa-save"></i> Save Closed Day
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-list"></i> School Closed Days</h5>
+                        {% if finished_school_closure_count and finished_school_closure_count > 0 %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#finishedSchoolClosuresModal">
+                            <i class="fas fa-history"></i> Finished ({{ finished_school_closure_count }})
+                        </button>
+                        {% endif %}
+                    </div>
+                    <div class="card-body p-0">
+                        {% if school_closures %}
+                        <div class="table-responsive school-calendar-list-box">
+                            <table class="table table-sm table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Type</th>
+                                        <th>Notes</th>
+                                        <th class="text-end">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for closure in school_closures %}
+                                    <tr>
+                                        <td>{{ closure.closure_date.strftime('%d/%m/%Y') }}</td>
+                                        <td>
+                                            {% if closure.closure_type == 'bank_holiday' %}
+                                                <span class="badge bg-warning text-dark">Bank Holiday</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">Training Day</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{% if closure.notes %}<span class="text-muted">{{ closure.notes }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                                        <td class="text-end">
+                                            <div class="btn-group" role="group">
+                                                <button type="button" class="btn btn-sm btn-primary"
+                                                        data-bs-toggle="modal" data-bs-target="#editSchoolClosureModal"
+                                                        data-closure-id="{{ closure.id }}"
+                                                        data-closure-date="{{ closure.closure_date.strftime('%Y-%m-%d') }}"
+                                                        data-closure-type="{{ closure.closure_type }}"
+                                                        data-closure-notes="{{ closure.notes or '' }}"
+                                                        title="Edit">
+                                                    <i class="fas fa-edit"></i>
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-danger"
+                                                        onclick="showGlobalDeleteConfirm({
+                                                            title: 'Delete School Closed Day',
+                                                            message: 'Delete closed day entry',
+                                                            name: '{{ closure.closure_date.strftime('%d/%m/%Y') }}',
+                                                            action: '{{ url_for('delete_school_closure', closure_id=closure.id) }}'
+                                                        })">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        {% else %}
+                        <div class="p-4 text-center text-muted">
+                            <i class="fas fa-calendar-check fa-2x mb-2 d-block"></i>
+                            No school closed days configured yet.
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </div><!-- end tab-content -->
+
+    <!-- Finished School Terms Modal -->
+    <div class="modal fade" id="finishedSchoolTermsModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-history"></i> Finished School Terms</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    {% set terms_old_deletable = namespace(any=false) %}
+                    {% if school_terms_finished %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Range</th>
+                                    <th class="text-end">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for entry in school_terms_finished %}
+                                {% set term = entry.term %}
+                                {% if entry.delete_allowed %}{% set terms_old_deletable.any = true %}{% endif %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ term.name }}</strong>
+                                    </td>
+                                    <td>
+                                        {{ term.start_date.strftime('%d/%m/%Y') }} – {{ term.end_date.strftime('%d/%m/%Y') }}
+                                        {% if not entry.delete_allowed %}
+                                        <div class="small text-muted mt-1">Delete available after {{ entry.delete_allowed_at.strftime('%d/%m/%Y %H:%M') }}</div>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end">
+                                        <div class="btn-group" role="group">
+                                            <button type="button" class="btn btn-sm btn-primary"
+                                                    data-bs-toggle="modal" data-bs-target="#editSchoolTermModal"
+                                                    data-term-id="{{ term.id }}"
+                                                    data-term-name="{{ term.name }}"
+                                                    data-term-start="{{ term.start_date.strftime('%Y-%m-%d') }}"
+                                                    data-term-end="{{ term.end_date.strftime('%Y-%m-%d') }}"
+                                                    title="Edit">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            {% if entry.delete_allowed %}
+                                            <button type="button" class="btn btn-sm btn-danger"
+                                                    onclick="showGlobalDeleteConfirm({
+                                                        title: 'Delete Finished School Term',
+                                                        message: 'Delete finished school term',
+                                                        name: '{{ term.name }}',
+                                                        action: '{{ url_for('delete_school_term', term_id=term.id) }}'
+                                                    })">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-muted text-center py-3">No finished school terms.</div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    {% if school_terms_finished and terms_old_deletable.any %}
+                    <button type="button" class="btn btn-danger"
+                            onclick="showGlobalDeleteConfirm({
+                                title: 'Delete Old Finished School Terms',
+                                message: 'Delete all finished school terms that are over 24 hours old?',
+                                warning: 'This action cannot be undone.',
+                                action: '{{ url_for('delete_finished_school_terms_old') }}',
+                                submitLabel: 'Delete Old Terms'
+                            })">
+                        <i class="fas fa-trash-alt"></i> Delete Old Finished
+                    </button>
+                    {% endif %}
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Finished School Closed Days Modal -->
+    <div class="modal fade" id="finishedSchoolClosuresModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-history"></i> Finished School Closed Days</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    {% set closures_old_deletable = namespace(any=false) %}
+                    {% if school_closures_finished %}
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Notes</th>
+                                    <th class="text-end">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for entry in school_closures_finished %}
+                                {% set closure = entry.closure %}
+                                {% if entry.delete_allowed %}{% set closures_old_deletable.any = true %}{% endif %}
+                                <tr>
+                                    <td>
+                                        {{ closure.closure_date.strftime('%d/%m/%Y') }}
+                                        {% if not entry.delete_allowed %}
+                                        <div class="small text-muted mt-1">Delete available after {{ entry.delete_allowed_at.strftime('%d/%m/%Y %H:%M') }}</div>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if closure.closure_type == 'bank_holiday' %}
+                                            <span class="badge bg-warning text-dark">Bank Holiday</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Training Day</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{% if closure.notes %}<span class="text-muted">{{ closure.notes }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                                    <td class="text-end">
+                                        <div class="btn-group" role="group">
+                                            <button type="button" class="btn btn-sm btn-primary"
+                                                    data-bs-toggle="modal" data-bs-target="#editSchoolClosureModal"
+                                                    data-closure-id="{{ closure.id }}"
+                                                    data-closure-date="{{ closure.closure_date.strftime('%Y-%m-%d') }}"
+                                                    data-closure-type="{{ closure.closure_type }}"
+                                                    data-closure-notes="{{ closure.notes or '' }}"
+                                                    title="Edit">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            {% if entry.delete_allowed %}
+                                            <button type="button" class="btn btn-sm btn-danger"
+                                                    onclick="showGlobalDeleteConfirm({
+                                                        title: 'Delete Finished School Closed Day',
+                                                        message: 'Delete finished closed day entry',
+                                                        name: '{{ closure.closure_date.strftime('%d/%m/%Y') }}',
+                                                        action: '{{ url_for('delete_school_closure', closure_id=closure.id) }}'
+                                                    })">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-muted text-center py-3">No finished school closed days.</div>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    {% if school_closures_finished and closures_old_deletable.any %}
+                    <button type="button" class="btn btn-danger"
+                            onclick="showGlobalDeleteConfirm({
+                                title: 'Delete Old Finished School Closed Days',
+                                message: 'Delete all finished school closed days that are over 24 hours old?',
+                                warning: 'This action cannot be undone.',
+                                action: '{{ url_for('delete_finished_school_closures_old') }}',
+                                submitLabel: 'Delete Old Closed Days'
+                            })">
+                        <i class="fas fa-trash-alt"></i> Delete Old Finished
+                    </button>
+                    {% endif %}
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit School Term Modal -->
+    <div class="modal fade" id="editSchoolTermModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-edit"></i> Edit School Term</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="POST" id="editSchoolTermForm">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label for="editTermName" class="form-label">Term Name</label>
+                            <input type="text" class="form-control" id="editTermName" name="name" required>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="editTermStartDate" class="form-label">Start Date</label>
+                                <input type="date" class="form-control" id="editTermStartDate" name="start_date" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="editTermEndDate" class="form-label">End Date</label>
+                                <input type="date" class="form-control" id="editTermEndDate" name="end_date" required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit School Closed Day Modal -->
+    <div class="modal fade" id="editSchoolClosureModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fas fa-edit"></i> Edit School Closed Day</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form method="POST" id="editSchoolClosureForm">
+                    <div class="modal-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label for="editClosureDate" class="form-label">Date</label>
+                                <input type="date" class="form-control" id="editClosureDate" name="closure_date" required>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="editClosureType" class="form-label">Type</label>
+                                <select class="form-select" id="editClosureType" name="closure_type" required>
+                                    <option value="bank_holiday">Bank Holiday</option>
+                                    <option value="training_day">Training Day</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <label for="editClosureNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                            <input type="text" class="form-control" id="editClosureNotes" name="notes" maxlength="200">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
 <!-- Edit Time Off Modal -->
 <div class="modal fade" id="editHolidayModal" tabindex="-1" aria-hidden="true">
@@ -1452,4 +1931,45 @@
 
 {% block extra_scripts %}
 <script src="{{ bundle_url('scheduling.bundle.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const editTermModal = document.getElementById('editSchoolTermModal');
+    const editTermForm = document.getElementById('editSchoolTermForm');
+    if (editTermModal && editTermForm) {
+        editTermModal.addEventListener('show.bs.modal', function (event) {
+            const button = event.relatedTarget;
+            if (!button) return;
+
+            const termId = button.getAttribute('data-term-id') || '';
+            const termName = button.getAttribute('data-term-name') || '';
+            const termStart = button.getAttribute('data-term-start') || '';
+            const termEnd = button.getAttribute('data-term-end') || '';
+
+            editTermForm.action = `/scheduling/term/${termId}/edit`;
+            document.getElementById('editTermName').value = termName;
+            document.getElementById('editTermStartDate').value = termStart;
+            document.getElementById('editTermEndDate').value = termEnd;
+        });
+    }
+
+    const editClosureModal = document.getElementById('editSchoolClosureModal');
+    const editClosureForm = document.getElementById('editSchoolClosureForm');
+    if (editClosureModal && editClosureForm) {
+        editClosureModal.addEventListener('show.bs.modal', function (event) {
+            const button = event.relatedTarget;
+            if (!button) return;
+
+            const closureId = button.getAttribute('data-closure-id') || '';
+            const closureDate = button.getAttribute('data-closure-date') || '';
+            const closureType = button.getAttribute('data-closure-type') || 'bank_holiday';
+            const closureNotes = button.getAttribute('data-closure-notes') || '';
+
+            editClosureForm.action = `/scheduling/school-closure/${closureId}/edit`;
+            document.getElementById('editClosureDate').value = closureDate;
+            document.getElementById('editClosureType').value = closureType;
+            document.getElementById('editClosureNotes').value = closureNotes;
+        });
+    }
+});
+</script>
 {% endblock %}

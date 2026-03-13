@@ -754,7 +754,7 @@ function disposeTooltipsIn(containerEl) {
                 return;
             }
 
-            statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>No shift assigned on selected day.</span>';
+            statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is marked as Day Off on selected day.</span>';
         }
 
         async function renderAdjustmentCalendar() {
@@ -1676,6 +1676,8 @@ function escapeHtml(str) {
         // Restore active tab from sessionStorage to preserve tab after form submission
         restoreActiveTab();
 
+        initSchoolCalendarWeekendValidation();
+
         // Activate tab from URL hash
         const hash = window.location.hash;
         if (hash) {
@@ -1688,6 +1690,79 @@ function escapeHtml(str) {
 
         initDriverBlockToggleButtons();
     });
+
+    function isWeekendDate(dateValue) {
+        if (!dateValue) return false;
+        const parsed = new Date(`${dateValue}T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) return false;
+        const day = parsed.getDay();
+        return day === 0 || day === 6;
+    }
+
+    function setWeekendValidity(inputEl, message) {
+        if (!inputEl) return;
+        if (isWeekendDate(inputEl.value)) {
+            inputEl.setCustomValidity(message);
+        } else {
+            inputEl.setCustomValidity('');
+        }
+    }
+
+    function initSchoolCalendarWeekendValidation() {
+        const termForm = document.querySelector('form[action="/scheduling/term/add"]');
+        const closureForm = document.querySelector('form[action="/scheduling/school-closure/add"]');
+
+        const termStartInput = document.getElementById('termStartDate');
+        const termEndInput = document.getElementById('termEndDate');
+        const closureDateInput = document.getElementById('closureDate');
+
+        if (termStartInput) {
+            termStartInput.addEventListener('change', function () {
+                setWeekendValidity(termStartInput, 'Start date cannot be Saturday or Sunday.');
+                termStartInput.reportValidity();
+            });
+        }
+
+        if (termEndInput) {
+            termEndInput.addEventListener('change', function () {
+                setWeekendValidity(termEndInput, 'End date cannot be Saturday or Sunday.');
+                termEndInput.reportValidity();
+            });
+        }
+
+        if (closureDateInput) {
+            closureDateInput.addEventListener('change', function () {
+                setWeekendValidity(closureDateInput, 'Closure date cannot be Saturday or Sunday.');
+                closureDateInput.reportValidity();
+            });
+        }
+
+        if (termForm) {
+            termForm.addEventListener('submit', function (e) {
+                setWeekendValidity(termStartInput, 'Start date cannot be Saturday or Sunday.');
+                setWeekendValidity(termEndInput, 'End date cannot be Saturday or Sunday.');
+
+                if ((termStartInput && !termStartInput.checkValidity()) || (termEndInput && !termEndInput.checkValidity())) {
+                    e.preventDefault();
+                    termStartInput && termStartInput.reportValidity();
+                    termEndInput && termEndInput.reportValidity();
+                    showPageAlert('Weekend dates are not allowed in School Calendar entries.', 'danger');
+                }
+            });
+        }
+
+        if (closureForm) {
+            closureForm.addEventListener('submit', function (e) {
+                setWeekendValidity(closureDateInput, 'Closure date cannot be Saturday or Sunday.');
+
+                if (closureDateInput && !closureDateInput.checkValidity()) {
+                    e.preventDefault();
+                    closureDateInput.reportValidity();
+                    showPageAlert('Weekend dates are not allowed in School Calendar entries.', 'danger');
+                }
+            });
+        }
+    }
 
     function initDriverBlockToggleButtons() {
         const buttons = document.querySelectorAll('.toggle-driver-blocks-btn');

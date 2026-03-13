@@ -61,6 +61,7 @@
                         <th scope="col">Name</th>
                         <th scope="col">Time</th>
                         <th scope="col">Group Under</th>
+                        <th scope="col">School Term Only</th>
                         <th scope="col">Used in Patterns</th>
                         <th scope="col" class="text-end">Actions</th>
                     </tr>
@@ -100,6 +101,13 @@
                                 {{ timing.get_parent_display_label() }}
                             {% else %}
                                 <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if timing.school_term_only %}
+                                <span class="badge bg-warning text-dark">Term Only</span>
+                            {% else %}
+                                <span class="text-muted">No</span>
                             {% endif %}
                         </td>
                         <td>
@@ -144,6 +152,7 @@
     <input type="hidden" name="{{ timing.shift_type }}_start" value="{{ timing.start_time.strftime('%H:%M') }}">
     <input type="hidden" name="{{ timing.shift_type }}_end" value="{{ timing.end_time.strftime('%H:%M') }}">
     {% if timing.parent_shift_type %}<input type="hidden" name="{{ timing.shift_type }}_parent" value="{{ timing.parent_shift_type }}">{% endif %}
+    <input type="hidden" name="{{ timing.shift_type }}_school_term_only" value="{{ '1' if timing.school_term_only else '0' }}">
     {% endfor %}
 </form>
 
@@ -472,6 +481,13 @@
                         </div>
                     </div>
 
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="add_shift_school_term_only" name="school_term_only" value="1">
+                        <label class="form-check-label" for="add_shift_school_term_only">
+                            Term-time only shift
+                        </label>
+                    </div>
+
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle"></i>
                         End time can be next day if earlier than start time.
@@ -551,6 +567,13 @@
                             </select>
                             <small class="text-muted">Sub-shifts appear grouped under their parent on daily sheets</small>
                         </div>
+                    </div>
+
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="edit_shift_school_term_only" name="school_term_only" value="1">
+                        <label class="form-check-label" for="edit_shift_school_term_only">
+                            Term-time only shift
+                        </label>
                     </div>
 
                     <div class="alert alert-info">

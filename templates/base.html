@@ -93,6 +93,11 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if current_endpoint == 'extra_cars' %}active{% endif %}" href="{{ url_for('extra_cars') }}" {% if current_endpoint == 'extra_cars' %}aria-current="page"{% endif %}>
+                            <i class="fas fa-car-side"></i> Extra Cars
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if current_endpoint in ['daily_sheet_form', 'generate_daily_sheet', 'daily_sheet', 'print_daily_sheet'] %}active{% endif %}" href="{{ url_for('daily_sheet_form') }}" {% if current_endpoint in ['daily_sheet_form', 'generate_daily_sheet', 'daily_sheet', 'print_daily_sheet'] %}aria-current="page"{% endif %}>
                             <i class="fas fa-calendar-day"></i> Daily Sheet
                         </a>
@@ -100,11 +105,6 @@
                     <li class="nav-item">
                         <a class="nav-link {% if current_endpoint == 'cars_working' %}active{% endif %}" href="{{ url_for('cars_working') }}" {% if current_endpoint == 'cars_working' %}aria-current="page"{% endif %}>
                             <i class="fas fa-car"></i> Cars Working
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if current_endpoint == 'extra_cars' %}active{% endif %}" href="{{ url_for('extra_cars') }}" {% if current_endpoint == 'extra_cars' %}aria-current="page"{% endif %}>
-                            <i class="fas fa-car-side"></i> Extra Cars
                         </a>
                     </li>
                     <li class="nav-item">

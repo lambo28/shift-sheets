@@ -587,7 +587,7 @@ function disposeTooltipsIn(containerEl) {
                 return;
             }
 
-            statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>No shift assigned on selected day.</span>';
+            statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is marked as Day Off on selected day.</span>';
         }
 
         async function renderAdjustmentCalendar() {
