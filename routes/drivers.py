@@ -5,6 +5,7 @@ from extensions import db
 from models import Driver, ShiftPattern, ShiftTiming
 from utils import (
     serialize_driver_assignment_items, get_custom_timing_affected_pattern_ids,
+    is_ajax_request,
 )
 
 
@@ -51,7 +52,7 @@ def register(app):
     @app.route("/driver/add", methods=["GET", "POST"])
     def add_driver():
         """Add new driver"""
-        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        is_ajax = is_ajax_request()
 
         if request.method == "GET":
             return redirect(url_for("drivers"))
@@ -88,7 +89,7 @@ def register(app):
     def edit_driver(driver_id):
         """Edit existing driver"""
         driver = db.get_or_404(Driver, driver_id)
-        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        is_ajax = is_ajax_request()
 
         if request.method == "GET":
             return redirect(url_for("drivers"))
@@ -122,7 +123,7 @@ def register(app):
     def delete_driver(driver_id):
         """Delete driver"""
         driver = db.get_or_404(Driver, driver_id)
-        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        is_ajax = is_ajax_request()
 
         try:
             db.session.delete(driver)

@@ -5,6 +5,7 @@ from extensions import db
 from models import Driver, ShiftPattern, DriverAssignment
 from utils import (
     parse_date_string, parse_optional_int, serialize_driver_assignment_items,
+    is_ajax_request,
 )
 
 
@@ -16,7 +17,7 @@ def register(app):
         patterns = ShiftPattern.query.all()
 
         if request.method == "POST":
-            is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+            is_ajax = is_ajax_request()
             start_date = parse_date_string(request.form.get("start_date"))
             end_date = parse_date_string(request.form.get("end_date")) if request.form.get("end_date") else None
             pattern_id = parse_optional_int(request.form.get("pattern_id"))
@@ -123,7 +124,7 @@ def register(app):
         """End an active driver assignment"""
         driver = db.get_or_404(Driver, driver_id)
         assignment = db.get_or_404(DriverAssignment, assignment_id)
-        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        is_ajax = is_ajax_request()
 
         # Verify the assignment belongs to this driver
         if assignment.driver_id != driver_id:
@@ -203,7 +204,7 @@ def register(app):
         """Edit an existing driver assignment"""
         driver = db.get_or_404(Driver, driver_id)
         assignment = db.get_or_404(DriverAssignment, assignment_id)
-        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        is_ajax = is_ajax_request()
 
         if assignment.driver_id != driver_id:
             if is_ajax:
@@ -328,7 +329,7 @@ def register(app):
         """Delete a driver assignment completely"""
         driver = db.get_or_404(Driver, driver_id)
         assignment = db.get_or_404(DriverAssignment, assignment_id)
-        is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        is_ajax = is_ajax_request()
 
         # Verify the assignment belongs to this driver
         if assignment.driver_id != driver_id:

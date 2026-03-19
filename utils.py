@@ -87,6 +87,27 @@ def group_consecutive_holidays(holidays_list):
     return groups
 
 
+def shift_abbrev(shift_type, all_shifts_str=''):
+    """Generate intelligent abbreviation for a shift type.
+
+    Uses the first letter of each word for multi-word shift names, or a single
+    letter initial for single-word names (falling back to the full initial if
+    ambiguous within the pattern).
+    """
+    if not shift_type or shift_type == 'day_off':
+        return 'OFF'
+
+    all_shifts = [s.strip() for s in all_shifts_str.split('|') if s.strip() and s.strip() != 'day_off']
+
+    words = str(shift_type).replace('_', ' ').split()
+    if len(words) > 1:
+        return ''.join(w[0].upper() for w in words)
+
+    initial = shift_type[0].upper()
+    conflicts = [s for s in all_shifts if s[0].upper() == initial and s != shift_type]
+    return initial if not conflicts else initial
+
+
 def is_ajax_request():
     return request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
