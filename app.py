@@ -1864,14 +1864,6 @@ def validate_extra_car_assignment(driver, request, proposed_start_dt, proposed_e
     suggested_start = proposed_start_dt
     suggested_end = proposed_end_dt
 
-    min_assignment_hours = EXTRA_CAR_MIN_PARTIAL_HOURS
-    proposed_duration_hours = (proposed_end_dt - proposed_start_dt).total_seconds() / 3600
-    if proposed_duration_hours < min_assignment_hours:
-        errors.append(
-            f"Driver assignment must be at least {min_assignment_hours:g} hours."
-        )
-        return False, errors, suggested_start, suggested_end
-
     # -----------------------------------------------------------------------
     # Step 1: Detect overlap with existing work and compute net-new window
     # -----------------------------------------------------------------------
@@ -1995,13 +1987,6 @@ def validate_extra_car_assignment(driver, request, proposed_start_dt, proposed_e
         ]
         suggested_start = None
         suggested_end = None
-
-    if suggested_start and suggested_end:
-        suggested_duration_hours = (suggested_end - suggested_start).total_seconds() / 3600
-        if suggested_duration_hours < min_assignment_hours:
-            errors.append(
-                f"Driver assignment must be at least {min_assignment_hours:g} hours."
-            )
 
     # -----------------------------------------------------------------------
     # Step 3: Max hours in any rolling 24-hour window
