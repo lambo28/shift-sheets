@@ -35,41 +35,34 @@ class Driver(db.Model):
     electric_vehicle = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=utc_now)
 
-    # Relationships
     assignments = db.relationship('DriverAssignment', backref='driver', lazy=True, cascade='all, delete-orphan')
 
-    # Helper method to format name in "A. Someone" style
     def formatted_name(self):
+        """Return name formatted as 'A. Surname' (first-initial + title-cased surname)."""
         parts = self.name.strip().split()
         if len(parts) >= 2:
-            first_initial = parts[0][0].upper() + '.'
-            last_name = ' '.join(parts[1:]).title()
-            return f"{first_initial} {last_name}"
+            return f"{parts[0][0].upper()}. {' '.join(parts[1:]).title()}"
         return self.name.title()
 
-    # Helper method to format driver number (remove leading zeros)
     def formatted_driver_number(self):
+        """Return driver number with leading zeros stripped."""
         try:
             return str(int(self.driver_number))
         except (ValueError, TypeError):
             return self.driver_number
 
-    # Get current active assignment
     def get_current_assignment(self, target_date=None):
-        """Get the driver's current shift pattern assignment"""
+        """Return the active DriverAssignment for *target_date* (defaults to today)."""
         if not target_date:
             target_date = datetime.now().date()
-
-        assignment = DriverAssignment.query.filter(
+        return DriverAssignment.query.filter(
             DriverAssignment.driver_id == self.id,
             DriverAssignment.start_date <= target_date,
             db.or_(
                 DriverAssignment.end_date.is_(None),
-                DriverAssignment.end_date >= target_date
-            )
+                DriverAssignment.end_date >= target_date,
+            ),
         ).first()
-
-        return assignment
 
 
 class ShiftPattern(db.Model):
@@ -95,27 +88,23 @@ class ShiftPattern(db.Model):
         normalized_pattern = [compact_day_shifts(day_entry) for day_entry in pattern_list]
         self.pattern_data = json.dumps(normalized_pattern)
 
-    # Get count of unique drivers assigned to this pattern
     def get_unique_driver_count(self):
-        unique_driver_ids = set()
-        for assignment in self.assignments:
-            unique_driver_ids.add(assignment.driver_id)
-        return len(unique_driver_ids)
+        """Count the number of distinct drivers assigned to this pattern."""
+        return len({a.driver_id for a in self.assignments})
 
-    # Get unique assigned drivers sorted by numeric driver number
     def get_unique_assigned_drivers_sorted(self):
+        """Return active/scheduled drivers for this pattern sorted by driver number."""
         today = datetime.now().date()
-        unique_drivers = {}
-        for assignment in self.assignments:
-            is_active_or_scheduled = assignment.end_date is None or assignment.end_date >= today
-            if assignment.driver and is_active_or_scheduled:
-                unique_drivers[assignment.driver.id] = assignment.driver
+        unique_drivers = {
+            a.driver.id: a.driver
+            for a in self.assignments
+            if a.driver and (a.end_date is None or a.end_date >= today)
+        }
 
         def sort_key(driver):
             try:
-                numeric_driver_number = int(driver.driver_number)
-                return (0, numeric_driver_number, driver.driver_number)
-            except Exception:
+                return (0, int(driver.driver_number), driver.driver_number)
+            except (ValueError, TypeError):
                 return (1, 0, driver.driver_number)
 
         return sorted(unique_drivers.values(), key=sort_key)

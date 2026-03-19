@@ -343,16 +343,10 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_s
             'is_extra': False,
         }
 
-    school_term_day_allowed = None
+    school_term_day_cache: dict = {}
 
     def is_shift_allowed_for_date(shift_type):
-        nonlocal school_term_day_allowed
-        timing = timings_dict.get(shift_type)
-        if not timing or not timing.school_term_only:
-            return True
-        if school_term_day_allowed is None:
-            school_term_day_allowed = is_school_term_operational_day(target_date)
-        return school_term_day_allowed
+        return _is_shift_type_allowed_on_date(shift_type, timings_dict, target_date, school_term_day_cache)
 
     if is_driver_on_holiday(driver.id, target_date):
         return finalize_entries([])
@@ -575,16 +569,10 @@ def get_driver_adjustment_time_window(driver, target_date, timings_dict=None):
         # Give-up day becomes a day off, no adjustment window
         return None, None
 
-    school_term_day_allowed = None
+    school_term_day_cache: dict = {}
 
     def is_shift_allowed_for_date(shift_type):
-        nonlocal school_term_day_allowed
-        timing = timings_dict.get(shift_type)
-        if not timing or not timing.school_term_only:
-            return True
-        if school_term_day_allowed is None:
-            school_term_day_allowed = is_school_term_operational_day(target_date)
-        return school_term_day_allowed
+        return _is_shift_type_allowed_on_date(shift_type, timings_dict, target_date, school_term_day_cache)
 
     assignments = DriverAssignment.query.filter(
         DriverAssignment.driver_id == driver.id,
@@ -970,6 +958,21 @@ def is_school_closed_day(target_date):
 def is_school_term_operational_day(target_date):
     """Return True when date is in term time and not a closed day."""
     return is_date_in_school_term(target_date) and not is_school_closed_day(target_date)
+
+
+def _is_shift_type_allowed_on_date(shift_type, timings_dict, target_date, _school_term_cache):
+    """Return True when shift_type may operate on target_date.
+
+    Shifts marked ``school_term_only`` are suppressed on non-term or closed days.
+    Pass a mutable dict as *_school_term_cache* so the term-status lookup is done
+    at most once per call site.
+    """
+    timing = timings_dict.get(shift_type)
+    if not timing or not timing.school_term_only:
+        return True
+    if 'result' not in _school_term_cache:
+        _school_term_cache['result'] = is_school_term_operational_day(target_date)
+    return _school_term_cache['result']
 
 
 def school_term_finished_at(term):
