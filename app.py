@@ -1,6 +1,6 @@
 # app.py – Application factory and wiring
 
-from flask import Flask, jsonify
+from flask import Flask
 from sqlalchemy import text
 from datetime import datetime
 import os
@@ -58,6 +58,59 @@ app.config.from_object(config[config_name])
 os.makedirs(app.config.get('BASE_DIR') / 'data', exist_ok=True)
 
 db.init_app(app)
+
+
+def _ensure_columns(table_name, existing_columns, column_definitions):
+    for column_name, column_sql in column_definitions:
+        if column_name not in existing_columns:
+            db.session.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}"))
+
+
+def _run_startup_migrations():
+    shift_timing_columns = {
+        row[1]
+        for row in db.session.execute(text("PRAGMA table_info(shift_timing)")).fetchall()
+    }
+    _ensure_columns(
+        "shift_timing",
+        shift_timing_columns,
+        (
+            ("display_name", "display_name VARCHAR(100)"),
+            ("badge_color", "badge_color VARCHAR(50) DEFAULT 'bg-primary'"),
+            ("icon", "icon VARCHAR(100) DEFAULT 'fas fa-clock'"),
+            ("parent_shift_type", "parent_shift_type VARCHAR(50)"),
+            ("school_term_only", "school_term_only BOOLEAN DEFAULT 0"),
+        ),
+    )
+
+    shift_swap_columns = {
+        row[1]
+        for row in db.session.execute(text("PRAGMA table_info(shift_swap)")).fetchall()
+    }
+    _ensure_columns(
+        "shift_swap",
+        shift_swap_columns,
+        (("work_shift_type", "work_shift_type VARCHAR(50)"),),
+    )
+
+    db.session.execute(
+        text(
+            """
+            DELETE FROM shift_swap
+            WHERE driver_a_id != driver_b_id OR work_shift_type IS NULL OR TRIM(work_shift_type) = ''
+            """
+        )
+    )
+    db.session.execute(
+        text(
+            """
+            UPDATE shift_timing
+            SET display_name = REPLACE(shift_type, '_', ' ')
+            WHERE display_name IS NULL OR TRIM(display_name) = ''
+            """
+        )
+    )
+    db.session.commit()
 
 # -----------------------------------------------------------------------------
 # Template Filters
@@ -118,48 +171,7 @@ extra_cars.register(app)
 
 with app.app_context():
     db.create_all()
-
-    existing_columns = {
-        row[1]
-        for row in db.session.execute(text("PRAGMA table_info(shift_timing)")).fetchall()
-    }
-
-    if 'display_name' not in existing_columns:
-        db.session.execute(text("ALTER TABLE shift_timing ADD COLUMN display_name VARCHAR(100)"))
-    if 'badge_color' not in existing_columns:
-        db.session.execute(text("ALTER TABLE shift_timing ADD COLUMN badge_color VARCHAR(50) DEFAULT 'bg-primary'"))
-    if 'icon' not in existing_columns:
-        db.session.execute(text("ALTER TABLE shift_timing ADD COLUMN icon VARCHAR(100) DEFAULT 'fas fa-clock'"))
-    if 'parent_shift_type' not in existing_columns:
-        db.session.execute(text("ALTER TABLE shift_timing ADD COLUMN parent_shift_type VARCHAR(50)"))
-    if 'school_term_only' not in existing_columns:
-        db.session.execute(text("ALTER TABLE shift_timing ADD COLUMN school_term_only BOOLEAN DEFAULT 0"))
-
-    shift_swap_columns = {
-        row[1]
-        for row in db.session.execute(text("PRAGMA table_info(shift_swap)")).fetchall()
-    }
-    if 'work_shift_type' not in shift_swap_columns:
-        db.session.execute(text("ALTER TABLE shift_swap ADD COLUMN work_shift_type VARCHAR(50)"))
-
-    db.session.execute(
-        text(
-            """
-            DELETE FROM shift_swap
-            WHERE driver_a_id != driver_b_id OR work_shift_type IS NULL OR TRIM(work_shift_type) = ''
-            """
-        )
-    )
-    db.session.execute(
-        text(
-            """
-            UPDATE shift_timing
-            SET display_name = REPLACE(shift_type, '_', ' ')
-            WHERE display_name IS NULL OR TRIM(display_name) = ''
-            """
-        )
-    )
-    db.session.commit()
+    _run_startup_migrations()
 
 # -----------------------------------------------------------------------------
 # Entry Point

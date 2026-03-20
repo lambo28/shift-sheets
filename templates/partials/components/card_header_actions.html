@@ -1,0 +1,8 @@
+<div class="card-header d-flex justify-content-between align-items-center{% if card_header_actions_class %} {{ card_header_actions_class }}{% endif %}">
+    <h5 class="mb-0">
+        {% if card_icon %}<i class="{{ card_icon }}"></i> {% endif %}{{ card_title }}
+    </h5>
+    <div class="d-flex gap-2 align-items-center">
+        {{ card_actions_html|safe }}
+    </div>
+</div>

@@ -1,4 +1,4 @@
-from flask import render_template, request, redirect, url_for, flash, jsonify
+from flask import render_template, request, redirect, url_for, flash
 from datetime import datetime, timedelta
 
 from extensions import db
@@ -11,6 +11,29 @@ from utils import (
 
 
 def register(app):
+    def _parse_target_date(value):
+        try:
+            return datetime.strptime(value, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            flash("Invalid date format", "error")
+            return None
+
+    def _build_daily_sheet_context(target_date):
+        drivers_by_shift = get_drivers_for_date(target_date)
+        all_timings = ShiftTiming.query.order_by(ShiftTiming.start_time, ShiftTiming.shift_type).all()
+        timings = {timing.shift_type: timing for timing in all_timings}
+        total_drivers = len({
+            info['driver'].id
+            for drivers_list in drivers_by_shift.values()
+            for info in drivers_list
+        })
+        return {
+            "target_date": target_date,
+            "drivers_by_shift": drivers_by_shift,
+            "timings": timings,
+            "total_drivers": total_drivers,
+        }
+
     @app.route("/")
     def index():
         """Main dashboard"""
@@ -54,44 +77,24 @@ def register(app):
         """Generate daily shift sheet for a specific date"""
         target_date_str = request.form.get("target_date")
 
-        try:
-            target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
-        except (ValueError, TypeError):
-            flash("Invalid date format", "error")
+        target_date = _parse_target_date(target_date_str)
+        if not target_date:
             return redirect(url_for("daily_sheet_form"))
 
-        drivers_by_shift = get_drivers_for_date(target_date)
-        all_timings = ShiftTiming.query.order_by(ShiftTiming.start_time, ShiftTiming.shift_type).all()
-        timings = {timing.shift_type: timing for timing in all_timings}
-        total_drivers = len({info['driver'].id for drivers_list in drivers_by_shift.values() for info in drivers_list})
-
-        return render_template("daily_sheet.html",
-                             target_date=target_date,
-                             drivers_by_shift=drivers_by_shift,
-                             timings=timings,
-                             total_drivers=total_drivers)
+        context = _build_daily_sheet_context(target_date)
+        return render_template("daily_sheet.html", **context)
 
     @app.route("/daily-sheet/print")
     def print_daily_sheet():
         """Print-friendly daily shift sheet"""
         target_date_str = request.args.get("date")
 
-        try:
-            target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
-        except (ValueError, TypeError):
-            flash("Invalid date format", "error")
+        target_date = _parse_target_date(target_date_str)
+        if not target_date:
             return redirect(url_for("daily_sheet_form"))
 
-        drivers_by_shift = get_drivers_for_date(target_date)
-        all_timings = ShiftTiming.query.order_by(ShiftTiming.start_time, ShiftTiming.shift_type).all()
-        timings = {timing.shift_type: timing for timing in all_timings}
-        total_drivers = len({info['driver'].id for drivers_list in drivers_by_shift.values() for info in drivers_list})
-
-        return render_template("print_daily_sheet.html",
-                             target_date=target_date,
-                             drivers_by_shift=drivers_by_shift,
-                             timings=timings,
-                             total_drivers=total_drivers)
+        context = _build_daily_sheet_context(target_date)
+        return render_template("print_daily_sheet.html", **context)
 
     @app.route("/cars-working", methods=["GET", "POST"])
     def cars_working():
@@ -117,7 +120,7 @@ def register(app):
                                      car_count=car_count,
                                      timings=all_timings_dict)
             except Exception as e:
-                flash(f"Error calculating cars working: {str(e)}", "error")
+                flash(f"Error calculating cars working: {e}", "error")
 
         return render_template("cars_working.html", timings=all_timings_dict)
 

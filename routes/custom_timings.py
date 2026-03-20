@@ -1,4 +1,4 @@
-from flask import render_template, request, redirect, url_for, flash, jsonify
+from flask import request, flash, jsonify
 from datetime import datetime, timedelta
 from sqlalchemy import and_, or_
 
@@ -6,7 +6,8 @@ from extensions import db
 from models import Driver, ShiftTiming, DriverCustomTiming, DriverAssignment, DriverHoliday, ShiftAdjustment, ShiftSwap
 from utils import (
     json_success, json_error, is_ajax_request,
-    parse_optional_int, parse_time_string,
+    parse_optional_int, parse_time_string, parse_month_start,
+    validation_error_response,
     redirect_to_driver_custom_timings_panel,
     get_driver_shifts_for_date, shift_label,
 )
@@ -24,67 +25,69 @@ def register(app):
         """Add a new custom timing for a driver"""
         driver = db.get_or_404(Driver, driver_id)
 
-        if request.method == "POST":
-            try:
-                # Parse form data
-                assignment_id = parse_optional_int(request.form.get("assignment_id"))
-                shift_type = request.form.get("shift_type") or None
-                day_of_cycle = request.form.get("day_of_cycle")
-                day_of_week = request.form.get("day_of_week") or None
-                start_time_str = request.form.get("start_time")
-                end_time_str = request.form.get("end_time")
-                priority = parse_optional_int(request.form.get("priority")) or 100
-                notes = request.form.get("notes")
+        if request.method != "POST":
+            return redirect_to_driver_custom_timings_panel(driver_id)
 
-                # Convert and validate fields
-                start_time = parse_time_string(start_time_str)
-                end_time = parse_time_string(end_time_str)
-                day_of_cycle = parse_optional_int(day_of_cycle)
-                day_of_week = parse_optional_int(day_of_week)
+        try:
+            # Parse form data
+            assignment_id = parse_optional_int(request.form.get("assignment_id"))
+            shift_type = request.form.get("shift_type") or None
+            day_of_cycle = request.form.get("day_of_cycle")
+            day_of_week = request.form.get("day_of_week") or None
+            start_time_str = request.form.get("start_time")
+            end_time_str = request.form.get("end_time")
+            priority = parse_optional_int(request.form.get("priority")) or 100
+            notes = request.form.get("notes")
 
-                # Validate that at least one time override is provided, or a notes entry is given
-                if start_time_str and not start_time:
-                    flash("Invalid start time format", "error")
-                    return redirect_to_driver_custom_timings_panel(driver_id)
+            # Convert and validate fields
+            start_time = parse_time_string(start_time_str)
+            end_time = parse_time_string(end_time_str)
+            day_of_cycle = parse_optional_int(day_of_cycle)
+            day_of_week = parse_optional_int(day_of_week)
 
-                if end_time_str and not end_time:
-                    flash("Invalid end time format", "error")
-                    return redirect_to_driver_custom_timings_panel(driver_id)
-
-                if priority is None:
-                    flash("Invalid priority", "error")
-                    return redirect_to_driver_custom_timings_panel(driver_id)
-
-                if day_of_week is not None and (day_of_week < 0 or day_of_week > 6):
-                    flash("Day of week must be between 0 and 6", "error")
-                    return redirect_to_driver_custom_timings_panel(driver_id)
-
-                if day_of_cycle is not None and day_of_cycle < 0:
-                    flash("Day of cycle must be 0 or greater", "error")
-                    return redirect_to_driver_custom_timings_panel(driver_id)
-
-                # Create timing
-                timing = DriverCustomTiming(
-                    driver_id=driver_id,
-                    assignment_id=assignment_id,
-                    shift_type=shift_type,
-                    day_of_cycle=day_of_cycle,
-                    day_of_week=day_of_week,
-                    start_time=start_time,
-                    end_time=end_time,
-                    priority=priority,
-                    notes=notes
-                )
-
-                db.session.add(timing)
-                db.session.commit()
-                flash("Custom timing added successfully!", "success")
+            # Validate that at least one time override is provided, or a notes entry is given
+            if start_time_str and not start_time:
+                flash("Invalid start time format", "error")
                 return redirect_to_driver_custom_timings_panel(driver_id)
 
-            except Exception as e:
-                db.session.rollback()
-                flash(f"Error adding custom timing: {str(e)}", "error")
+            if end_time_str and not end_time:
+                flash("Invalid end time format", "error")
                 return redirect_to_driver_custom_timings_panel(driver_id)
+
+            if priority is None:
+                flash("Invalid priority", "error")
+                return redirect_to_driver_custom_timings_panel(driver_id)
+
+            if day_of_week is not None and (day_of_week < 0 or day_of_week > 6):
+                flash("Day of week must be between 0 and 6", "error")
+                return redirect_to_driver_custom_timings_panel(driver_id)
+
+            if day_of_cycle is not None and day_of_cycle < 0:
+                flash("Day of cycle must be 0 or greater", "error")
+                return redirect_to_driver_custom_timings_panel(driver_id)
+
+            # Create timing
+            timing = DriverCustomTiming(
+                driver_id=driver_id,
+                assignment_id=assignment_id,
+                shift_type=shift_type,
+                day_of_cycle=day_of_cycle,
+                day_of_week=day_of_week,
+                start_time=start_time,
+                end_time=end_time,
+                priority=priority,
+                notes=notes
+            )
+
+            db.session.add(timing)
+            db.session.commit()
+            flash("Custom timing added successfully!", "success")
+            return redirect_to_driver_custom_timings_panel(driver_id)
+
+        except Exception as e:
+            db.session.rollback()
+            flash(f"Error adding custom timing: {e}", "error")
+            return redirect_to_driver_custom_timings_panel(driver_id)
 
         return redirect_to_driver_custom_timings_panel(driver_id)
 
@@ -108,9 +111,9 @@ def register(app):
 
             # Return JSON error if AJAX request
             if is_ajax_request():
-                return json_error(f"Error deleting timing: {str(e)}")
+                return json_error(f"Error deleting timing: {e}")
 
-            flash(f"Error deleting timing: {str(e)}", "error")
+            flash(f"Error deleting timing: {e}", "error")
 
         return redirect_to_driver_custom_timings_panel(driver_id)
 
@@ -152,59 +155,41 @@ def register(app):
                     day_of_week_mode = "override"
 
             # Validate times: logic depends on day_of_week and shift_type
+            redirect_factory = lambda: redirect_to_driver_custom_timings_panel(driver_id)
             if start_time_str and not start_time:
-                error_msg = "Invalid start time format"
-                if is_ajax_request():
-                    return json_error(error_msg)
-                flash(error_msg, "error")
+                return validation_error_response("Invalid start time format", redirect_factory=redirect_factory)
             elif end_time_str and not end_time:
-                error_msg = "Invalid end time format"
-                if is_ajax_request():
-                    return json_error(error_msg)
-                flash(error_msg, "error")
+                return validation_error_response("Invalid end time format", redirect_factory=redirect_factory)
             elif day_of_week is not None and override_shift and (start_time or end_time):
-                error_msg = "Choose either Override Shift, Day Off, or Custom Times for a day-of-week rule, not both"
-                if is_ajax_request():
-                    return json_error(error_msg)
-                flash(error_msg, "error")
+                return validation_error_response(
+                    "Choose either Override Shift, Day Off, or Custom Times for a day-of-week rule, not both",
+                    redirect_factory=redirect_factory,
+                )
             elif (day_of_week is None or not override_shift) and not start_time and not end_time:
                 if day_of_week is not None and not override_shift:
-                    error_msg = "When selecting custom times for a day-of-week rule, you must enter at least one time"
-                else:
-                    error_msg = "You must enter either a start time, end time, or both"
-                if is_ajax_request():
-                    return json_error(error_msg)
-                flash(error_msg, "error")
+                    return validation_error_response(
+                        "When selecting custom times for a day-of-week rule, you must enter at least one time",
+                        redirect_factory=redirect_factory,
+                    )
+                return validation_error_response(
+                    "You must enter either a start time, end time, or both",
+                    redirect_factory=redirect_factory,
+                )
             elif priority is None:
-                error_msg = "Priority must be a number between 1 and 7"
-                if is_ajax_request():
-                    return json_error(error_msg)
-                flash(error_msg, "error")
+                return validation_error_response("Priority must be a number between 1 and 7", redirect_factory=redirect_factory)
             elif priority < 1 or priority > 7:
-                error_msg = "Priority must be between 1 and 7"
-                if is_ajax_request():
-                    return json_error(error_msg)
-                flash(error_msg, "error")
+                return validation_error_response("Priority must be between 1 and 7", redirect_factory=redirect_factory)
             elif day_of_week is not None and (day_of_week < 0 or day_of_week > 6):
-                error_msg = "Day of week must be between 0 and 6"
-                if is_ajax_request():
-                    return json_error(error_msg)
-                flash(error_msg, "error")
+                return validation_error_response("Day of week must be between 0 and 6", redirect_factory=redirect_factory)
             elif day_of_cycle is not None and day_of_cycle < 0:
-                error_msg = "Day of cycle must be 0 or greater"
-                if is_ajax_request():
-                    return json_error(error_msg)
-                flash(error_msg, "error")
+                return validation_error_response("Day of cycle must be 0 or greater", redirect_factory=redirect_factory)
             elif assignment_id is not None and not assignment:
-                error_msg = "Invalid assignment selected"
-                if is_ajax_request():
-                    return json_error(error_msg)
-                flash(error_msg, "error")
+                return validation_error_response("Invalid assignment selected", redirect_factory=redirect_factory)
             elif assignment is not None and day_of_week is None and day_of_cycle is not None and shift_type:
-                error_msg = "When an assignment is selected, choose either Cycle Day or Shift Type, not both."
-                if is_ajax_request():
-                    return json_error(error_msg)
-                flash(error_msg, "error")
+                return validation_error_response(
+                    "When an assignment is selected, choose either Cycle Day or Shift Type, not both.",
+                    redirect_factory=redirect_factory,
+                )
             else:
                 timing.assignment_id = assignment_id
                 timing.shift_type = shift_type
@@ -224,7 +209,7 @@ def register(app):
 
         except Exception as e:
             db.session.rollback()
-            error_msg = f"Error updating custom timing: {str(e)}"
+            error_msg = f"Error updating custom timing: {e}"
             if is_ajax_request():
                 return json_error(error_msg)
             flash(error_msg, "error")
@@ -270,15 +255,9 @@ def register(app):
     def get_driver_calendar_data(driver_id):
         driver = db.get_or_404(Driver, driver_id)
 
-        month_param = request.args.get("month", "").strip()
-        if month_param:
-            try:
-                month_start = datetime.strptime(month_param, "%Y-%m").date().replace(day=1)
-            except ValueError:
-                return json_error("Invalid month format. Use YYYY-MM")
-        else:
-            today = datetime.now().date()
-            month_start = today.replace(day=1)
+        month_start, month_error = parse_month_start(request.args.get("month", ""))
+        if month_error:
+            return json_error(month_error)
 
         next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
         month_days = (next_month - month_start).days
@@ -411,15 +390,9 @@ def register(app):
     @app.route("/scheduling/calendar-view")
     def scheduling_calendar_view():
         """Get all drivers' time off for calendar view (AJAX)"""
-        month_param = request.args.get("month", "").strip()
-        if month_param:
-            try:
-                month_start = datetime.strptime(month_param, "%Y-%m").date().replace(day=1)
-            except ValueError:
-                return json_error("Invalid month format. Use YYYY-MM")
-        else:
-            today = datetime.now().date()
-            month_start = today.replace(day=1)
+        month_start, month_error = parse_month_start(request.args.get("month", ""))
+        if month_error:
+            return json_error(month_error)
 
         next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
 

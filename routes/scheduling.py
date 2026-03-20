@@ -8,6 +8,8 @@ from models import (
 )
 from utils import (
     json_success, json_error,
+    validation_error_response,
+    validation_errors_response,
     parse_date_string, parse_time_string, parse_positive_int,
     validate_adjustment_time, validate_swap,
     group_consecutive_holidays,
@@ -20,6 +22,13 @@ from utils import (
 
 
 def register(app):
+    def _scheduling_redirect(message, category="error"):
+        return validation_error_response(
+            message,
+            redirect_factory=lambda: redirect(url_for("scheduling")),
+            category=category,
+        )
+
     @app.route("/scheduling")
     def scheduling():
         """Scheduling management: holidays, one-off adjustments, shift swaps."""
@@ -338,20 +347,16 @@ def register(app):
         end_date = parse_date_string((request.form.get("end_date") or "").strip())
 
         if not name:
-            flash("Please enter a term name.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Please enter a term name.")
 
         if not start_date or not end_date:
-            flash("Please provide valid start and end dates for the term.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Please provide valid start and end dates for the term.")
 
         if end_date < start_date:
-            flash("Term end date must be on or after the start date.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Term end date must be on or after the start date.")
 
         if start_date.weekday() >= 5 or end_date.weekday() >= 5:
-            flash("School term start/end dates cannot be on Saturday or Sunday.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("School term start/end dates cannot be on Saturday or Sunday.")
 
         db.session.add(SchoolTerm(name=name, start_date=start_date, end_date=end_date))
         db.session.commit()
@@ -364,8 +369,7 @@ def register(app):
         term = db.get_or_404(SchoolTerm, term_id)
         now_dt = datetime.now()
         if now_dt > school_term_finished_at(term) and now_dt < school_term_delete_allowed_at(term):
-            flash("Finished school terms can be deleted 24 hours after they finish.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Finished school terms can be deleted 24 hours after they finish.")
 
         db.session.delete(term)
         db.session.commit()
@@ -382,20 +386,16 @@ def register(app):
         end_date = parse_date_string((request.form.get("end_date") or "").strip())
 
         if not name:
-            flash("Please enter a term name.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Please enter a term name.")
 
         if not start_date or not end_date:
-            flash("Please provide valid start and end dates for the term.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Please provide valid start and end dates for the term.")
 
         if end_date < start_date:
-            flash("Term end date must be on or after the start date.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Term end date must be on or after the start date.")
 
         if start_date.weekday() >= 5 or end_date.weekday() >= 5:
-            flash("School term start/end dates cannot be on Saturday or Sunday.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("School term start/end dates cannot be on Saturday or Sunday.")
 
         term.name = name
         term.start_date = start_date
@@ -415,8 +415,7 @@ def register(app):
         ]
 
         if not deletable_terms:
-            flash("No finished school terms are old enough to delete yet.", "warning")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("No finished school terms are old enough to delete yet.", "warning")
 
         for term in deletable_terms:
             db.session.delete(term)
@@ -432,21 +431,17 @@ def register(app):
         notes = (request.form.get("notes") or "").strip() or None
 
         if not closure_date:
-            flash("Please provide a valid closure date.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Please provide a valid closure date.")
 
         if closure_date.weekday() >= 5:
-            flash("Saturday and Sunday cannot be added to school calendar entries.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Saturday and Sunday cannot be added to school calendar entries.")
 
         if closure_type not in ("bank_holiday", "training_day"):
-            flash("Please choose a valid closure type.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Please choose a valid closure type.")
 
         existing = SchoolClosureDate.query.filter_by(closure_date=closure_date, closure_type=closure_type).first()
         if existing:
-            flash("That school closure date already exists.", "warning")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("That school closure date already exists.", "warning")
 
         db.session.add(SchoolClosureDate(closure_date=closure_date, closure_type=closure_type, notes=notes))
         db.session.commit()
@@ -459,8 +454,7 @@ def register(app):
         closure = db.get_or_404(SchoolClosureDate, closure_id)
         now_dt = datetime.now()
         if now_dt > school_closure_finished_at(closure) and now_dt < school_closure_delete_allowed_at(closure):
-            flash("Finished school closed days can be deleted 24 hours after they finish.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Finished school closed days can be deleted 24 hours after they finish.")
 
         db.session.delete(closure)
         db.session.commit()
@@ -477,16 +471,13 @@ def register(app):
         notes = (request.form.get("notes") or "").strip() or None
 
         if not closure_date:
-            flash("Please provide a valid closure date.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Please provide a valid closure date.")
 
         if closure_date.weekday() >= 5:
-            flash("Saturday and Sunday cannot be added to school calendar entries.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Saturday and Sunday cannot be added to school calendar entries.")
 
         if closure_type not in ("bank_holiday", "training_day"):
-            flash("Please choose a valid closure type.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Please choose a valid closure type.")
 
         existing = SchoolClosureDate.query.filter(
             SchoolClosureDate.closure_date == closure_date,
@@ -494,8 +485,7 @@ def register(app):
             SchoolClosureDate.id != closure.id,
         ).first()
         if existing:
-            flash("That school closure date already exists.", "warning")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("That school closure date already exists.", "warning")
 
         closure.closure_date = closure_date
         closure.closure_type = closure_type
@@ -515,8 +505,7 @@ def register(app):
         ]
 
         if not deletable_closures:
-            flash("No finished school closed days are old enough to delete yet.", "warning")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("No finished school closed days are old enough to delete yet.", "warning")
 
         for closure in deletable_closures:
             db.session.delete(closure)
@@ -534,8 +523,7 @@ def register(app):
         notes = request.form.get("notes", "").strip()
 
         if not driver_id:
-            flash("Please select a driver.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Please select a driver.")
 
         driver = db.get_or_404(Driver, driver_id)
 
@@ -543,12 +531,10 @@ def register(app):
             start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
             end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
         except (ValueError, TypeError):
-            flash("Invalid date format.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Invalid date format.")
 
         if end_date < start_date:
-            flash("End date must be on or after start date.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("End date must be on or after start date.")
 
         replaced_count = DriverHoliday.query.filter(
             DriverHoliday.driver_id == driver_id,
@@ -760,30 +746,25 @@ def register(app):
         notes = request.form.get("notes", "").strip()
 
         if not driver_id:
-            flash("Please select a driver.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Please select a driver.")
 
         driver = db.get_or_404(Driver, driver_id)
 
         if adjustment_type not in ("late_start", "early_finish"):
-            flash("Adjustment type must be 'late_start' or 'early_finish'.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Adjustment type must be 'late_start' or 'early_finish'.")
 
         try:
             adj_date = datetime.strptime(date_str, "%Y-%m-%d").date()
         except (ValueError, TypeError):
-            flash("Invalid date format.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Invalid date format.")
 
         adjusted_time = parse_time_string(time_str)
         if adjusted_time is None:
-            flash("Invalid time format. Use HH:MM.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Invalid time format. Use HH:MM.")
 
         validation_error = validate_adjustment_time(driver, adj_date, adjustment_type, adjusted_time)
         if validation_error:
-            flash(validation_error, "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect(validation_error)
 
         existing_same_type = ShiftAdjustment.query.filter_by(
             driver_id=driver_id,
@@ -792,8 +773,7 @@ def register(app):
         ).first()
         if existing_same_type:
             label = "Late Start" if adjustment_type == "late_start" else "Early Finish"
-            flash(f"Only one {label} adjustment is allowed per driver per day.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect(f"Only one {label} adjustment is allowed per driver per day.")
 
         adjustment = ShiftAdjustment(
             driver_id=driver_id,
@@ -818,19 +798,16 @@ def register(app):
         notes = request.form.get("notes", "").strip()
 
         if adjustment_type not in ("late_start", "early_finish"):
-            flash("Adjustment type must be 'late_start' or 'early_finish'.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Adjustment type must be 'late_start' or 'early_finish'.")
 
         try:
             adj_date = datetime.strptime(date_str, "%Y-%m-%d").date()
         except (ValueError, TypeError):
-            flash("Invalid date format.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Invalid date format.")
 
         adjusted_time = parse_time_string(time_str)
         if adjusted_time is None:
-            flash("Invalid time format. Use HH:MM.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Invalid time format. Use HH:MM.")
 
         validation_error = validate_adjustment_time(
             adjustment.driver,
@@ -840,8 +817,7 @@ def register(app):
             exclude_adjustment_id=adjustment.id,
         )
         if validation_error:
-            flash(validation_error, "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect(validation_error)
 
         existing_same_type = ShiftAdjustment.query.filter(
             ShiftAdjustment.driver_id == adjustment.driver_id,
@@ -851,8 +827,7 @@ def register(app):
         ).first()
         if existing_same_type:
             label = "Late Start" if adjustment_type == "late_start" else "Early Finish"
-            flash(f"Only one {label} adjustment is allowed per driver per day.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect(f"Only one {label} adjustment is allowed per driver per day.")
 
         adjustment.adjustment_date = adj_date
         adjustment.adjustment_type = adjustment_type
@@ -971,8 +946,7 @@ def register(app):
         notes = request.form.get("notes", "").strip()
 
         if not driver_id:
-            flash("Please select a driver.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Please select a driver.")
 
         driver = db.get_or_404(Driver, driver_id)
 
@@ -980,14 +954,14 @@ def register(app):
             give_up_date = datetime.strptime(give_up_date_str, "%Y-%m-%d").date()
             work_date = datetime.strptime(work_date_str, "%Y-%m-%d").date()
         except (ValueError, TypeError):
-            flash("Invalid date format.", "error")
-            return redirect(url_for("scheduling"))
+            return _scheduling_redirect("Invalid date format.")
 
         errors = validate_swap(driver, give_up_date, work_date, work_shift_types)
         if errors:
-            for err in errors:
-                flash(err, "error")
-            return redirect(url_for("scheduling"))
+            return validation_errors_response(
+                errors,
+                redirect_factory=lambda: redirect(url_for("scheduling")),
+            )
 
         # Delete adjustments on give-up date only when it truly becomes day off
         if give_up_date != work_date:

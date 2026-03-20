@@ -16,6 +16,7 @@ BUNDLES = {
         "drivers.form-handlers.js",
         "drivers.event-bindings.js",
         "drivers.calendar.js",
+        "drivers.custom-timings.helpers.js",
         "drivers.custom-timings.js",
         "drivers.page-init.js",
     ],
@@ -29,7 +30,12 @@ BUNDLES = {
         "shared.core.js",
         "scheduling.flash-banner.js",
         "scheduling.core.js",
+        "scheduling.holiday-calendar.js",
+        "scheduling.adjustment-calendar.js",
+        "scheduling.swap.js",
+        "scheduling.calendar-view.js",
         "scheduling.event-bindings.js",
+        "scheduling.modal-init.js",
     ],
 }
 

@@ -183,23 +183,6 @@ function flushPendingMainFeedback() {
     }
 }
 
-async function requestJson(url, options = {}) {
-    const response = await fetch(url, options);
-
-    let data;
-    try {
-        data = await response.json();
-    } catch {
-        data = { success: false, error: `HTTP ${response.status}` };
-    }
-
-    if (!response.ok) {
-        return { success: false, error: data.error || `HTTP ${response.status}` };
-    }
-
-    return data;
-}
-
 function attachFormattedInputListener(inputId, formatter) {
     const inputEl = document.getElementById(inputId);
     if (!inputEl || inputEl.hasFormattingListener) return;

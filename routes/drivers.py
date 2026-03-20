@@ -10,6 +10,18 @@ from utils import (
 
 
 def register(app):
+    def _success_response(message, is_ajax):
+        if is_ajax:
+            return jsonify({"ok": True, "message": message}), 200
+        flash(message, "success")
+        return None
+
+    def _error_response(message, is_ajax, status_code=500):
+        if is_ajax:
+            return jsonify({"ok": False, "error": message}), status_code
+        flash(message, "error")
+        return None
+
     @app.route("/drivers")
     def drivers():
         """Manage drivers"""
@@ -57,31 +69,30 @@ def register(app):
         if request.method == "GET":
             return redirect(url_for("drivers"))
 
-        if request.method == "POST":
-            driver = Driver(
-                driver_number=request.form.get("driver_number"),
-                name=request.form.get("name"),
-                car_type=request.form.get("car_type"),
-                school_badge=bool(request.form.get("school_badge")),
-                pet_friendly=bool(request.form.get("pet_friendly")),
-                assistance_guide_dogs_exempt=bool(request.form.get("assistance_guide_dogs_exempt")),
-                electric_vehicle=bool(request.form.get("electric_vehicle"))
-            )
+        driver = Driver(
+            driver_number=request.form.get("driver_number"),
+            name=request.form.get("name"),
+            car_type=request.form.get("car_type"),
+            school_badge=bool(request.form.get("school_badge")),
+            pet_friendly=bool(request.form.get("pet_friendly")),
+            assistance_guide_dogs_exempt=bool(request.form.get("assistance_guide_dogs_exempt")),
+            electric_vehicle=bool(request.form.get("electric_vehicle"))
+        )
 
-            try:
-                db.session.add(driver)
-                db.session.commit()
-                message = "Driver added successfully!"
-                if is_ajax:
-                    return jsonify({"ok": True, "message": message}), 200
-                flash(message, "success")
-                return redirect(url_for("drivers"))
-            except Exception as e:
-                db.session.rollback()
-                error_msg = f"Error adding driver: {str(e)}"
-                if is_ajax:
-                    return jsonify({"ok": False, "error": error_msg}), 500
-                flash(error_msg, "error")
+        try:
+            db.session.add(driver)
+            db.session.commit()
+            message = "Driver added successfully!"
+            response = _success_response(message, is_ajax)
+            if response:
+                return response
+            return redirect(url_for("drivers"))
+        except Exception as e:
+            db.session.rollback()
+            error_msg = f"Error adding driver: {e}"
+            response = _error_response(error_msg, is_ajax)
+            if response:
+                return response
 
         return redirect(url_for("drivers"))
 
@@ -94,28 +105,27 @@ def register(app):
         if request.method == "GET":
             return redirect(url_for("drivers"))
 
-        if request.method == "POST":
-            driver.driver_number = request.form.get("driver_number")
-            driver.name = request.form.get("name")
-            driver.car_type = request.form.get("car_type")
-            driver.school_badge = bool(request.form.get("school_badge"))
-            driver.pet_friendly = bool(request.form.get("pet_friendly"))
-            driver.assistance_guide_dogs_exempt = bool(request.form.get("assistance_guide_dogs_exempt"))
-            driver.electric_vehicle = bool(request.form.get("electric_vehicle"))
+        driver.driver_number = request.form.get("driver_number")
+        driver.name = request.form.get("name")
+        driver.car_type = request.form.get("car_type")
+        driver.school_badge = bool(request.form.get("school_badge"))
+        driver.pet_friendly = bool(request.form.get("pet_friendly"))
+        driver.assistance_guide_dogs_exempt = bool(request.form.get("assistance_guide_dogs_exempt"))
+        driver.electric_vehicle = bool(request.form.get("electric_vehicle"))
 
-            try:
-                db.session.commit()
-                message = "Driver updated successfully!"
-                if is_ajax:
-                    return jsonify({"ok": True, "message": message}), 200
-                flash(message, "success")
-                return redirect(url_for("drivers"))
-            except Exception as e:
-                db.session.rollback()
-                error_msg = f"Error updating driver: {str(e)}"
-                if is_ajax:
-                    return jsonify({"ok": False, "error": error_msg}), 500
-                flash(error_msg, "error")
+        try:
+            db.session.commit()
+            message = "Driver updated successfully!"
+            response = _success_response(message, is_ajax)
+            if response:
+                return response
+            return redirect(url_for("drivers"))
+        except Exception as e:
+            db.session.rollback()
+            error_msg = f"Error updating driver: {e}"
+            response = _error_response(error_msg, is_ajax)
+            if response:
+                return response
 
         return redirect(url_for("drivers"))
 
@@ -129,15 +139,15 @@ def register(app):
             db.session.delete(driver)
             db.session.commit()
             message = "Driver deleted successfully!"
-            if is_ajax:
-                return jsonify({"ok": True, "message": message}), 200
-            flash(message, "success")
+            response = _success_response(message, is_ajax)
+            if response:
+                return response
         except Exception as e:
             db.session.rollback()
-            error_msg = f"Error deleting driver: {str(e)}"
-            if is_ajax:
-                return jsonify({"ok": False, "error": error_msg}), 500
-            flash(error_msg, "error")
+            error_msg = f"Error deleting driver: {e}"
+            response = _error_response(error_msg, is_ajax)
+            if response:
+                return response
 
         return redirect(url_for("drivers"))
 

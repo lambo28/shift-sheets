@@ -6,6 +6,8 @@ from models import Driver, ShiftTiming, ExtraCarRequest, ExtraCarAssignment
 from constants import EXTRA_CAR_MIN_PARTIAL_HOURS
 from utils import (
     json_error,
+    validation_error_response,
+    validation_errors_response,
     parse_date_string, parse_time_string, parse_positive_int,
     validate_extra_car_assignment, interval_within_any_segment,
     resolve_request_relative_datetime, is_school_term_operational_day,
@@ -13,6 +15,13 @@ from utils import (
 
 
 def register(app):
+    def _extra_cars_redirect(message, category="error"):
+        return validation_error_response(
+            message,
+            redirect_factory=lambda: redirect(url_for("extra_cars")),
+            category=category,
+        )
+
     @app.route("/extra-cars")
     def extra_cars():
         """Extra car requests management page."""
@@ -72,22 +81,18 @@ def register(app):
 
         req_date = parse_date_string(req_date_str)
         if not req_date:
-            flash("Please provide a valid date.", "error")
-            return redirect(url_for("extra_cars"))
+            return _extra_cars_redirect("Please provide a valid date.")
 
         now = datetime.now()
         today = now.date()
         if req_date < today:
-            flash(
+            return _extra_cars_redirect(
                 f"Cannot create an extra car request for past date {req_date.strftime('%d/%m/%Y')}. "
                 f"Please choose today or a future date.",
-                "error",
             )
-            return redirect(url_for("extra_cars"))
 
         if req_type not in ("shift_type", "time_window"):
-            flash("Please select a valid request type.", "error")
-            return redirect(url_for("extra_cars"))
+            return _extra_cars_redirect("Please select a valid request type.")
 
         shift_type_val = None
         window_start_val = None
@@ -96,21 +101,16 @@ def register(app):
         if req_type == "shift_type":
             shift_type_val = request.form.get("shift_type", "").strip()
             if not shift_type_val:
-                flash("Please select a shift type.", "error")
-                return redirect(url_for("extra_cars"))
+                return _extra_cars_redirect("Please select a shift type.")
             timing = ShiftTiming.query.filter_by(shift_type=shift_type_val).first()
             if not timing:
-                flash("Selected shift type not found.", "error")
-                return redirect(url_for("extra_cars"))
+                return _extra_cars_redirect("Selected shift type not found.")
             if not timing.start_time or not timing.end_time:
-                flash("Selected shift type has invalid timing.", "error")
-                return redirect(url_for("extra_cars"))
+                return _extra_cars_redirect("Selected shift type has invalid timing.")
             if timing.school_term_only and not is_school_term_operational_day(req_date):
-                flash(
+                return _extra_cars_redirect(
                     f"{timing.display_label} is marked as school term only and cannot be used on {req_date.strftime('%d/%m/%Y')}.",
-                    "error",
                 )
-                return redirect(url_for("extra_cars"))
 
             req_start_dt = datetime.combine(req_date, timing.start_time)
             req_end_dt = datetime.combine(req_date, timing.end_time)
@@ -118,18 +118,15 @@ def register(app):
                 req_end_dt += timedelta(days=1)
 
             if req_date == today and req_end_dt <= now:
-                flash(
+                return _extra_cars_redirect(
                     f"Cannot create {timing.display_label} for today because it already finished at "
                     f"{req_end_dt.strftime('%H:%M')} (current time: {now.strftime('%H:%M')}).",
-                    "error",
                 )
-                return redirect(url_for("extra_cars"))
         else:
             window_start_val = parse_time_string(request.form.get("window_start", "").strip())
             window_end_val = parse_time_string(request.form.get("window_end", "").strip())
             if not window_start_val or not window_end_val:
-                flash("Please provide valid start and end times.", "error")
-                return redirect(url_for("extra_cars"))
+                return _extra_cars_redirect("Please provide valid start and end times.")
 
             req_start_dt = datetime.combine(req_date, window_start_val)
             req_end_dt = datetime.combine(req_date, window_end_val)
@@ -137,20 +134,16 @@ def register(app):
                 req_end_dt += timedelta(days=1)
 
             if req_date == today and req_start_dt <= now:
-                flash(
+                return _extra_cars_redirect(
                     f"Cannot create a custom window starting at {req_start_dt.strftime('%H:%M')} for today. "
                     f"Start time must be after current time ({now.strftime('%H:%M')}).",
-                    "error",
                 )
-                return redirect(url_for("extra_cars"))
 
         request_duration_hours = (req_end_dt - req_start_dt).total_seconds() / 3600
         if request_duration_hours < EXTRA_CAR_MIN_PARTIAL_HOURS:
-            flash(
+            return _extra_cars_redirect(
                 f"Extra car request window must be at least {EXTRA_CAR_MIN_PARTIAL_HOURS:g} hours.",
-                "error",
             )
-            return redirect(url_for("extra_cars"))
 
         unlimited_raw = request.form.get("unlimited", "")
         unlimited = unlimited_raw in ("1", "true", "on", "yes")
@@ -159,8 +152,7 @@ def register(app):
         if not unlimited:
             required_slots = parse_positive_int(request.form.get("required_slots", ""))
             if not required_slots:
-                flash("Please enter a positive number of required slots, or select unlimited.", "error")
-                return redirect(url_for("extra_cars"))
+                return _extra_cars_redirect("Please enter a positive number of required slots, or select unlimited.")
 
         min_partial_hours = EXTRA_CAR_MIN_PARTIAL_HOURS
 
@@ -202,36 +194,28 @@ def register(app):
 
         req_date = parse_date_string(req_date_str)
         if not req_date:
-            flash("Please provide a valid date.", "error")
-            return redirect(url_for("extra_cars"))
+            return _extra_cars_redirect("Please provide a valid date.")
 
         today = datetime.now().date()
         if req_date < today:
-            flash("Cannot set an extra car request to a past date.", "error")
-            return redirect(url_for("extra_cars"))
+            return _extra_cars_redirect("Cannot set an extra car request to a past date.")
 
         if req_type not in ("shift_type", "time_window"):
-            flash("Please select a valid request type.", "error")
-            return redirect(url_for("extra_cars"))
+            return _extra_cars_redirect("Please select a valid request type.")
 
         if req_type == "shift_type":
             shift_type_val = request.form.get("shift_type", "").strip()
             if not shift_type_val:
-                flash("Please select a shift type.", "error")
-                return redirect(url_for("extra_cars"))
+                return _extra_cars_redirect("Please select a shift type.")
             timing = ShiftTiming.query.filter_by(shift_type=shift_type_val).first()
             if not timing:
-                flash("Selected shift type not found.", "error")
-                return redirect(url_for("extra_cars"))
+                return _extra_cars_redirect("Selected shift type not found.")
             if not timing.start_time or not timing.end_time:
-                flash("Selected shift type has invalid timing.", "error")
-                return redirect(url_for("extra_cars"))
+                return _extra_cars_redirect("Selected shift type has invalid timing.")
             if timing.school_term_only and not is_school_term_operational_day(req_date):
-                flash(
+                return _extra_cars_redirect(
                     f"{timing.display_label} is marked as school term only and cannot be used on {req_date.strftime('%d/%m/%Y')}.",
-                    "error",
                 )
-                return redirect(url_for("extra_cars"))
 
             req_start_dt = datetime.combine(req_date, timing.start_time)
             req_end_dt = datetime.combine(req_date, timing.end_time)
@@ -245,8 +229,7 @@ def register(app):
             window_start_val = parse_time_string(request.form.get("window_start", "").strip())
             window_end_val = parse_time_string(request.form.get("window_end", "").strip())
             if not window_start_val or not window_end_val:
-                flash("Please provide valid start and end times.", "error")
-                return redirect(url_for("extra_cars"))
+                return _extra_cars_redirect("Please provide valid start and end times.")
 
             req_start_dt = datetime.combine(req_date, window_start_val)
             req_end_dt = datetime.combine(req_date, window_end_val)
@@ -259,15 +242,12 @@ def register(app):
 
         request_duration_hours = (req_end_dt - req_start_dt).total_seconds() / 3600
         if request_duration_hours < EXTRA_CAR_MIN_PARTIAL_HOURS:
-            flash(
+            return _extra_cars_redirect(
                 f"Extra car request window must be at least {EXTRA_CAR_MIN_PARTIAL_HOURS:g} hours.",
-                "error",
             )
-            return redirect(url_for("extra_cars"))
 
         if req_end_dt <= datetime.now():
-            flash("Cannot set an extra car request to a past time window.", "error")
-            return redirect(url_for("extra_cars"))
+            return _extra_cars_redirect("Cannot set an extra car request to a past time window.")
 
         unlimited_raw = request.form.get("unlimited", "")
         unlimited = unlimited_raw in ("1", "true", "on", "yes")
@@ -276,8 +256,7 @@ def register(app):
         if not unlimited:
             required_slots = parse_positive_int(request.form.get("required_slots", ""))
             if not required_slots:
-                flash("Please enter a positive number of required slots, or select unlimited.", "error")
-                return redirect(url_for("extra_cars"))
+                return _extra_cars_redirect("Please enter a positive number of required slots, or select unlimited.")
 
         new_status = request.form.get("status", "").strip()
         valid_statuses = ("DRAFT", "OPEN", "PARTIALLY_FILLED", "FILLED", "CLOSED")
@@ -301,8 +280,7 @@ def register(app):
         new_status = request.form.get("status", "").strip()
         valid_statuses = ("DRAFT", "OPEN", "PARTIALLY_FILLED", "FILLED", "CLOSED")
         if new_status not in valid_statuses:
-            flash("Invalid status.", "error")
-            return redirect(url_for("extra_cars"))
+            return _extra_cars_redirect("Invalid status.")
         req.status = new_status
         db.session.commit()
         flash(f"Request status updated to {new_status.replace('_', ' ').title()}.", "success")
@@ -406,8 +384,7 @@ def register(app):
         available_segments = req.get_available_capacity_segments() if not req.unlimited else None
         if not req.unlimited:
             if not available_segments:
-                flash("Request capacity is already fully covered for the whole window.", "error")
-                return redirect(url_for("extra_cars"))
+                return _extra_cars_redirect("Request capacity is already fully covered for the whole window.")
 
         driver_id = parse_positive_int(request.form.get("driver_id"))
         start_str = request.form.get("start_time", "").strip()
@@ -415,26 +392,22 @@ def register(app):
         notes = request.form.get("notes", "").strip() or None
 
         if not driver_id:
-            flash("Please select a driver.", "error")
-            return redirect(url_for("extra_cars"))
+            return _extra_cars_redirect("Please select a driver.")
 
         driver = db.session.get(Driver, driver_id)
         if not driver:
-            flash("Driver not found.", "error")
-            return redirect(url_for("extra_cars"))
+            return _extra_cars_redirect("Driver not found.")
 
         existing_assignment = ExtraCarAssignment.query.filter_by(
             request_id=req.id,
             driver_id=driver.id,
         ).first()
         if existing_assignment:
-            flash("This driver is already assigned to this request.", "error")
-            return redirect(url_for("extra_cars"))
+            return _extra_cars_redirect("This driver is already assigned to this request.")
 
         req_start, req_end = req.get_time_window()
         if not req_start or not req_end:
-            flash("Request has an invalid or incomplete time window.", "error")
-            return redirect(url_for("extra_cars"))
+            return _extra_cars_redirect("Request has an invalid or incomplete time window.")
 
         start_time = parse_time_string(start_str) if start_str else None
         end_time = parse_time_string(end_str) if end_str else None
@@ -442,8 +415,7 @@ def register(app):
         if not req.unlimited and not start_str and not end_str:
             suggested_start, suggested_end = req.get_recommended_available_window()
             if not suggested_start or not suggested_end:
-                flash("No available capacity window for this request.", "error")
-                return redirect(url_for("extra_cars"))
+                return _extra_cars_redirect("No available capacity window for this request.")
             proposed_start = suggested_start
             proposed_end = suggested_end
             start_time = proposed_start.time()
@@ -464,14 +436,12 @@ def register(app):
             if not interval_within_any_segment(proposed_start, proposed_end, available_segments):
                 suggested_start, suggested_end = req.get_recommended_available_window()
                 if suggested_start and suggested_end:
-                    flash(
+                    return _extra_cars_redirect(
                         "Proposed assignment exceeds available capacity. "
                         f"Use {suggested_start.strftime('%H:%M')}–{suggested_end.strftime('%H:%M')}.",
-                        "error",
                     )
                 else:
-                    flash("Proposed assignment exceeds available capacity.", "error")
-                return redirect(url_for("extra_cars"))
+                    return _extra_cars_redirect("Proposed assignment exceeds available capacity.")
 
         timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
         is_valid, errors, suggested_start, suggested_end = validate_extra_car_assignment(
@@ -479,24 +449,22 @@ def register(app):
         )
 
         if not is_valid:
-            for err in errors:
-                flash(err, "error")
-            return redirect(url_for("extra_cars"))
+            return validation_errors_response(
+                errors,
+                redirect_factory=lambda: redirect(url_for("extra_cars")),
+            )
 
         final_start = suggested_start or proposed_start
         final_end = suggested_end or proposed_end
 
         if final_end <= final_start:
-            flash("No valid extra-shift time window is available for this driver.", "error")
-            return redirect(url_for("extra_cars"))
+            return _extra_cars_redirect("No valid extra-shift time window is available for this driver.")
 
         final_duration_hours = (final_end - final_start).total_seconds() / 3600
         if final_duration_hours < EXTRA_CAR_MIN_PARTIAL_HOURS:
-            flash(
+            return _extra_cars_redirect(
                 f"Driver assignment must be at least {EXTRA_CAR_MIN_PARTIAL_HOURS:g} hours.",
-                "error",
             )
-            return redirect(url_for("extra_cars"))
 
         if final_start != proposed_start or final_end != proposed_end:
             flash(

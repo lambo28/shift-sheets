@@ -10,6 +10,23 @@ from utils import (
 
 
 def register(app):
+    def _drivers_redirect():
+        return redirect(url_for("drivers"))
+
+    def _error_response(message, is_ajax, status_code=400):
+        if is_ajax:
+            return jsonify({"ok": False, "error": message}), status_code
+        flash(message, "error")
+        return _drivers_redirect()
+
+    def _success_response(message, is_ajax, status_code=200, **payload):
+        if is_ajax:
+            response = {"ok": True, "message": message}
+            response.update(payload)
+            return jsonify(response), status_code
+        flash(message, "success")
+        return None
+
     @app.route("/driver/<int:driver_id>/assign-pattern", methods=["GET", "POST"])
     def assign_pattern_to_driver(driver_id):
         """Assign a shift pattern to a driver"""
@@ -24,25 +41,13 @@ def register(app):
             start_day_of_cycle = parse_optional_int(request.form.get("start_day_of_cycle")) or 1
 
             if not start_date:
-                if is_ajax:
-                    return jsonify({"ok": False, "error": "Invalid start date"}), 400
-                flash("Invalid start date", "error")
-                return redirect(url_for("drivers"))
+                return _error_response("Invalid start date", is_ajax)
             if request.form.get("end_date") and not end_date:
-                if is_ajax:
-                    return jsonify({"ok": False, "error": "Invalid end date"}), 400
-                flash("Invalid end date", "error")
-                return redirect(url_for("drivers"))
+                return _error_response("Invalid end date", is_ajax)
             if end_date and end_date < start_date:
-                if is_ajax:
-                    return jsonify({"ok": False, "error": "End date cannot be before start date"}), 400
-                flash("End date cannot be before start date", "error")
-                return redirect(url_for("drivers"))
+                return _error_response("End date cannot be before start date", is_ajax)
             if not pattern_id:
-                if is_ajax:
-                    return jsonify({"ok": False, "error": "Invalid shift pattern"}), 400
-                flash("Invalid shift pattern", "error")
-                return redirect(url_for("drivers"))
+                return _error_response("Invalid shift pattern", is_ajax)
 
             # Find any overlapping assignments that need to be ended
             overlapping_assignments = DriverAssignment.query.filter(
@@ -102,20 +107,17 @@ def register(app):
                         db.session.add(resumption)
 
                 db.session.commit()
-                if is_ajax:
-                    return jsonify({
-                        "ok": True,
-                        "message": "Shift pattern assigned successfully!",
-                        "driverAssignments": serialize_driver_assignment_items(driver),
-                    })
-                flash("Shift pattern assigned successfully!", "success")
-                return redirect(url_for("drivers"))
+                response = _success_response(
+                    "Shift pattern assigned successfully!",
+                    is_ajax,
+                    driverAssignments=serialize_driver_assignment_items(driver),
+                )
+                if response:
+                    return response
+                return _drivers_redirect()
             except Exception as e:
                 db.session.rollback()
-                if is_ajax:
-                    return jsonify({"ok": False, "error": f"Error assigning pattern: {str(e)}"}), 500
-                flash(f"Error assigning pattern: {str(e)}", "error")
-                return redirect(url_for("drivers"))
+                return _error_response(f"Error assigning pattern: {e}", is_ajax, 500)
 
         return render_template("assign_pattern.html", driver=driver, patterns=patterns, today=date.today())
 
@@ -128,21 +130,13 @@ def register(app):
 
         # Verify the assignment belongs to this driver
         if assignment.driver_id != driver_id:
-            error_msg = "Invalid assignment"
-            if is_ajax:
-                return jsonify({"ok": False, "error": error_msg}), 400
-            flash(error_msg, "error")
-            return redirect(url_for("drivers"))
+            return _error_response("Invalid assignment", is_ajax)
 
         today = datetime.now().date()
 
         # Check if assignment has already ended (end date in the past)
         if assignment.end_date and assignment.end_date < today:
-            error_msg = "Assignment has already ended"
-            if is_ajax:
-                return jsonify({"ok": False, "error": error_msg}), 400
-            flash(error_msg, "error")
-            return redirect(url_for("drivers"))
+            return _error_response("Assignment has already ended", is_ajax)
 
         try:
             # Set end date to today (or update it to today if it was set for future)
@@ -192,12 +186,9 @@ def register(app):
             flash(message + f" for {driver.formatted_name()}", "success")
         except Exception as e:
             db.session.rollback()
-            error_msg = f"Error ending assignment: {str(e)}"
-            if is_ajax:
-                return jsonify({"ok": False, "error": error_msg}), 500
-            flash(error_msg, "error")
+            return _error_response(f"Error ending assignment: {e}", is_ajax, 500)
 
-        return redirect(url_for("drivers"))
+        return _drivers_redirect()
 
     @app.route("/driver/<int:driver_id>/assignment/<int:assignment_id>/edit", methods=["POST"])
     def edit_assignment(driver_id, assignment_id):
@@ -207,10 +198,7 @@ def register(app):
         is_ajax = is_ajax_request()
 
         if assignment.driver_id != driver_id:
-            if is_ajax:
-                return jsonify({"ok": False, "error": "Invalid assignment"}), 400
-            flash("Invalid assignment", "error")
-            return redirect(url_for("drivers"))
+            return _error_response("Invalid assignment", is_ajax)
 
         start_date = parse_date_string(request.form.get("start_date"))
         end_date = parse_date_string(request.form.get("end_date")) if request.form.get("end_date") else None
@@ -218,25 +206,13 @@ def register(app):
         start_day_of_cycle = parse_optional_int(request.form.get("start_day_of_cycle")) or 1
 
         if not start_date:
-            if is_ajax:
-                return jsonify({"ok": False, "error": "Invalid start date"}), 400
-            flash("Invalid start date", "error")
-            return redirect(url_for("drivers"))
+            return _error_response("Invalid start date", is_ajax)
         if request.form.get("end_date") and not end_date:
-            if is_ajax:
-                return jsonify({"ok": False, "error": "Invalid end date"}), 400
-            flash("Invalid end date", "error")
-            return redirect(url_for("drivers"))
+            return _error_response("Invalid end date", is_ajax)
         if end_date and end_date < start_date:
-            if is_ajax:
-                return jsonify({"ok": False, "error": "End date cannot be before start date"}), 400
-            flash("End date cannot be before start date", "error")
-            return redirect(url_for("drivers"))
+            return _error_response("End date cannot be before start date", is_ajax)
         if not pattern_id:
-            if is_ajax:
-                return jsonify({"ok": False, "error": "Invalid shift pattern"}), 400
-            flash("Invalid shift pattern", "error")
-            return redirect(url_for("drivers"))
+            return _error_response("Invalid shift pattern", is_ajax)
 
         # Store old values before updating
         old_start_date = assignment.start_date
@@ -255,10 +231,7 @@ def register(app):
         ).first()
 
         if overlap_exists:
-            if is_ajax:
-                return jsonify({"ok": False, "error": "Edited assignment overlaps with another assignment"}), 400
-            flash("Edited assignment overlaps with another assignment", "error")
-            return redirect(url_for("drivers"))
+            return _error_response("Edited assignment overlaps with another assignment", is_ajax)
 
         try:
             # Update the assignment
@@ -318,11 +291,9 @@ def register(app):
             flash(f"Assignment updated successfully for {driver.formatted_name()}", "success")
         except Exception as e:
             db.session.rollback()
-            if is_ajax:
-                return jsonify({"ok": False, "error": f"Error updating assignment: {str(e)}"}), 500
-            flash(f"Error updating assignment: {str(e)}", "error")
+            return _error_response(f"Error updating assignment: {e}", is_ajax, 500)
 
-        return redirect(url_for("drivers"))
+        return _drivers_redirect()
 
     @app.route("/driver/<int:driver_id>/assignment/<int:assignment_id>/delete", methods=["POST"])
     def delete_assignment(driver_id, assignment_id):
@@ -333,11 +304,7 @@ def register(app):
 
         # Verify the assignment belongs to this driver
         if assignment.driver_id != driver_id:
-            error_msg = "Invalid assignment"
-            if is_ajax:
-                return jsonify({"ok": False, "error": error_msg}), 400
-            flash(error_msg, "error")
-            return redirect(url_for("drivers"))
+            return _error_response("Invalid assignment", is_ajax)
 
         try:
             pattern_name = assignment.shift_pattern.name
@@ -388,9 +355,6 @@ def register(app):
             flash(message + f" for {driver.formatted_name()}", "success")
         except Exception as e:
             db.session.rollback()
-            error_msg = f"Error deleting assignment: {str(e)}"
-            if is_ajax:
-                return jsonify({"ok": False, "error": error_msg}), 500
-            flash(error_msg, "error")
+            return _error_response(f"Error deleting assignment: {e}", is_ajax, 500)
 
-        return redirect(url_for("drivers"))
+        return _drivers_redirect()

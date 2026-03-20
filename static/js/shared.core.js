@@ -133,3 +133,122 @@ function formatTitleCase(value) {
         })
         .join(' ');
 }
+
+/**
+ * Generic form submission handler with button state management, error handling, and UI feedback
+ * Reduces duplication across multiple form submission handlers
+ * @param {HTMLFormElement} form - The form element to submit
+ * @param {HTMLElement|string} submitButton - Submit button element or ID
+ * @param {object} options - Configuration options:
+ *   - action: {string} Form action URL (overrides form.action)
+ *   - successMessage: {string} Custom success message
+ *   - errorMessage: {string} Custom error message
+ *   - onSuccess: {function} Callback after successful submission
+ *   - onError: {function} Callback after error
+ *   - hideModal: {string} Modal ID to hide on success
+ *   - resetForm: {boolean} Reset form on success (default: false)
+ *   - validateFn: {function} Pre-submission validation function
+ *   - formDataFn: {function} Custom FormData preparation function (called with form, returns FormData)
+ *   - savingLabel: {string} Button text while saving (default: from MESSAGES.SAVING)
+ * @returns {Promise<object>} - Response data
+ */
+async function submitForm(form, submitButton, options = {}) {
+    if (!form) {
+        console.error('submitForm: Form element not found');
+        return { success: false };
+    }
+
+    // Resolve submit button
+    let btnEl = submitButton;
+    if (typeof submitButton === 'string') {
+        btnEl = document.getElementById(submitButton);
+    }
+    if (!btnEl) {
+        console.error('submitForm: Submit button not found', submitButton);
+        return { success: false };
+    }
+
+    // Run pre-submission validation if provided
+    if (options.validateFn && typeof options.validateFn === 'function') {
+        const validationError = options.validateFn();
+        if (validationError) {
+            showAlertBanner('error', validationError);
+            return { success: false };
+        }
+    }
+
+    // Save button state
+    const originalHtml = btnEl.innerHTML;
+    const savingLabel = options.savingLabel || (typeof MESSAGES !== 'undefined' && MESSAGES.SAVING ? MESSAGES.SAVING : 'Saving...');
+
+    // Disable button and show saving state
+    btnEl.disabled = true;
+    btnEl.innerHTML = savingLabel;
+
+    try {
+        // Prepare form data (use custom function if provided)
+        let formData;
+        if (options.formDataFn && typeof options.formDataFn === 'function') {
+            formData = options.formDataFn(form);
+        } else {
+            formData = new FormData(form);
+        }
+
+        const formAction = options.action || form.action || '/';
+        const fetchOptions = {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        };
+
+        // Make request
+        const responseData = await requestJson(formAction, fetchOptions);
+
+        // Handle response
+        if (responseData.success) {
+            const successMsg = options.successMessage || responseData.message || 'Saved successfully';
+            showAlertBanner('success', successMsg);
+
+            // Hide modal if specified
+            if (options.hideModal) {
+                hideModalById(options.hideModal);
+            }
+
+            // Reset form if specified
+            if (options.resetForm) {
+                form.reset();
+            }
+
+            // Custom success callback
+            if (options.onSuccess && typeof options.onSuccess === 'function') {
+                await options.onSuccess(responseData);
+            }
+
+            return responseData;
+        } else {
+            const errorMsg = options.errorMessage || responseData.error || 'An error occurred';
+            showAlertBanner('error', errorMsg);
+
+            // Custom error callback
+            if (options.onError && typeof options.onError === 'function') {
+                await options.onError(responseData);
+            }
+
+            return responseData;
+        }
+    } catch (error) {
+        console.error('Form submission error:', error);
+        const errorMsg = 'Network error. Please check your connection and try again.';
+        showAlertBanner('error', errorMsg);
+
+        if (options.onError && typeof options.onError === 'function') {
+            await options.onError({ success: false, error });
+        }
+
+        return { success: false, error };
+    } finally {
+        // Restore button state
+        btnEl.disabled = false;
+        btnEl.innerHTML = originalHtml;
+    }
+}

@@ -139,6 +139,125 @@ function formatTitleCase(value) {
         .join(' ');
 }
 
+/**
+ * Generic form submission handler with button state management, error handling, and UI feedback
+ * Reduces duplication across multiple form submission handlers
+ * @param {HTMLFormElement} form - The form element to submit
+ * @param {HTMLElement|string} submitButton - Submit button element or ID
+ * @param {object} options - Configuration options:
+ *   - action: {string} Form action URL (overrides form.action)
+ *   - successMessage: {string} Custom success message
+ *   - errorMessage: {string} Custom error message
+ *   - onSuccess: {function} Callback after successful submission
+ *   - onError: {function} Callback after error
+ *   - hideModal: {string} Modal ID to hide on success
+ *   - resetForm: {boolean} Reset form on success (default: false)
+ *   - validateFn: {function} Pre-submission validation function
+ *   - formDataFn: {function} Custom FormData preparation function (called with form, returns FormData)
+ *   - savingLabel: {string} Button text while saving (default: from MESSAGES.SAVING)
+ * @returns {Promise<object>} - Response data
+ */
+async function submitForm(form, submitButton, options = {}) {
+    if (!form) {
+        console.error('submitForm: Form element not found');
+        return { success: false };
+    }
+
+    // Resolve submit button
+    let btnEl = submitButton;
+    if (typeof submitButton === 'string') {
+        btnEl = document.getElementById(submitButton);
+    }
+    if (!btnEl) {
+        console.error('submitForm: Submit button not found', submitButton);
+        return { success: false };
+    }
+
+    // Run pre-submission validation if provided
+    if (options.validateFn && typeof options.validateFn === 'function') {
+        const validationError = options.validateFn();
+        if (validationError) {
+            showAlertBanner('error', validationError);
+            return { success: false };
+        }
+    }
+
+    // Save button state
+    const originalHtml = btnEl.innerHTML;
+    const savingLabel = options.savingLabel || (typeof MESSAGES !== 'undefined' && MESSAGES.SAVING ? MESSAGES.SAVING : 'Saving...');
+
+    // Disable button and show saving state
+    btnEl.disabled = true;
+    btnEl.innerHTML = savingLabel;
+
+    try {
+        // Prepare form data (use custom function if provided)
+        let formData;
+        if (options.formDataFn && typeof options.formDataFn === 'function') {
+            formData = options.formDataFn(form);
+        } else {
+            formData = new FormData(form);
+        }
+
+        const formAction = options.action || form.action || '/';
+        const fetchOptions = {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        };
+
+        // Make request
+        const responseData = await requestJson(formAction, fetchOptions);
+
+        // Handle response
+        if (responseData.success) {
+            const successMsg = options.successMessage || responseData.message || 'Saved successfully';
+            showAlertBanner('success', successMsg);
+
+            // Hide modal if specified
+            if (options.hideModal) {
+                hideModalById(options.hideModal);
+            }
+
+            // Reset form if specified
+            if (options.resetForm) {
+                form.reset();
+            }
+
+            // Custom success callback
+            if (options.onSuccess && typeof options.onSuccess === 'function') {
+                await options.onSuccess(responseData);
+            }
+
+            return responseData;
+        } else {
+            const errorMsg = options.errorMessage || responseData.error || 'An error occurred';
+            showAlertBanner('error', errorMsg);
+
+            // Custom error callback
+            if (options.onError && typeof options.onError === 'function') {
+                await options.onError(responseData);
+            }
+
+            return responseData;
+        }
+    } catch (error) {
+        console.error('Form submission error:', error);
+        const errorMsg = 'Network error. Please check your connection and try again.';
+        showAlertBanner('error', errorMsg);
+
+        if (options.onError && typeof options.onError === 'function') {
+            await options.onError({ success: false, error });
+        }
+
+        return { success: false, error };
+    } finally {
+        // Restore button state
+        btnEl.disabled = false;
+        btnEl.innerHTML = originalHtml;
+    }
+}
+
 
 /* ===== shifts.core.js ===== */
 /**
@@ -324,23 +443,6 @@ function flushPendingMainFeedback() {
     } catch (error) {
         console.warn('Could not load pending feedback:', error);
     }
-}
-
-async function requestJson(url, options = {}) {
-    const response = await fetch(url, options);
-
-    let data;
-    try {
-        data = await response.json();
-    } catch {
-        data = { success: false, error: `HTTP ${response.status}` };
-    }
-
-    if (!response.ok) {
-        return { success: false, error: data.error || `HTTP ${response.status}` };
-    }
-
-    return data;
 }
 
 function attachFormattedInputListener(inputId, formatter) {
@@ -605,61 +707,45 @@ function saveCreatePattern(event) {
 
     const form = document.getElementById('createPatternForm');
     if (!form) return;
-    
+
     const cycleLength = document.getElementById('createCycleLength').value;
-    const error = Validate.cycle_length(cycleLength);
-    if (error) {
-        showAlertBanner('error', error);
-        DEBUG.warn('Invalid cycle length', { cycleLength });
-        return;
-    }
-    
-    const formData = new FormData(form);
     const cycleLengthNum = parseInt(cycleLength, 10);
     
-    // Add daily shift data
-    for (let i = 0; i < cycleLengthNum; i++) {
-        const select = document.getElementById(`create_day_${i}_shift`);
-        if (select) {
-            getSelectedDayShiftValues(select).forEach((value) => {
-                formData.append(`day_${i}_shift`, value);
-            });
-        }
-    }
-    
-    const submitBtn = document.getElementById('createPatternBtn');
-    const originalHtml = submitBtn.innerHTML;
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = MESSAGES.SAVING;
     DEBUG.log('Submitting create pattern form', 'info', { cycleLength: cycleLengthNum });
-    
-    requestJson(form.action || '/shift-pattern/add', {
-        method: 'POST',
-        body: formData,
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-    .then(data => {
-        if (data.success) {
-            hideModalById('createPatternModal');
-            form.reset();
+
+    submitForm(form, 'createPatternBtn', {
+        validateFn: () => {
+            const error = Validate.cycle_length(cycleLength);
+            if (error) {
+                DEBUG.warn('Invalid cycle length', { cycleLength });
+            }
+            return error;
+        },
+        formDataFn: (form) => {
+            const formData = new FormData(form);
+            // Add daily shift data
+            for (let i = 0; i < cycleLengthNum; i++) {
+                const select = document.getElementById(`create_day_${i}_shift`);
+                if (select) {
+                    getSelectedDayShiftValues(select).forEach((value) => {
+                        formData.append(`day_${i}_shift`, value);
+                    });
+                }
+            }
+            return formData;
+        },
+        successMessage: MESSAGES.PATTERN_CREATED,
+        errorMessage: MESSAGES.SERVER_ERROR,
+        hideModal: 'createPatternModal',
+        resetForm: true,
+        onSuccess: (data) => {
             document.getElementById('createPatternDays').style.display = 'none';
-            showAlertBanner('success', data.message || MESSAGES.PATTERN_CREATED);
             DEBUG.log('Pattern created', 'info');
-            location.reload(); // Reload to show new pattern
-        } else {
-            const errorMsg = data.error || MESSAGES.SERVER_ERROR;
-            showAlertBanner('error', errorMsg);
-            DEBUG.warn('Create pattern failed', { error: errorMsg });
+            location.reload();
+        },
+        onError: (data) => {
+            DEBUG.warn('Create pattern failed', { error: data.error });
         }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-        DEBUG.error('Error creating pattern', { error });
-    })
-    .finally(() => {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = originalHtml;
     });
 }
 
@@ -670,41 +756,22 @@ function addShiftType(event) {
 
     const form = document.getElementById('addShiftTypeForm');
     if (!form) return;
-    
-    const formData = new FormData(form);
-    const submitBtn = document.getElementById('submitAddShiftTypeBtn');
-    const originalHtml = submitBtn.innerHTML;
-    
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = MESSAGES.SAVING;
+
     DEBUG.log('Submitting add shift type form', 'info');
-    
-    requestJson(form.action || '/shift-types/add', {
-        method: 'POST',
-        body: formData,
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-    .then(data => {
-        if (data.success) {
-            hideModalById('addShiftTypeModal');
-            form.reset();
-            showAlertBanner('success', data.message || MESSAGES.SHIFT_TYPE_ADDED);
+
+    submitForm(form, 'submitAddShiftTypeBtn', {
+        action: form.action || '/shift-types/add',
+        successMessage: MESSAGES.SHIFT_TYPE_ADDED,
+        errorMessage: MESSAGES.SERVER_ERROR,
+        hideModal: 'addShiftTypeModal',
+        resetForm: true,
+        onSuccess: (data) => {
             DEBUG.log('Shift type added', 'info');
             location.reload();
-        } else {
-            const errorMsg = data.error || MESSAGES.SERVER_ERROR;
-            showAlertBanner('error', errorMsg);
-            DEBUG.warn('Add shift type failed', { error: errorMsg });
+        },
+        onError: (data) => {
+            DEBUG.warn('Add shift type failed', { error: data.error });
         }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-        DEBUG.error('Error adding shift type', { error });
-    })
-    .finally(() => {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = originalHtml;
     });
 }
 
@@ -720,6 +787,7 @@ function editShiftType(shiftType) {
             document.getElementById('edit_shift_end').value = data.end_time || '';
             document.getElementById('edit_shift_color').value = data.badge_color || 'bg-primary';
             document.getElementById('edit_shift_icon').value = data.icon || 'fas fa-clock';
+            document.getElementById('edit_shift_school_term_only').checked = !!data.school_term_only;
             
             // Populate parent select with all available shift types  
             const parentSelect = document.getElementById('edit_shift_parent');
@@ -776,43 +844,23 @@ function submitEditShiftType(event) {
 
     const form = document.getElementById('editShiftTypeForm');
     if (!form) return;
-    
+
     const originalShiftType = document.getElementById('edit_shift_type_original').value;
-    const formData = new FormData(form);
-    
-    const submitBtn = document.getElementById('submitEditShiftTypeBtn');
-    const originalHtml = submitBtn.innerHTML;
-    
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = MESSAGES.SAVING;
     DEBUG.log('Submitting edit shift type form', 'info');
-    
-    requestJson(`/shift-types/${originalShiftType}/edit`, {
-        method: 'POST',
-        body: formData,
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-    .then(data => {
-        if (data.success) {
-            hideModalById('editShiftTypeModal');
-            form.reset();
-            showAlertBanner('success', data.message || MESSAGES.SHIFT_TYPE_UPDATED);
+
+    submitForm(form, 'submitEditShiftTypeBtn', {
+        action: `/shift-types/${originalShiftType}/edit`,
+        successMessage: MESSAGES.SHIFT_TYPE_UPDATED,
+        errorMessage: MESSAGES.SERVER_ERROR,
+        hideModal: 'editShiftTypeModal',
+        resetForm: true,
+        onSuccess: (data) => {
             DEBUG.log('Shift type updated', 'info');
             location.reload();
-        } else {
-            const errorMsg = data.error || MESSAGES.SERVER_ERROR;
-            showAlertBanner('error', errorMsg);
-            DEBUG.warn('Edit shift type failed', { error: errorMsg });
+        },
+        onError: (data) => {
+            DEBUG.warn('Edit shift type failed', { error: data.error });
         }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-        DEBUG.error('Error updating shift type', { error });
-    })
-    .finally(() => {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = originalHtml;
     });
 }
 
@@ -1006,63 +1054,46 @@ function savePattern(event) {
 
     const form = document.getElementById('editPatternForm');
     if (!form) return;
-    
-    const formData = new FormData(form);
-    
-    // Add daily shift data
+
     const cycleLength = parseInt(document.getElementById('editCycleLength').value);
-    for (let i = 0; i < cycleLength; i++) {
-        const select = document.getElementById(`edit_day_${i}_shift`);
-        if (select) {
-            getSelectedDayShiftValues(select).forEach((value) => {
-                formData.append(`day_${i}_shift`, value);
-            });
-        }
-    }
-    
-    const submitBtn = document.getElementById('savePatternBtn');
-    const originalHtml = submitBtn.innerHTML;
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = MESSAGES.SAVING;
-    DEBUG.log('Submitting edit pattern form', 'info');
-    
     const patternId = document.getElementById('editPatternId')?.value;
     const actionUrl = form.action || (patternId ? `/shift-pattern/${patternId}/edit` : '');
+
     if (!actionUrl) {
         showAlertBanner('error', MESSAGES.FORM_ERROR);
         DEBUG.warn('Could not determine edit endpoint');
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = originalHtml;
         return;
     }
 
-    requestJson(actionUrl, {
-        method: 'POST',
-        body: formData,
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-    .then(data => {
-        if (data.success) {
-            hideModalById('editPatternModal');
-            form.reset();
+    DEBUG.log('Submitting edit pattern form', 'info');
+
+    submitForm(form, 'savePatternBtn', {
+        action: actionUrl,
+        formDataFn: (form) => {
+            const formData = new FormData(form);
+            // Add daily shift data
+            for (let i = 0; i < cycleLength; i++) {
+                const select = document.getElementById(`edit_day_${i}_shift`);
+                if (select) {
+                    getSelectedDayShiftValues(select).forEach((value) => {
+                        formData.append(`day_${i}_shift`, value);
+                    });
+                }
+            }
+            return formData;
+        },
+        successMessage: MESSAGES.PATTERN_UPDATED,
+        errorMessage: MESSAGES.SERVER_ERROR,
+        hideModal: 'editPatternModal',
+        resetForm: true,
+        onSuccess: (data) => {
             document.getElementById('editPatternDays').style.display = 'none';
-            showAlertBanner('success', data.message || MESSAGES.PATTERN_UPDATED);
             DEBUG.log('Pattern updated', 'info');
-            location.reload(); // Reload to show updated pattern
-        } else {
-            const errorMsg = data.error || MESSAGES.SERVER_ERROR;
-            showAlertBanner('error', errorMsg);
-            DEBUG.warn('Edit pattern failed', { error: errorMsg });
+            location.reload();
+        },
+        onError: (data) => {
+            DEBUG.warn('Edit pattern failed', { error: data.error });
         }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-        DEBUG.error('Error updating pattern', { error });
-    })
-    .finally(() => {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = originalHtml;
     });
 }
 
@@ -1143,53 +1174,37 @@ function saveCopyPattern(event) {
 
     const form = document.getElementById('copyPatternForm');
     if (!form) return;
-    
-    const formData = new FormData(form);
-    
-    // Add daily shift data
+
     const cycleLength = parseInt(document.getElementById('copyCycleLength').value);
-    for (let i = 0; i < cycleLength; i++) {
-        const select = document.getElementById(`copy_day_${i}_shift`);
-        if (select) {
-            getSelectedDayShiftValues(select).forEach((value) => {
-                formData.append(`day_${i}_shift`, value);
-            });
-        }
-    }
-    
-    const submitBtn = document.getElementById('copyPatternBtn');
-    const originalHtml = submitBtn.innerHTML;
-    submitBtn.disabled = true;
-    submitBtn.innerHTML = MESSAGES.SAVING;
     DEBUG.log('Submitting copy pattern form', 'info');
-    
-    requestJson(form.action || '/shift-pattern/add', {
-        method: 'POST',
-        body: formData,
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-    .then(data => {
-        if (data.success) {
-            hideModalById('copyPatternModal');
-            form.reset();
+
+    submitForm(form, 'copyPatternBtn', {
+        action: form.action || '/shift-pattern/add',
+        formDataFn: (form) => {
+            const formData = new FormData(form);
+            // Add daily shift data
+            for (let i = 0; i < cycleLength; i++) {
+                const select = document.getElementById(`copy_day_${i}_shift`);
+                if (select) {
+                    getSelectedDayShiftValues(select).forEach((value) => {
+                        formData.append(`day_${i}_shift`, value);
+                    });
+                }
+            }
+            return formData;
+        },
+        successMessage: MESSAGES.PATTERN_COPIED,
+        errorMessage: MESSAGES.SERVER_ERROR,
+        hideModal: 'copyPatternModal',
+        resetForm: true,
+        onSuccess: (data) => {
             document.getElementById('copyPatternDays').style.display = 'none';
-            showAlertBanner('success', data.message || MESSAGES.PATTERN_COPIED);
             DEBUG.log('Pattern copied', 'info');
-            location.reload(); // Reload to show new pattern
-        } else {
-            const errorMsg = data.error || MESSAGES.SERVER_ERROR;
-            showAlertBanner('error', errorMsg);
-            DEBUG.warn('Copy pattern failed', { error: errorMsg });
+            location.reload();
+        },
+        onError: (data) => {
+            DEBUG.warn('Copy pattern failed', { error: data.error });
         }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-        DEBUG.error('Error copying pattern', { error });
-    })
-    .finally(() => {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = originalHtml;
     });
 }
 

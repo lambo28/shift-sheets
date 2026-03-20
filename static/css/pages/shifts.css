@@ -1,0 +1,27 @@
+.btn-group .btn {
+    transition: all 0.3s ease !important;
+    transform: scale(1) !important;
+}
+
+.btn-group .btn:hover {
+    transform: scale(1.1) !important;
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3) !important;
+    z-index: 10 !important;
+    position: relative !important;
+}
+
+.btn-primary:hover {
+    background-color: #0056b3 !important;
+}
+
+.btn-success:hover {
+    background-color: #155724 !important;
+}
+
+.btn-danger:hover {
+    background-color: #721c24 !important;
+}
+
+#shiftTypesTableBody td {
+    vertical-align: middle;
+}

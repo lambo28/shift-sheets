@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime, timedelta, date, time, UTC
-from flask import url_for, request, redirect, jsonify, current_app
+from flask import url_for, request, redirect, jsonify, current_app, flash
 
 from extensions import db
 from constants import MIN_REST_HOURS, MAX_WORK_HOURS_PER_24H, EXTRA_CAR_MIN_PARTIAL_HOURS
@@ -97,15 +97,11 @@ def shift_abbrev(shift_type, all_shifts_str=''):
     if not shift_type or shift_type == 'day_off':
         return 'OFF'
 
-    all_shifts = [s.strip() for s in all_shifts_str.split('|') if s.strip() and s.strip() != 'day_off']
-
     words = str(shift_type).replace('_', ' ').split()
     if len(words) > 1:
         return ''.join(w[0].upper() for w in words)
 
-    initial = shift_type[0].upper()
-    conflicts = [s for s in all_shifts if s[0].upper() == initial and s != shift_type]
-    return initial if not conflicts else initial
+    return shift_type[0].upper()
 
 
 def is_ajax_request():
@@ -120,6 +116,46 @@ def json_success(**payload):
 
 def json_error(message, status_code=400):
     return jsonify({"success": False, "error": message}), status_code
+
+
+def validation_error_response(message, redirect_factory=None, status_code=400, category="error"):
+    """Return JSON for AJAX requests, otherwise flash and redirect.
+
+    This keeps validation branches consistent across routes that support both
+    API-style and form-style submissions.
+    """
+    if is_ajax_request():
+        return json_error(message, status_code=status_code)
+
+    flash(message, category)
+    if redirect_factory:
+        return redirect_factory()
+    return redirect(request.url)
+
+
+def validation_errors_response(messages, redirect_factory=None, status_code=400, category="error"):
+    """Return/flash multiple validation errors consistently.
+
+    For AJAX callers this returns a single json_error payload with messages
+    joined by '; '. For form posts this flashes each message and redirects.
+    """
+    cleaned_messages = [str(msg) for msg in (messages or []) if str(msg).strip()]
+    if not cleaned_messages:
+        return validation_error_response(
+            "Validation failed.",
+            redirect_factory=redirect_factory,
+            status_code=status_code,
+            category=category,
+        )
+
+    if is_ajax_request():
+        return json_error("; ".join(cleaned_messages), status_code=status_code)
+
+    for message in cleaned_messages:
+        flash(message, category)
+    if redirect_factory:
+        return redirect_factory()
+    return redirect(request.url)
 
 
 def calculate_hours(start_time, end_time, break_minutes=0):
@@ -772,6 +808,22 @@ def parse_positive_int(value):
     if parsed is None or parsed <= 0:
         return None
     return parsed
+
+
+def parse_month_start(month_str):
+    """Parse YYYY-MM string into the first day of that month.
+
+    Returns (month_start_date, error_message). When month_str is blank, defaults
+    to the current month start.
+    """
+    normalized = (month_str or "").strip()
+    if not normalized:
+        return datetime.now().date().replace(day=1), None
+
+    try:
+        return datetime.strptime(normalized, "%Y-%m").date().replace(day=1), None
+    except (ValueError, TypeError):
+        return None, "Invalid month format. Use YYYY-MM"
 
 
 def parse_day_shifts_from_form(form_data, day_index):

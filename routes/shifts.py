@@ -5,6 +5,7 @@ from extensions import db
 from models import ShiftPattern, ShiftTiming, DriverAssignment, DriverCustomTiming
 from utils import (
     json_success, json_error, is_ajax_request,
+    validation_error_response,
     parse_positive_int, parse_day_shifts_from_form,
     normalize_day_shifts, compact_day_shifts,
 )
@@ -308,29 +309,22 @@ def register(app):
     def add_shift_pattern():
         """Add new shift pattern"""
         if request.method == "POST":
+            redirect_factory = lambda: redirect(url_for("shifts"))
+
             # Block pattern creation if no shift types are defined
             if not ShiftTiming.query.first():
                 message = 'No shift types defined. Please add shift types before creating patterns.'
-                if is_ajax_request():
-                    return json_error(message)
-                flash(message, "error")
-                return redirect(url_for("shifts"))
+                return validation_error_response(message, redirect_factory=redirect_factory)
 
             cycle_length = parse_positive_int(request.form.get("cycle_length", 7))
             if not cycle_length:
                 message = 'Cycle length must be a positive number.'
-                if is_ajax_request():
-                    return json_error(message)
-                flash(message, "error")
-                return redirect(url_for("shifts"))
+                return validation_error_response(message, redirect_factory=redirect_factory)
 
             pattern_name = (request.form.get("name") or "").strip()
             if not pattern_name:
                 message = 'Pattern name is required.'
-                if is_ajax_request():
-                    return json_error(message)
-                flash(message, "error")
-                return redirect(url_for("shifts"))
+                return validation_error_response(message, redirect_factory=redirect_factory)
 
             pattern_data = []
 
@@ -339,10 +333,7 @@ def register(app):
                     day_shifts = parse_day_shifts_from_form(request.form, day)
                 except ValueError as exc:
                     message = str(exc)
-                    if is_ajax_request():
-                        return json_error(message)
-                    flash(message, "error")
-                    return redirect(url_for("shifts"))
+                    return validation_error_response(message, redirect_factory=redirect_factory)
                 pattern_data.append(day_shifts)
 
             pattern = ShiftPattern(
@@ -366,7 +357,7 @@ def register(app):
                 if is_ajax_request():
                     return json_error(str(e))
 
-                flash(f"Error adding shift pattern: {str(e)}", "error")
+                flash(f"Error adding shift pattern: {e}", "error")
 
         return render_template("shifts.html")
 
@@ -432,10 +423,7 @@ def register(app):
 
         if has_active_or_scheduled:
             message = "Cannot delete pattern while it has active or scheduled assignments. End or reassign those first."
-            if is_ajax_request():
-                return json_error(message)
-            flash(message, "error")
-            return redirect(url_for("shifts"))
+            return validation_error_response(message, redirect_factory=lambda: redirect(url_for("shifts")))
 
         try:
             db.session.delete(pattern)
@@ -451,6 +439,6 @@ def register(app):
             if is_ajax_request():
                 return json_error(str(e))
 
-            flash(f"Error deleting shift pattern: {str(e)}", "error")
+            flash(f"Error deleting shift pattern: {e}", "error")
 
         return redirect(url_for("shifts"))
