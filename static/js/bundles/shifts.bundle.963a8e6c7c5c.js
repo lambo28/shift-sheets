@@ -258,6 +258,66 @@ async function submitForm(form, submitButton, options = {}) {
     }
 }
 
+/**
+ * Initialize modal data population from button data attributes
+ * Reduces duplication of modal show event handlers
+ * 
+ * @param {string} modalId - ID of the modal element
+ * @param {string} formId - ID of the form element
+ * @param {Object} fieldMappings - Mapping of data-* attribute names to form field IDs
+ *                                  and optional URL template parts
+ * 
+ * @example
+ * initializeModalDataPopulation('editTermModal', 'editTermForm', {
+ *     dataAttrToFormField: {
+ *         'data-term-id': null,  // Used only for URL, not a form field
+ *         'data-term-name': 'editTermName',
+ *         'data-term-start': 'editTermStartDate',
+ *         'data-term-end': 'editTermEndDate'
+ *     },
+ *     urlPattern: '/scheduling/term/{data-term-id}/edit'
+ * });
+ */
+function initializeModalDataPopulation(modalId, formId, config) {
+    const modal = document.getElementById(modalId);
+    const form = document.getElementById(formId);
+    
+    if (!modal || !form) return;
+    
+    modal.addEventListener('show.bs.modal', function(event) {
+        const button = event.relatedTarget;
+        if (!button) return;
+        
+        const dataAttrs = config.dataAttrToFormField || {};
+        const urlPattern = config.urlPattern || '';
+        
+        // Extract all data attributes from button
+        const buttonData = {};
+        Object.keys(dataAttrs).forEach(attr => {
+            buttonData[attr] = button.getAttribute(attr) || '';
+        });
+        
+        // Populate form fields from button data
+        Object.entries(dataAttrs).forEach(([attr, fieldId]) => {
+            if (fieldId && buttonData[attr]) {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.value = buttonData[attr];
+                }
+            }
+        });
+        
+        // Set form action URL if pattern provided
+        if (urlPattern) {
+            let actionUrl = urlPattern;
+            Object.entries(buttonData).forEach(([attr, value]) => {
+                actionUrl = actionUrl.replace(`{${attr}}`, value);
+            });
+            form.action = actionUrl;
+        }
+    });
+}
+
 
 /* ===== shifts.core.js ===== */
 /**
@@ -631,6 +691,32 @@ function initializeDayShiftSelect(selectId, selectedValues = ['day_off']) {
     updateSecondaryShiftVisibility(primarySelect, secondarySelect, secondaryValue);
 }
 
+/**
+ * Collect cycle day shift values from form and append to FormData
+ * Reduces duplication across create, edit, and copy pattern handlers
+ * 
+ * @param {FormData} formData - FormData object to append shift data to
+ * @param {number} cycleLength - Number of days in the cycle
+ * @param {string} idPrefix - Prefix for shift select IDs (e.g., 'create', 'edit', 'copy')
+ * 
+ * @example
+ * const formData = new FormData(form);
+ * collectCycleDayShifts(formData, 14, 'create');
+ * // Now formData contains day_0_shift, day_1_shift, etc.
+ */
+function collectCycleDayShifts(formData, cycleLength, idPrefix) {
+    for (let i = 0; i < cycleLength; i++) {
+        const select = document.getElementById(`${idPrefix}_day_${i}_shift`);
+        if (select) {
+            getSelectedDayShiftValues(select).forEach((value) => {
+                formData.append(`day_${i}_shift`, value);
+            });
+        }
+    }
+    return formData;
+}
+
+
 
 
 /* ===== shifts.form-handlers.js ===== */
@@ -723,16 +809,7 @@ function saveCreatePattern(event) {
         },
         formDataFn: (form) => {
             const formData = new FormData(form);
-            // Add daily shift data
-            for (let i = 0; i < cycleLengthNum; i++) {
-                const select = document.getElementById(`create_day_${i}_shift`);
-                if (select) {
-                    getSelectedDayShiftValues(select).forEach((value) => {
-                        formData.append(`day_${i}_shift`, value);
-                    });
-                }
-            }
-            return formData;
+            return collectCycleDayShifts(formData, cycleLengthNum, 'create');
         },
         successMessage: MESSAGES.PATTERN_CREATED,
         errorMessage: MESSAGES.SERVER_ERROR,
@@ -1071,16 +1148,7 @@ function savePattern(event) {
         action: actionUrl,
         formDataFn: (form) => {
             const formData = new FormData(form);
-            // Add daily shift data
-            for (let i = 0; i < cycleLength; i++) {
-                const select = document.getElementById(`edit_day_${i}_shift`);
-                if (select) {
-                    getSelectedDayShiftValues(select).forEach((value) => {
-                        formData.append(`day_${i}_shift`, value);
-                    });
-                }
-            }
-            return formData;
+            return collectCycleDayShifts(formData, cycleLength, 'edit');
         },
         successMessage: MESSAGES.PATTERN_UPDATED,
         errorMessage: MESSAGES.SERVER_ERROR,
@@ -1182,16 +1250,7 @@ function saveCopyPattern(event) {
         action: form.action || '/shift-pattern/add',
         formDataFn: (form) => {
             const formData = new FormData(form);
-            // Add daily shift data
-            for (let i = 0; i < cycleLength; i++) {
-                const select = document.getElementById(`copy_day_${i}_shift`);
-                if (select) {
-                    getSelectedDayShiftValues(select).forEach((value) => {
-                        formData.append(`day_${i}_shift`, value);
-                    });
-                }
-            }
-            return formData;
+            return collectCycleDayShifts(formData, cycleLength, 'copy');
         },
         successMessage: MESSAGES.PATTERN_COPIED,
         errorMessage: MESSAGES.SERVER_ERROR,

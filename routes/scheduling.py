@@ -11,6 +11,7 @@ from utils import (
     validation_error_response,
     validation_errors_response,
     parse_date_string, parse_time_string, parse_positive_int,
+    require_driver, require_date,
     validate_adjustment_time, validate_swap,
     group_consecutive_holidays,
     get_driver_shifts_for_date,
@@ -28,6 +29,18 @@ def register(app):
             redirect_factory=lambda: redirect(url_for("scheduling")),
             category=category,
         )
+
+    def _require_driver_or_redirect(driver_id_raw):
+        """Resolve a driver from form data, returning a scheduling redirect on error."""
+        driver_id = parse_positive_int(driver_id_raw)
+        if not driver_id:
+            return None, None, _scheduling_redirect("Please select a driver.")
+
+        driver = db.session.get(Driver, driver_id)
+        if not driver:
+            return None, None, _scheduling_redirect("Driver not found.")
+
+        return driver_id, driver, None
 
     @app.route("/scheduling")
     def scheduling():
@@ -516,21 +529,17 @@ def register(app):
     @app.route("/scheduling/holiday/add", methods=["POST"])
     def add_holiday():
         """Add time off date(s) for a driver - supports date ranges."""
-        driver_id = parse_positive_int(request.form.get("driver_id"))
+        driver_id, driver, err = _require_driver_or_redirect(request.form.get("driver_id"))
+        if err:
+            return err
         start_date_str = request.form.get("start_date", "").strip()
         end_date_str = request.form.get("end_date", "").strip()
         time_off_type = request.form.get("time_off_type", "holiday").strip()
         notes = request.form.get("notes", "").strip()
 
-        if not driver_id:
-            return _scheduling_redirect("Please select a driver.")
-
-        driver = db.get_or_404(Driver, driver_id)
-
-        try:
-            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
-        except (ValueError, TypeError):
+        start_date = parse_date_string(start_date_str)
+        end_date = parse_date_string(end_date_str)
+        if start_date is None or end_date is None:
             return _scheduling_redirect("Invalid date format.")
 
         if end_date < start_date:
@@ -673,13 +682,12 @@ def register(app):
         time_off_type = data.get("time_off_type", "holiday").strip()
         notes = data.get("notes", "").strip()
 
-        try:
-            driver = db.get_or_404(Driver, driver_id)
-            old_start = datetime.strptime(old_start_str, "%Y-%m-%d").date()
-            old_end = datetime.strptime(old_end_str, "%Y-%m-%d").date()
-            new_start = datetime.strptime(new_start_str, "%Y-%m-%d").date()
-            new_end = datetime.strptime(new_end_str, "%Y-%m-%d").date()
-        except (ValueError, TypeError):
+        driver = db.get_or_404(Driver, driver_id)
+        old_start = parse_date_string(old_start_str)
+        old_end = parse_date_string(old_end_str)
+        new_start = parse_date_string(new_start_str)
+        new_end = parse_date_string(new_end_str)
+        if None in (old_start, old_end, new_start, new_end):
             flash("Invalid date format.", "warning")
             return jsonify({"success": False, "message": "Invalid date format"}), 400
 
@@ -739,23 +747,19 @@ def register(app):
     @app.route("/scheduling/adjustment/add", methods=["POST"])
     def add_adjustment():
         """Add a one-off shift adjustment (late start or early finish)."""
-        driver_id = parse_positive_int(request.form.get("driver_id"))
+        driver_id, driver, err = _require_driver_or_redirect(request.form.get("driver_id"))
+        if err:
+            return err
         date_str = request.form.get("adjustment_date", "").strip()
         adjustment_type = request.form.get("adjustment_type", "").strip()
         time_str = request.form.get("adjusted_time", "").strip()
         notes = request.form.get("notes", "").strip()
 
-        if not driver_id:
-            return _scheduling_redirect("Please select a driver.")
-
-        driver = db.get_or_404(Driver, driver_id)
-
         if adjustment_type not in ("late_start", "early_finish"):
             return _scheduling_redirect("Adjustment type must be 'late_start' or 'early_finish'.")
 
-        try:
-            adj_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        except (ValueError, TypeError):
+        adj_date = parse_date_string(date_str)
+        if adj_date is None:
             return _scheduling_redirect("Invalid date format.")
 
         adjusted_time = parse_time_string(time_str)
@@ -800,9 +804,8 @@ def register(app):
         if adjustment_type not in ("late_start", "early_finish"):
             return _scheduling_redirect("Adjustment type must be 'late_start' or 'early_finish'.")
 
-        try:
-            adj_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        except (ValueError, TypeError):
+        adj_date = parse_date_string(date_str)
+        if adj_date is None:
             return _scheduling_redirect("Invalid date format.")
 
         adjusted_time = parse_time_string(time_str)
@@ -908,7 +911,6 @@ def register(app):
     def validate_swap_ajax():
         """AJAX endpoint to validate a proposed single-driver day swap before confirming."""
         data = request.get_json(silent=True) or request.form
-        driver_id = parse_positive_int(data.get("driver_id"))
         give_up_date_str = (data.get("give_up_date") or "").strip()
         work_date_str = (data.get("work_date") or "").strip()
         raw_wst = data.get("work_shift_type") or ""
@@ -917,18 +919,16 @@ def register(app):
         else:
             work_shift_types = [t.strip() for t in str(raw_wst).split(',') if t.strip()]
 
-        if not driver_id:
-            return json_error("Please select a driver.")
+        driver, err = require_driver(data.get("driver_id"))
+        if err:
+            return err
 
-        driver = db.session.get(Driver, driver_id)
-        if not driver:
-            return json_error("Driver not found.")
-
-        try:
-            give_up_date = datetime.strptime(give_up_date_str, "%Y-%m-%d").date()
-            work_date = datetime.strptime(work_date_str, "%Y-%m-%d").date()
-        except (ValueError, TypeError):
-            return json_error("Invalid date format.")
+        give_up_date, err = require_date(give_up_date_str, "give-up date")
+        if err:
+            return err
+        work_date, err = require_date(work_date_str, "work date")
+        if err:
+            return err
 
         errors = validate_swap(driver, give_up_date, work_date, work_shift_types)
         if errors:
@@ -938,22 +938,18 @@ def register(app):
     @app.route("/scheduling/swap/add", methods=["POST"])
     def add_swap():
         """Add a confirmed single-driver day swap."""
-        driver_id = parse_positive_int(request.form.get("driver_id"))
+        driver_id, driver, err = _require_driver_or_redirect(request.form.get("driver_id"))
+        if err:
+            return err
         give_up_date_str = request.form.get("give_up_date", "").strip()
         work_date_str = request.form.get("work_date", "").strip()
         raw_wst = request.form.get("work_shift_type", "").strip()
         work_shift_types = [t.strip() for t in raw_wst.split(',') if t.strip()]
         notes = request.form.get("notes", "").strip()
 
-        if not driver_id:
-            return _scheduling_redirect("Please select a driver.")
-
-        driver = db.get_or_404(Driver, driver_id)
-
-        try:
-            give_up_date = datetime.strptime(give_up_date_str, "%Y-%m-%d").date()
-            work_date = datetime.strptime(work_date_str, "%Y-%m-%d").date()
-        except (ValueError, TypeError):
+        give_up_date = parse_date_string(give_up_date_str)
+        work_date = parse_date_string(work_date_str)
+        if give_up_date is None or work_date is None:
             return _scheduling_redirect("Invalid date format.")
 
         errors = validate_swap(driver, give_up_date, work_date, work_shift_types)

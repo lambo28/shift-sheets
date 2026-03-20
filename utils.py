@@ -158,6 +158,48 @@ def validation_errors_response(messages, redirect_factory=None, status_code=400,
     return redirect(request.url)
 
 
+def transactional_response(operation_fn, success_message, error_message=None, redirect_url=None, redirect_fn=None):
+    """Wrap database operations with automatic commit/rollback and response handling.
+    
+    Simplifies the common pattern of trying a database operation, committing on success,
+    rolling back on error, and returning appropriate AJAX or flash+redirect responses.
+    
+    Args:
+        operation_fn: Callable that performs the database operation (called within try block)
+        success_message: Message to return/flash on success
+        error_message: Message to return/flash on error (default: auto-generated)
+        redirect_url: URL to redirect to on success (form posts only)
+        redirect_fn: Function that returns URL on error (default: current URL)
+    
+    Returns:
+        For AJAX: json_success() or json_error()
+        For forms: redirect() with appropriate flash
+    
+    Example:
+        return transactional_response(
+            operation_fn=lambda: db.session.add(driver) or db.session.commit(),
+            success_message="Driver added successfully!",
+            redirect_url=url_for("drivers")
+        )
+    """
+    try:
+        operation_fn()
+        # Success path
+        if is_ajax_request():
+            return json_success()
+        flash(success_message, "success")
+        return redirect(redirect_url or request.url)
+    except Exception as e:
+        db.session.rollback()
+        error_msg = error_message or f"Operation failed: {str(e)}"
+        if is_ajax_request():
+            return json_error(error_msg)
+        flash(error_msg, "error")
+        if redirect_fn:
+            return redirect_fn()
+        return redirect(request.url)
+
+
 def calculate_hours(start_time, end_time, break_minutes=0):
     """Calculate hours worked from time strings"""
     try:
@@ -808,6 +850,42 @@ def parse_positive_int(value):
     if parsed is None or parsed <= 0:
         return None
     return parsed
+
+
+def require_driver(driver_id_raw):
+    """Validate a driver_id field and look up the Driver row.
+
+    Returns ``(driver, None)`` on success or ``(None, error_response)`` on
+    failure, letting callers use the two-line guard pattern::
+
+        driver, err = require_driver(data.get("driver_id"))
+        if err:
+            return err
+    """
+    driver_id = parse_positive_int(driver_id_raw)
+    if not driver_id:
+        return None, json_error("Please select a driver.")
+    driver = db.session.get(Driver, driver_id)
+    if not driver:
+        return None, json_error("Driver not found.")
+    return driver, None
+
+
+def require_date(date_str_raw, field_label="date"):
+    """Parse a YYYY-MM-DD string and return ``(date_obj, None)`` or
+    ``(None, error_response)`` for invalid/missing values.
+
+    Example::
+
+        give_up_date, err = require_date(data.get("give_up_date"), "give-up date")
+        if err:
+            return err
+    """
+    date_obj = parse_date_string((date_str_raw or "").strip())
+    if date_obj is None:
+        label = field_label or "date"
+        return None, json_error(f"Invalid {label} format.")
+    return date_obj, None
 
 
 def parse_month_start(month_str):

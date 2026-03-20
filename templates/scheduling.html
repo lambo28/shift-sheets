@@ -3,6 +3,7 @@
 {% block title %}Scheduling - Driver Shift Sheets{% endblock %}
 
 {% block extra_head %}
+<link href="{{ url_for('static', filename='css/calendars.css') }}" rel="stylesheet">
 <link href="{{ url_for('static', filename='css/pages/scheduling.css') }}" rel="stylesheet">
 {% endblock %}
 
@@ -12,11 +13,9 @@
      data-holidays="{{ holidays | map(attribute='holiday_date') | map('string') | list | tojson }}">
 </div>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h1>
-        <i class="fas fa-calendar-alt"></i> Scheduling
-    </h1>
-</div>
+{% set page_header_icon = 'fas fa-calendar-alt' %}
+{% set page_header_title = 'Scheduling' %}
+{% include "partials/components/page_header.html" %}
 
 <!-- Tab Navigation -->
 <ul class="nav nav-tabs scheduling-tabs mb-4" id="schedulingTabs" role="tablist" aria-label="Scheduling tabs">

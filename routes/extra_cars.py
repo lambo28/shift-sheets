@@ -9,9 +9,21 @@ from utils import (
     validation_error_response,
     validation_errors_response,
     parse_date_string, parse_time_string, parse_positive_int,
+    require_driver,
     validate_extra_car_assignment, interval_within_any_segment,
     resolve_request_relative_datetime, is_school_term_operational_day,
 )
+
+
+def _require_driver_or_redirect(driver_id_raw, redirect_fn):
+    """Look up driver for form-POST handlers, redirecting on failure."""
+    driver_id = parse_positive_int(driver_id_raw)
+    if not driver_id:
+        return None, redirect_fn("Please select a driver.")
+    driver = db.session.get(Driver, driver_id)
+    if not driver:
+        return None, redirect_fn("Driver not found.")
+    return driver, None
 
 
 def register(app):
@@ -303,16 +315,12 @@ def register(app):
                 })
 
         data = request.get_json(silent=True) or request.form
-        driver_id = parse_positive_int(data.get("driver_id"))
         start_str = (data.get("start_time") or "").strip()
         end_str = (data.get("end_time") or "").strip()
 
-        if not driver_id:
-            return json_error("Please select a driver.")
-
-        driver = db.session.get(Driver, driver_id)
-        if not driver:
-            return json_error("Driver not found.")
+        driver, err = require_driver(data.get("driver_id"))
+        if err:
+            return err
 
         existing_assignment = ExtraCarAssignment.query.filter_by(
             request_id=req.id,
@@ -386,17 +394,15 @@ def register(app):
             if not available_segments:
                 return _extra_cars_redirect("Request capacity is already fully covered for the whole window.")
 
-        driver_id = parse_positive_int(request.form.get("driver_id"))
+        driver, err = _require_driver_or_redirect(
+            request.form.get("driver_id"), _extra_cars_redirect
+        )
+        if err:
+            return err
+
         start_str = request.form.get("start_time", "").strip()
         end_str = request.form.get("end_time", "").strip()
         notes = request.form.get("notes", "").strip() or None
-
-        if not driver_id:
-            return _extra_cars_redirect("Please select a driver.")
-
-        driver = db.session.get(Driver, driver_id)
-        if not driver:
-            return _extra_cars_redirect("Driver not found.")
 
         existing_assignment = ExtraCarAssignment.query.filter_by(
             request_id=req.id,

@@ -1,0 +1,5 @@
+{% set vehicle_badge_driver = vehicle_badge_driver or driver %}
+{% set vehicle_badge_show_electric = vehicle_badge_show_electric|default(false) %}
+<span class="badge bg-{{ 'success' if vehicle_badge_driver.car_type == 'Standard' else 'info' if vehicle_badge_driver.car_type == 'Estate' else 'warning' if vehicle_badge_driver.car_type == 'XL Estate' else 'secondary' }}">
+    {{ vehicle_badge_driver.car_type }}{% if vehicle_badge_show_electric and vehicle_badge_driver.electric_vehicle %}&nbsp;&nbsp;<i class="fas fa-bolt" data-bs-toggle="tooltip" data-bs-placement="top" title="Electric Vehicle"></i>{% endif %}
+</span>

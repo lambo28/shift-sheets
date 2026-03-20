@@ -1,0 +1,49 @@
+{% set attribute_badge_driver = attribute_badge_driver or driver %}
+{% set attribute_badges_mode = attribute_badges_mode|default('compact') %}
+{% set attribute_empty_placeholder = attribute_empty_placeholder|default(false) %}
+
+{% if attribute_badges_mode == 'stacked' %}
+<div class="d-flex flex-column">
+    {% if attribute_badge_driver.school_badge %}
+        <span class="badge bg-warning mb-1">
+            <i class="fas fa-school"></i> School Badge
+        </span>
+    {% endif %}
+    {% if attribute_badge_driver.pet_friendly %}
+        <span class="badge bg-success mb-1">
+            <i class="fas fa-paw"></i> Pet Friendly
+        </span>
+    {% endif %}
+    {% if attribute_badge_driver.assistance_guide_dogs_exempt %}
+        <span class="badge bg-info mb-1">
+            <i class="fas fa-eye"></i> No Assistance Dogs
+        </span>
+    {% endif %}
+    {% if attribute_empty_placeholder and not attribute_badge_driver.school_badge and not attribute_badge_driver.pet_friendly and not attribute_badge_driver.assistance_guide_dogs_exempt %}
+        <span class="text-muted">-</span>
+    {% endif %}
+</div>
+{% else %}
+<div class="d-flex gap-1">
+    {% if attribute_badge_driver.school_badge %}
+        <span class="badge bg-warning" title="School Badge">
+            <i class="fas fa-school"></i>
+        </span>
+    {% endif %}
+    {% if attribute_badge_driver.pet_friendly %}
+        <span class="badge bg-success" title="Pet Friendly">
+            <i class="fas fa-paw"></i>
+        </span>
+    {% endif %}
+    {% if attribute_badge_driver.assistance_guide_dogs_exempt %}
+        <span class="badge bg-info" title="Exempt from Assistance/Guide Dogs">
+            <i class="fas fa-eye"></i>
+        </span>
+    {% endif %}
+    {% if attribute_badge_driver.electric_vehicle %}
+        <span class="badge bg-warning" title="Electric Vehicle">
+            <i class="fas fa-bolt"></i>
+        </span>
+    {% endif %}
+</div>
+{% endif %}

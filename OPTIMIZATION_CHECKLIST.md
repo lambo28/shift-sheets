@@ -5,17 +5,23 @@
 ### Overview
 Extract 93 lines of driver-page-specific CSS from `static/css/style.css` (lines 821-913) to `static/css/pages/drivers.css`
 
+### Status
+✅ Completed (plus additional shared-component cleanup)
+
 ### Steps
-- [ ] Read lines 821-913 from `static/css/style.css`
-- [ ] Copy the driver-specific CSS rules
-- [ ] Append to `static/css/pages/drivers.css`
-- [ ] Remove lines 821-913 from `static/css/style.css`
-- [ ] Run test suite: `python -m pytest -q`
-- [ ] Verify in browser at `/drivers` page
-- [ ] Update this document
+- [x] Read lines 821-913 from `static/css/style.css`
+- [x] Copy the driver-specific CSS rules
+- [x] Append to `static/css/pages/drivers.css`
+- [x] Remove lines 821-913 from `static/css/style.css`
+- [x] Run test suite: `python -m pytest -q`
+- [x] Verify in browser at `/drivers` page
+- [x] Extract shared styles to `static/css/components.css`
+- [x] Extract calendar styles to `static/css/calendars.css`
+- [x] Remove dead/unused CSS rules from `static/css/style.css`
+- [x] Update this document
 
 ### Expected Result
-- `style.css` reduced from 913 to ~820 lines
+- `style.css` reduced from 913 to ~300 lines
 - All styles still applied correctly
 - 123 tests passing
 
@@ -26,11 +32,17 @@ Extract 93 lines of driver-page-specific CSS from `static/css/style.css` (lines 
 ### Overview
 Extract repeated component patterns (cards, tables, forms) into reusable partials
 
+### Status
+✅ Completed for high-value shared components
+
 ### Potential Components to Extract
-- [ ] Card component (used in multiple templates)
-- [ ] Table wrapper component (shifts/drivers/extra-cars)
-- [ ] Modal footer component (repeated button groups)
-- [ ] Form field component (repeated input patterns)
+- [x] Driver vehicle badge component
+- [x] Driver attribute badges component
+- [x] Page header component
+- [ ] Card component (optional future pass)
+- [ ] Table wrapper component (optional future pass)
+- [ ] Modal footer component (optional future pass)
+- [ ] Form field component (optional future pass)
 
 ### Key Files to Scan
 - `templates/index.html` (209 lines)
@@ -39,11 +51,11 @@ Extract repeated component patterns (cards, tables, forms) into reusable partial
 - `templates/drivers.html` (295 lines)
 
 ### Steps
-1. Identify repeated patterns in templates
-2. Create partials in `templates/partials/components/`
-3. Update templates to use partials
-4. Run test suite
-5. Verify in browser
+1. ✅ Identify repeated patterns in templates
+2. ✅ Create partials in `templates/partials/components/`
+3. ✅ Update templates to use partials (`index.html`, `daily_sheet.html`, `drivers.html`, `scheduling.html`)
+4. ✅ Run test suite
+5. ✅ Verify in browser
 
 ---
 
@@ -51,32 +63,38 @@ Extract repeated component patterns (cards, tables, forms) into reusable partial
 
 ### Task 3A: Split `scheduling.core.js` (1438 lines)
 
+### Status
+✅ Completed via prior modularization (no longer 1438 lines)
+
 #### Files to Create
-- [ ] `static/js/scheduling.calendar.js` - Calendar rendering
-- [ ] `static/js/scheduling.timeoff.js` - Holiday/closure logic
-- [ ] `static/js/scheduling.dates.js` - Date utilities
+- [x] `static/js/scheduling.calendar-view.js` - Calendar rendering/view logic
+- [x] `static/js/scheduling.holiday-calendar.js` - Holiday logic
+- [x] `static/js/scheduling.adjustment-calendar.js` - Adjustment logic
 
 #### Steps
-1. Read `scheduling.core.js` and identify function groups
-2. Create new files with function subsets
-3. Update imports/exports
-4. Update `scripts/build_js_bundles.py` if creating new bundle
-5. Run: `python scripts/build_js_bundles.py`
-6. Run tests: `python -m pytest -q`
+1. ✅ Read `scheduling.core.js` and identify function groups
+2. ✅ Create new files with function subsets
+3. ✅ Update bundle script ordering
+4. ✅ Update `scripts/build_js_bundles.py`
+5. ✅ Run: `python scripts/build_js_bundles.py`
+6. ✅ Run tests: `python -m pytest -q`
 
 ### Task 3B: Split `drivers.custom-timings.js` (1014 lines)
 
+### Status
+✅ Completed incrementally
+
 #### Files to Create
-- [ ] `static/js/drivers.timing-display.js` - UI rendering
-- [ ] `static/js/drivers.timing-calc.js` - Business logic
-- [ ] `static/js/drivers.timing-events.js` - Event handlers
+- [x] `static/js/drivers.custom-timings.helpers.js` - Display + helper logic
+- [x] `static/js/drivers.custom-timings.js` - Orchestration + fetch handlers
+- [x] Extracted `renderCustomTimingCard()` from inline map template
 
 #### Steps
-1. Read `drivers.custom-timings.js` and identify function groups
-2. Create new files with function subsets
-3. Update imports/exports
-4. Update bundle configuration if needed
-5. Rebuild and test
+1. ✅ Read `drivers.custom-timings.js` and identify function groups
+2. ✅ Move helper/render logic into `drivers.custom-timings.helpers.js`
+3. ✅ Simplify `loadCustomTimings()` to use named renderer
+4. ✅ Update bundle configuration/order as needed
+5. ✅ Rebuild and test
 
 ---
 
@@ -85,24 +103,27 @@ Extract repeated component patterns (cards, tables, forms) into reusable partial
 ### Overview
 Create centralized Python validation module to reduce repeated patterns in routes
 
+### Status
+✅ Completed in `utils.py` (shared validation helpers)
+
 ### Files to Create
-- [ ] `utils/validators.py` - Validation helper functions
+- [x] Reused/extended existing `utils.py` helper module (no new file required)
 
 ### Validators to Implement
-- [ ] `validate_date(date_str)` - Check date format (YYYY-MM-DD)
-- [ ] `validate_time(time_str)` - Check time format (HH:MM)
-- [ ] `validate_required(*fields)` - Check required fields
-- [ ] `validate_driver_exists(driver_id)` - Check driver in DB
-- [ ] `validate_pattern_exists(pattern_id)` - Check pattern in DB
-- [ ] `validate_shift_type_exists(shift_id)` - Check shift type in DB
+- [x] `parse_date_string(date_str)` centralized date parsing
+- [x] `parse_time_string(time_str)` centralized time parsing
+- [x] `parse_positive_int(value)` for required positive IDs
+- [x] `require_driver(driver_id_raw)` centralized AJAX driver validation
+- [x] `require_date(date_str_raw, field_label)` centralized AJAX date validation
+- [x] `_require_driver_or_redirect(...)` local route helper for form POST flows
 
 ### Step
-1. Create `utils/validators.py`
-2. Implement each validator function
-3. Search routes for `json_error` calls (found 15 instances)
-4. Replace with new validator functions
-5. Run test suite
-6. Update routes: scheduling.py, custom_timings.py, extra_cars.py, shifts.py
+1. ✅ Extend shared validators in `utils.py`
+2. ✅ Implement helper functions (`require_driver`, `require_date`)
+3. ✅ Refactor repeated validation in `scheduling.py`, `extra_cars.py`, `shifts.py`
+4. ✅ Replace inline `datetime.strptime` usage in routes with shared parse helpers
+5. ✅ Run test suite
+6. ✅ Validate route behavior unchanged (123 tests pass)
 
 ---
 

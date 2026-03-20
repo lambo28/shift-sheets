@@ -60,3 +60,7 @@
     background-color: #e0a800 !important;
     border-color: #e0a800 !important;
 }
+
+#driverCalendarModal .modal-dialog {
+    max-width: min(1180px, 95vw);
+}

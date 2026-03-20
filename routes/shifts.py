@@ -6,7 +6,7 @@ from models import ShiftPattern, ShiftTiming, DriverAssignment, DriverCustomTimi
 from utils import (
     json_success, json_error, is_ajax_request,
     validation_error_response,
-    parse_positive_int, parse_day_shifts_from_form,
+    parse_positive_int, parse_day_shifts_from_form, parse_time_string,
     normalize_day_shifts, compact_day_shifts,
 )
 
@@ -86,8 +86,10 @@ def register(app):
                 if parent_shift_type == new_shift_type:
                     return json_error('A shift cannot be grouped under itself')
 
-                start_time = datetime.strptime(start_time_str, '%H:%M').time()
-                end_time = datetime.strptime(end_time_str, '%H:%M').time()
+                start_time = parse_time_string(start_time_str)
+                end_time = parse_time_string(end_time_str)
+                if start_time is None or end_time is None:
+                    return json_error('Invalid time format. Use HH:MM.')
 
                 timing = ShiftTiming.query.filter_by(shift_type=old_shift_type).first()
                 if timing:
@@ -190,8 +192,10 @@ def register(app):
                 if not parent:
                     return json_error('Selected parent shift does not exist')
 
-            start_time = datetime.strptime(start_time_str, '%H:%M').time()
-            end_time = datetime.strptime(end_time_str, '%H:%M').time()
+            start_time = parse_time_string(start_time_str)
+            end_time = parse_time_string(end_time_str)
+            if start_time is None or end_time is None:
+                return json_error('Invalid time format. Use HH:MM.')
 
             timing = ShiftTiming(shift_type=shift_type, display_name=display_name, start_time=start_time, end_time=end_time,
                        badge_color=badge_color, icon=icon, parent_shift_type=parent_shift_type,
@@ -288,8 +292,10 @@ def register(app):
                 if not parent:
                     return json_error('Selected parent shift does not exist')
 
-            start_time = datetime.strptime(start_time_str, '%H:%M').time()
-            end_time = datetime.strptime(end_time_str, '%H:%M').time()
+            start_time = parse_time_string(start_time_str)
+            end_time = parse_time_string(end_time_str)
+            if start_time is None or end_time is None:
+                return json_error('Invalid time format. Use HH:MM.')
 
             timing.display_name = display_name
             timing.start_time = start_time

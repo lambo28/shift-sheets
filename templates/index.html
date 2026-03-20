@@ -3,13 +3,11 @@
 {% block title %}Dashboard - Driver Shift Sheets{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-md-12">
-        <h1 class="mb-4">
-            <i class="fas fa-tachometer-alt"></i> Dashboard
-        </h1>
-    </div>
-</div>
+{% set page_header_icon = 'fas fa-tachometer-alt' %}
+{% set page_header_title = 'Dashboard' %}
+{% set page_header_subtitle = '' %}
+{% set page_header_actions_html = '' %}
+{% include "partials/components/page_header.html" %}
 
 <div class="row mb-4">
     <div class="col-md-4">

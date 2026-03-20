@@ -258,6 +258,66 @@ async function submitForm(form, submitButton, options = {}) {
     }
 }
 
+/**
+ * Initialize modal data population from button data attributes
+ * Reduces duplication of modal show event handlers
+ * 
+ * @param {string} modalId - ID of the modal element
+ * @param {string} formId - ID of the form element
+ * @param {Object} fieldMappings - Mapping of data-* attribute names to form field IDs
+ *                                  and optional URL template parts
+ * 
+ * @example
+ * initializeModalDataPopulation('editTermModal', 'editTermForm', {
+ *     dataAttrToFormField: {
+ *         'data-term-id': null,  // Used only for URL, not a form field
+ *         'data-term-name': 'editTermName',
+ *         'data-term-start': 'editTermStartDate',
+ *         'data-term-end': 'editTermEndDate'
+ *     },
+ *     urlPattern: '/scheduling/term/{data-term-id}/edit'
+ * });
+ */
+function initializeModalDataPopulation(modalId, formId, config) {
+    const modal = document.getElementById(modalId);
+    const form = document.getElementById(formId);
+    
+    if (!modal || !form) return;
+    
+    modal.addEventListener('show.bs.modal', function(event) {
+        const button = event.relatedTarget;
+        if (!button) return;
+        
+        const dataAttrs = config.dataAttrToFormField || {};
+        const urlPattern = config.urlPattern || '';
+        
+        // Extract all data attributes from button
+        const buttonData = {};
+        Object.keys(dataAttrs).forEach(attr => {
+            buttonData[attr] = button.getAttribute(attr) || '';
+        });
+        
+        // Populate form fields from button data
+        Object.entries(dataAttrs).forEach(([attr, fieldId]) => {
+            if (fieldId && buttonData[attr]) {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.value = buttonData[attr];
+                }
+            }
+        });
+        
+        // Set form action URL if pattern provided
+        if (urlPattern) {
+            let actionUrl = urlPattern;
+            Object.entries(buttonData).forEach(([attr, value]) => {
+                actionUrl = actionUrl.replace(`{${attr}}`, value);
+            });
+            form.action = actionUrl;
+        }
+    });
+}
+
 
 /* ===== drivers.core.js ===== */
 /**
@@ -2272,6 +2332,159 @@ function deleteCustomTiming(timingId, callback) {
         });
 }
 
+/**
+ * Renders the HTML for a single custom timing card in the list.
+ */
+function renderCustomTimingCard(t, driverId, driverName) {
+    const patternText = t.assignment_name || 'Any Pattern';
+    const hasSpecificShiftType = Boolean(t.shift_type);
+    const shiftTiming = hasSpecificShiftType ? shiftTimings[t.shift_type] : null;
+    const shiftTypeLabel = hasSpecificShiftType
+        ? (shiftTiming?.label || t.shift_type)
+        : 'Any';
+    const shiftTypeBadgeClass = shiftTiming?.badgeColor || 'bg-secondary';
+    let priority = Number(t.priority ?? 4);
+    if (!Number.isFinite(priority) || priority < 1) priority = 4;
+    if (priority > 7) priority = 7;
+    const priorityBadgeClassMap = {
+        1: 'bg-danger',
+        2: 'bg-warning text-dark',
+        3: 'bg-info text-dark',
+        4: 'bg-primary',
+        5: 'bg-success',
+        6: 'bg-secondary',
+        7: 'bg-dark'
+    };
+    const priorityBadgeClass = priorityBadgeClassMap[priority] || 'bg-primary';
+    const hasSpecificAssignment = Boolean(t.assignment_name);
+    const hasShiftOnDay = t.day_of_cycle !== null && Array.isArray(t.day_cycle_shifts) && t.day_cycle_shifts.length > 0;
+    const hasCycleDay = t.day_of_cycle !== null;
+    const weekdayLabel = t.day_of_week !== null ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][t.day_of_week] : '';
+    const hasCustomTimes = Boolean(t.start_time) || Boolean(t.end_time);
+    const hasOverrideShift = Boolean(t.override_shift);
+    const isDayOffMode = Boolean(weekdayLabel) && t.override_shift === 'day_off';
+    const isShiftOverride = Boolean(weekdayLabel) && hasOverrideShift && !isDayOffMode;
+    const isCustomTimesMode = Boolean(weekdayLabel) && !hasOverrideShift && hasCustomTimes;
+    const shiftMatchesCycle = !hasSpecificShiftType || !hasCycleDay || !hasShiftOnDay || t.day_cycle_shifts.includes(t.shift_type);
+    const hasRuleCriteria = hasSpecificShiftType || hasCycleDay || Boolean(weekdayLabel);
+    const driverNumber = (document.querySelector(`.add-custom-timing-btn[data-driver-id="${driverId}"]`)?.getAttribute('data-driver-number') || '').replace(/"/g, '&quot;');
+
+    let ruleSummaryHtml = '';
+    if (isDayOffMode) {
+        ruleSummaryHtml = `
+            <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
+                <span>Every</span>
+                <span class="badge bg-light text-dark border">${weekdayLabel}</span>
+                ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, set as</span>` : `<span>, set as</span>`}
+                <span class="badge bg-secondary">OFF</span><span>.</span>
+            </div>
+        `;
+    } else if (isShiftOverride) {
+        const overrideShiftDisplay = getShiftDisplay(t.override_shift);
+        ruleSummaryHtml = `
+            <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
+                <span>Every</span>
+                <span class="badge bg-light text-dark border">${weekdayLabel}</span>
+                ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, override to</span>` : `<span>, override to</span>`}
+                <span class="d-inline-flex align-items-center gap-0"><span class="badge ${overrideShiftDisplay.badgeColor}">${overrideShiftDisplay.label}</span><span>.</span></span>
+            </div>
+        `;
+    } else if (isCustomTimesMode) {
+        const customTimeSentence = (() => {
+            const start = t.start_time || '';
+            const end = t.end_time || '';
+            if (start && end) return 'use custom starting and finishing times';
+            if (start) return 'use custom starting time';
+            return 'use custom finishing time';
+        })();
+        ruleSummaryHtml = `
+            <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
+                <span>Every</span>
+                <span class="badge bg-light text-dark border">${weekdayLabel}</span>
+                ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, ${customTimeSentence}.</span>` : `<span>, ${customTimeSentence}.</span>`}
+            </div>
+        `;
+    } else if (hasRuleCriteria) {
+        ruleSummaryHtml = `
+            <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
+                <span>Any</span>
+                ${hasSpecificShiftType ? `<span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span>` : ''}
+                <span>Shift</span>
+                ${weekdayLabel ? `<span>that is on a</span><span class="badge bg-light text-dark border">${weekdayLabel}</span>` : ''}
+                ${hasCycleDay ? `<span>${weekdayLabel ? 'and on' : 'on'}</span><span class="badge bg-light text-dark border">Cycle Day ${t.day_of_cycle + 1}</span>` : ''}
+                ${hasShiftOnDay
+                    ? `<span>which is a</span>${t.day_cycle_shifts.map((shiftType) => {
+                        const display = getShiftDisplay(shiftType);
+                        return `<span class="badge ${display.badgeColor}">${display.label}</span>`;
+                    }).join('')}`
+                    : ''}
+            </div>
+        `;
+    }
+
+    const conflictWarningHtml = hasSpecificShiftType && hasCycleDay && hasShiftOnDay && !shiftMatchesCycle && !isShiftOverride
+        ? `<div class="mb-2"><span class="badge bg-danger">Conflict: selected shift is not on this cycle day</span></div>`
+        : '';
+
+    const timeText = (() => {
+        const start = t.start_time || '';
+        const end = t.end_time || '';
+        if (start && end) return `Starting ${start} · Finishing ${end}`;
+        if (start) return `Starting ${start}`;
+        if (end) return `Finishing ${end}`;
+        return 'Default time';
+    })();
+    const customTimeText = (() => {
+        const start = t.start_time || '';
+        const end = t.end_time || '';
+        if (start && end) return `Starting ${start} · Finishing ${end}`;
+        if (start) return `Starting ${start}`;
+        if (end) return `Finishing ${end}`;
+        return 'Time';
+    })();
+    const rightBadgeHtml = isDayOffMode
+        ? `<span class="badge bg-secondary fs-6 px-3 py-2 me-2">Day Off</span>`
+        : isShiftOverride
+        ? `<span class="badge bg-warning text-dark fs-6 px-3 py-2 me-2">Shift Override</span>`
+        : `<span class="badge bg-info text-dark fs-6 px-3 py-2 me-2">${isCustomTimesMode ? customTimeText : timeText}</span>`;
+
+    return `
+        <div class="list-group-item">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="me-2">
+                    <span class="badge ${priorityBadgeClass} fs-6 px-3 py-2 rounded-pill">Priority ${priority}</span>
+                </div>
+                <div class="small" style="flex: 1;">
+                    <div class="mb-2">
+                        ${hasSpecificAssignment
+                            ? `<span><span class="fw-bold me-1">Shifts on Pattern:</span>${patternText}</span>`
+                            : `<span class="fw-bold">Shifts on Any Pattern</span>`}
+                    </div>
+                    ${ruleSummaryHtml}
+                    ${conflictWarningHtml}
+                </div>
+                <div class="text-end ms-3 d-flex align-items-center justify-content-end" style="min-width: 320px;">
+                    ${rightBadgeHtml}
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-sm btn-primary edit-custom-timing-inline" data-driver-id="${driverId}" data-timing-id="${t.id}" data-driver-name="${driverName}" data-driver-number="${driverNumber}">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-danger delete-custom-timing-inline" data-driver-id="${driverId}" data-timing-id="${t.id}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            ${t.notes ? `
+                <div class="mt-2 pt-2 border-top small">
+                    <div class="fw-bold mb-1">Notes</div>
+                    <div>${t.notes}</div>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
 
 /* ===== drivers.custom-timings.js ===== */
 /**
@@ -2463,156 +2676,7 @@ function loadCustomTimings(driverId) {
                 } else {
                     list.innerHTML = `
                         <div class="list-group">
-                            ${data.timings.map(t => `
-                                    <div class="list-group-item">
-                                        ${(() => {
-                                            const patternText = t.assignment_name || 'Any Pattern';
-                                            const hasSpecificShiftType = Boolean(t.shift_type);
-                                            const shiftTiming = hasSpecificShiftType ? shiftTimings[t.shift_type] : null;
-                                            const shiftTypeLabel = hasSpecificShiftType
-                                                ? (shiftTiming?.label || t.shift_type)
-                                                : 'Any';
-                                            const shiftTypeBadgeClass = shiftTiming?.badgeColor || 'bg-secondary';
-                                            let priority = Number(t.priority ?? 4);
-                                            if (!Number.isFinite(priority) || priority < 1) priority = 4;
-                                            if (priority > 7) priority = 7;
-                                            const priorityBadgeClassMap = {
-                                                1: 'bg-danger',
-                                                2: 'bg-warning text-dark',
-                                                3: 'bg-info text-dark',
-                                                4: 'bg-primary',
-                                                5: 'bg-success',
-                                                6: 'bg-secondary',
-                                                7: 'bg-dark'
-                                            };
-                                            const priorityBadgeClass = priorityBadgeClassMap[priority] || 'bg-primary';
-                                            const hasSpecificAssignment = Boolean(t.assignment_name);
-                                            const hasShiftOnDay = t.day_of_cycle !== null && Array.isArray(t.day_cycle_shifts) && t.day_cycle_shifts.length > 0;
-                                            const hasCycleDay = t.day_of_cycle !== null;
-                                            const weekdayLabel = t.day_of_week !== null ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][t.day_of_week] : '';
-                                            const hasCustomTimes = Boolean(t.start_time) || Boolean(t.end_time);
-                                            const hasOverrideShift = Boolean(t.override_shift);
-                                            const isDayOffMode = Boolean(weekdayLabel) && t.override_shift === 'day_off';
-                                            const isShiftOverride = Boolean(weekdayLabel) && hasOverrideShift && !isDayOffMode;
-                                            const isCustomTimesMode = Boolean(weekdayLabel) && !hasOverrideShift && hasCustomTimes;
-                                            const shiftMatchesCycle = !hasSpecificShiftType || !hasCycleDay || !hasShiftOnDay || t.day_cycle_shifts.includes(t.shift_type);
-                                            const hasRuleCriteria = hasSpecificShiftType || hasCycleDay || Boolean(weekdayLabel);
-
-                                            let ruleSummaryHtml = '';
-                                            if (isDayOffMode) {
-                                                ruleSummaryHtml = `
-                                                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
-                                                        <span>Every</span>
-                                                        <span class="badge bg-light text-dark border">${weekdayLabel}</span>
-                                                        ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, set as</span>` : `<span>, set as</span>`}
-                                                        <span class="badge bg-secondary">OFF</span><span>.</span>
-                                                    </div>
-                                                `;
-                                            } else if (isShiftOverride) {
-                                                const overrideShiftDisplay = getShiftDisplay(t.override_shift);
-                                                ruleSummaryHtml = `
-                                                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
-                                                        <span>Every</span>
-                                                        <span class="badge bg-light text-dark border">${weekdayLabel}</span>
-                                                        ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, override to</span>` : `<span>, override to</span>`}
-                                                        <span class="d-inline-flex align-items-center gap-0"><span class="badge ${overrideShiftDisplay.badgeColor}">${overrideShiftDisplay.label}</span><span>.</span></span>
-                                                    </div>
-                                                `;
-                                            } else if (isCustomTimesMode) {
-                                                const customTimeSentence = (() => {
-                                                    const start = t.start_time || '';
-                                                    const end = t.end_time || '';
-                                                    if (start && end) return 'use custom starting and finishing times';
-                                                    if (start) return 'use custom starting time';
-                                                    return 'use custom finishing time';
-                                                })();
-                                                ruleSummaryHtml = `
-                                                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
-                                                        <span>Every</span>
-                                                        <span class="badge bg-light text-dark border">${weekdayLabel}</span>
-                                                        ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, ${customTimeSentence}.</span>` : `<span>, ${customTimeSentence}.</span>`}
-                                                    </div>
-                                                `;
-                                            } else if (hasRuleCriteria) {
-                                                ruleSummaryHtml = `
-                                                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
-                                                        <span>Any</span>
-                                                        ${hasSpecificShiftType ? `<span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span>` : ''}
-                                                        <span>Shift</span>
-                                                        ${weekdayLabel ? `<span>that is on a</span><span class="badge bg-light text-dark border">${weekdayLabel}</span>` : ''}
-                                                        ${hasCycleDay ? `<span>${weekdayLabel ? 'and on' : 'on'}</span><span class="badge bg-light text-dark border">Cycle Day ${t.day_of_cycle + 1}</span>` : ''}
-                                                        ${hasShiftOnDay
-                                                            ? `<span>which is a</span>${t.day_cycle_shifts.map((shiftType) => {
-                                                                const display = getShiftDisplay(shiftType);
-                                                                return `<span class="badge ${display.badgeColor}">${display.label}</span>`;
-                                                            }).join('')}`
-                                                            : ''}
-                                                    </div>
-                                                `;
-                                            }
-
-                                            const conflictWarningHtml = hasSpecificShiftType && hasCycleDay && hasShiftOnDay && !shiftMatchesCycle && !isShiftOverride
-                                                ? `<div class="mb-2"><span class="badge bg-danger">Conflict: selected shift is not on this cycle day</span></div>`
-                                                : '';
-                                            const timeText = (() => {
-                                                const start = t.start_time || '';
-                                                const end = t.end_time || '';
-                                                if (start && end) return `Starting ${start} · Finishing ${end}`;
-                                                if (start) return `Starting ${start}`;
-                                                if (end) return `Finishing ${end}`;
-                                                return 'Default time';
-                                            })();
-                                            const customTimeText = (() => {
-                                                const start = t.start_time || '';
-                                                const end = t.end_time || '';
-                                                if (start && end) return `Starting ${start} · Finishing ${end}`;
-                                                if (start) return `Starting ${start}`;
-                                                if (end) return `Finishing ${end}`;
-                                                return 'Time';
-                                            })();
-                                            const rightBadgeHtml = isDayOffMode
-                                                ? `<span class="badge bg-secondary fs-6 px-3 py-2 me-2">Day Off</span>`
-                                                : isShiftOverride
-                                                ? `<span class="badge bg-warning text-dark fs-6 px-3 py-2 me-2">Shift Override</span>`
-                                                : `<span class="badge bg-info text-dark fs-6 px-3 py-2 me-2">${isCustomTimesMode ? customTimeText : timeText}</span>`;
-
-                                            return `
-                                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                                    <div class="me-2">
-                                                        <span class="badge ${priorityBadgeClass} fs-6 px-3 py-2 rounded-pill">Priority ${priority}</span>
-                                                    </div>
-                                                    <div class="small" style="flex: 1;">
-                                                        <div class="mb-2">
-                                                            ${hasSpecificAssignment
-                                                                ? `<span><span class="fw-bold me-1">Shifts on Pattern:</span>${patternText}</span>`
-                                                                : `<span class="fw-bold">Shifts on Any Pattern</span>`}
-                                                        </div>
-                                                        ${ruleSummaryHtml}
-                                                        ${conflictWarningHtml}
-                                                    </div>
-                                                    <div class="text-end ms-3 d-flex align-items-center justify-content-end" style="min-width: 320px;">
-                                                        ${rightBadgeHtml}
-                                                        <div class="btn-group btn-group-sm">
-                                                            <button type="button" class="btn btn-sm btn-primary edit-custom-timing-inline" data-driver-id="${driverId}" data-timing-id="${t.id}" data-driver-name="${data.driver_name}" data-driver-number="${(document.querySelector(`.add-custom-timing-btn[data-driver-id="${driverId}"]`)?.getAttribute('data-driver-number') || '').replace(/"/g, '&quot;')}">
-                                                                <i class="fas fa-edit"></i>
-                                                            </button>
-                                                            <button type="button" class="btn btn-sm btn-danger delete-custom-timing-inline" data-driver-id="${driverId}" data-timing-id="${t.id}">
-                                                                <i class="fas fa-trash"></i>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                ${t.notes ? `
-                                                    <div class="mt-2 pt-2 border-top small">
-                                                        <div class="fw-bold mb-1">Notes</div>
-                                                        <div>${t.notes}</div>
-                                                    </div>
-                                                ` : ''}
-                                            `;
-                                        })()}
-                                    </div>
-                            `).join('')}
+                            ${data.timings.map(t => renderCustomTimingCard(t, driverId, data.driver_name)).join('')}
                         </div>
                     `;
                 }

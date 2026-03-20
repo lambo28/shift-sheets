@@ -3,21 +3,20 @@
 {% block title %}Drivers - Driver Shift Sheets{% endblock %}
 
 {% block extra_head %}
+<link href="{{ url_for('static', filename='css/calendars.css') }}" rel="stylesheet">
 <link href="{{ url_for('static', filename='css/pages/drivers.css') }}" rel="stylesheet">
 {% endblock %}
 
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4 page-header-stack">
-    <h1>
-        <i class="fas fa-users"></i> Driver Management
-    </h1>
-    <div class="page-header-actions">
-        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addDriverModal">
-            <i class="fas fa-user-plus"></i> Add New Driver
-        </button>
-    </div>
-</div>
+{% set page_header_icon = 'fas fa-users' %}
+{% set page_header_title = 'Driver Management' %}
+{% set page_header_actions_html %}
+<button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addDriverModal">
+    <i class="fas fa-user-plus"></i> Add New Driver
+</button>
+{% endset %}
+{% include "partials/components/page_header.html" %}
 
 {% if drivers %}
     <div class="card">
@@ -45,31 +44,15 @@
                                 <strong>{{ driver.formatted_name() }}</strong>
                             </td>
                             <td>
-                                <span class="badge bg-{{ 'success' if driver.car_type == 'Standard' else 'info' if driver.car_type == 'Estate' else 'warning' if driver.car_type == 'XL Estate' else 'secondary' }}">
-                                    {{ driver.car_type }}{% if driver.electric_vehicle %}&nbsp;&nbsp;<i class="fas fa-bolt" data-bs-toggle="tooltip" data-bs-placement="top" title="Electric Vehicle"></i>{% endif %}
-                                </span>
+                                {% set vehicle_badge_driver = driver %}
+                                {% set vehicle_badge_show_electric = true %}
+                                {% include "partials/components/driver_vehicle_badge.html" %}
                             </td>
                             <td>
-                                <div class="d-flex flex-column">
-                                    {% if driver.school_badge %}
-                                        <span class="badge bg-warning mb-1">
-                                            <i class="fas fa-school"></i> School Badge
-                                        </span>
-                                    {% endif %}
-                                    {% if driver.pet_friendly %}
-                                        <span class="badge bg-success mb-1">
-                                            <i class="fas fa-paw"></i> Pet Friendly
-                                        </span>
-                                    {% endif %}
-                                    {% if driver.assistance_guide_dogs_exempt %}
-                                        <span class="badge bg-info mb-1">
-                                            <i class="fas fa-eye"></i> No Assistance Dogs
-                                        </span>
-                                    {% endif %}
-                                    {% if not driver.school_badge and not driver.pet_friendly and not driver.assistance_guide_dogs_exempt %}
-                                        <span class="text-muted">-</span>
-                                    {% endif %}
-                                </div>
+                                {% set attribute_badge_driver = driver %}
+                                {% set attribute_badges_mode = 'stacked' %}
+                                {% set attribute_empty_placeholder = true %}
+                                {% include "partials/components/driver_attribute_badges.html" %}
                             </td>
                             <td>
                                 {% set affected_pattern_ids = custom_timing_pattern_ids.get(driver.id, []) %}

@@ -87,16 +87,7 @@ function saveCreatePattern(event) {
         },
         formDataFn: (form) => {
             const formData = new FormData(form);
-            // Add daily shift data
-            for (let i = 0; i < cycleLengthNum; i++) {
-                const select = document.getElementById(`create_day_${i}_shift`);
-                if (select) {
-                    getSelectedDayShiftValues(select).forEach((value) => {
-                        formData.append(`day_${i}_shift`, value);
-                    });
-                }
-            }
-            return formData;
+            return collectCycleDayShifts(formData, cycleLengthNum, 'create');
         },
         successMessage: MESSAGES.PATTERN_CREATED,
         errorMessage: MESSAGES.SERVER_ERROR,
@@ -435,16 +426,7 @@ function savePattern(event) {
         action: actionUrl,
         formDataFn: (form) => {
             const formData = new FormData(form);
-            // Add daily shift data
-            for (let i = 0; i < cycleLength; i++) {
-                const select = document.getElementById(`edit_day_${i}_shift`);
-                if (select) {
-                    getSelectedDayShiftValues(select).forEach((value) => {
-                        formData.append(`day_${i}_shift`, value);
-                    });
-                }
-            }
-            return formData;
+            return collectCycleDayShifts(formData, cycleLength, 'edit');
         },
         successMessage: MESSAGES.PATTERN_UPDATED,
         errorMessage: MESSAGES.SERVER_ERROR,
@@ -546,16 +528,7 @@ function saveCopyPattern(event) {
         action: form.action || '/shift-pattern/add',
         formDataFn: (form) => {
             const formData = new FormData(form);
-            // Add daily shift data
-            for (let i = 0; i < cycleLength; i++) {
-                const select = document.getElementById(`copy_day_${i}_shift`);
-                if (select) {
-                    getSelectedDayShiftValues(select).forEach((value) => {
-                        formData.append(`day_${i}_shift`, value);
-                    });
-                }
-            }
-            return formData;
+            return collectCycleDayShifts(formData, cycleLength, 'copy');
         },
         successMessage: MESSAGES.PATTERN_COPIED,
         errorMessage: MESSAGES.SERVER_ERROR,

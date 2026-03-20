@@ -258,6 +258,66 @@ async function submitForm(form, submitButton, options = {}) {
     }
 }
 
+/**
+ * Initialize modal data population from button data attributes
+ * Reduces duplication of modal show event handlers
+ * 
+ * @param {string} modalId - ID of the modal element
+ * @param {string} formId - ID of the form element
+ * @param {Object} fieldMappings - Mapping of data-* attribute names to form field IDs
+ *                                  and optional URL template parts
+ * 
+ * @example
+ * initializeModalDataPopulation('editTermModal', 'editTermForm', {
+ *     dataAttrToFormField: {
+ *         'data-term-id': null,  // Used only for URL, not a form field
+ *         'data-term-name': 'editTermName',
+ *         'data-term-start': 'editTermStartDate',
+ *         'data-term-end': 'editTermEndDate'
+ *     },
+ *     urlPattern: '/scheduling/term/{data-term-id}/edit'
+ * });
+ */
+function initializeModalDataPopulation(modalId, formId, config) {
+    const modal = document.getElementById(modalId);
+    const form = document.getElementById(formId);
+    
+    if (!modal || !form) return;
+    
+    modal.addEventListener('show.bs.modal', function(event) {
+        const button = event.relatedTarget;
+        if (!button) return;
+        
+        const dataAttrs = config.dataAttrToFormField || {};
+        const urlPattern = config.urlPattern || '';
+        
+        // Extract all data attributes from button
+        const buttonData = {};
+        Object.keys(dataAttrs).forEach(attr => {
+            buttonData[attr] = button.getAttribute(attr) || '';
+        });
+        
+        // Populate form fields from button data
+        Object.entries(dataAttrs).forEach(([attr, fieldId]) => {
+            if (fieldId && buttonData[attr]) {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.value = buttonData[attr];
+                }
+            }
+        });
+        
+        // Set form action URL if pattern provided
+        if (urlPattern) {
+            let actionUrl = urlPattern;
+            Object.entries(buttonData).forEach(([attr, value]) => {
+                actionUrl = actionUrl.replace(`{${attr}}`, value);
+            });
+            form.action = actionUrl;
+        }
+    });
+}
+
 
 /* ===== scheduling.flash-banner.js ===== */
 document.addEventListener('DOMContentLoaded', function () {
@@ -2111,51 +2171,28 @@ function loadHolidayGroupForEdit(driverId, startDate, endDate, timeOffType, note
     'use strict';
 
     document.addEventListener('DOMContentLoaded', function () {
-        initEditSchoolTermModal();
-        initEditSchoolClosureModal();
+        // Initialize edit term modal
+        initializeModalDataPopulation('editSchoolTermModal', 'editSchoolTermForm', {
+            dataAttrToFormField: {
+                'data-term-id': null,
+                'data-term-name': 'editTermName',
+                'data-term-start': 'editTermStartDate',
+                'data-term-end': 'editTermEndDate'
+            },
+            urlPattern: '/scheduling/term/{data-term-id}/edit'
+        });
+        
+        // Initialize edit closure modal
+        initializeModalDataPopulation('editSchoolClosureModal', 'editSchoolClosureForm', {
+            dataAttrToFormField: {
+                'data-closure-id': null,
+                'data-closure-date': 'editClosureDate',
+                'data-closure-type': 'editClosureType',
+                'data-closure-notes': 'editClosureNotes'
+            },
+            urlPattern: '/scheduling/school-closure/{data-closure-id}/edit'
+        });
     });
-
-    function initEditSchoolTermModal() {
-        const editTermModal = document.getElementById('editSchoolTermModal');
-        const editTermForm = document.getElementById('editSchoolTermForm');
-        if (!editTermModal || !editTermForm) return;
-
-        editTermModal.addEventListener('show.bs.modal', function (event) {
-            const button = event.relatedTarget;
-            if (!button) return;
-
-            const termId = button.getAttribute('data-term-id') || '';
-            const termName = button.getAttribute('data-term-name') || '';
-            const termStart = button.getAttribute('data-term-start') || '';
-            const termEnd = button.getAttribute('data-term-end') || '';
-
-            editTermForm.action = `/scheduling/term/${termId}/edit`;
-            document.getElementById('editTermName').value = termName;
-            document.getElementById('editTermStartDate').value = termStart;
-            document.getElementById('editTermEndDate').value = termEnd;
-        });
-    }
-
-    function initEditSchoolClosureModal() {
-        const editClosureModal = document.getElementById('editSchoolClosureModal');
-        const editClosureForm = document.getElementById('editSchoolClosureForm');
-        if (!editClosureModal || !editClosureForm) return;
-
-        editClosureModal.addEventListener('show.bs.modal', function (event) {
-            const button = event.relatedTarget;
-            if (!button) return;
-
-            const closureId = button.getAttribute('data-closure-id') || '';
-            const closureDate = button.getAttribute('data-closure-date') || '';
-            const closureType = button.getAttribute('data-closure-type') || 'bank_holiday';
-            const closureNotes = button.getAttribute('data-closure-notes') || '';
-
-            editClosureForm.action = `/scheduling/school-closure/${closureId}/edit`;
-            document.getElementById('editClosureDate').value = closureDate;
-            document.getElementById('editClosureType').value = closureType;
-            document.getElementById('editClosureNotes').value = closureNotes;
-        });
-    }
 
 })();
 

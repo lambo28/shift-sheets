@@ -1,27 +1,15 @@
-from flask import render_template, request, redirect, url_for, flash, jsonify
+from flask import render_template, request, redirect, url_for, flash
 from datetime import datetime
 
 from extensions import db
 from models import Driver, ShiftPattern, ShiftTiming
 from utils import (
     serialize_driver_assignment_items, get_custom_timing_affected_pattern_ids,
-    is_ajax_request,
+    is_ajax_request, json_success, json_error,
 )
 
 
 def register(app):
-    def _success_response(message, is_ajax):
-        if is_ajax:
-            return jsonify({"ok": True, "message": message}), 200
-        flash(message, "success")
-        return None
-
-    def _error_response(message, is_ajax, status_code=500):
-        if is_ajax:
-            return jsonify({"ok": False, "error": message}), status_code
-        flash(message, "error")
-        return None
-
     @app.route("/drivers")
     def drivers():
         """Manage drivers"""
@@ -64,8 +52,6 @@ def register(app):
     @app.route("/driver/add", methods=["GET", "POST"])
     def add_driver():
         """Add new driver"""
-        is_ajax = is_ajax_request()
-
         if request.method == "GET":
             return redirect(url_for("drivers"))
 
@@ -82,25 +68,22 @@ def register(app):
         try:
             db.session.add(driver)
             db.session.commit()
-            message = "Driver added successfully!"
-            response = _success_response(message, is_ajax)
-            if response:
-                return response
+            if is_ajax_request():
+                return json_success()
+            flash("Driver added successfully!", "success")
             return redirect(url_for("drivers"))
         except Exception as e:
             db.session.rollback()
             error_msg = f"Error adding driver: {e}"
-            response = _error_response(error_msg, is_ajax)
-            if response:
-                return response
-
-        return redirect(url_for("drivers"))
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
+            return redirect(url_for("drivers"))
 
     @app.route("/driver/<int:driver_id>/edit", methods=["GET", "POST"])
     def edit_driver(driver_id):
         """Edit existing driver"""
         driver = db.get_or_404(Driver, driver_id)
-        is_ajax = is_ajax_request()
 
         if request.method == "GET":
             return redirect(url_for("drivers"))
@@ -115,39 +98,35 @@ def register(app):
 
         try:
             db.session.commit()
-            message = "Driver updated successfully!"
-            response = _success_response(message, is_ajax)
-            if response:
-                return response
+            if is_ajax_request():
+                return json_success()
+            flash("Driver updated successfully!", "success")
             return redirect(url_for("drivers"))
         except Exception as e:
             db.session.rollback()
             error_msg = f"Error updating driver: {e}"
-            response = _error_response(error_msg, is_ajax)
-            if response:
-                return response
-
-        return redirect(url_for("drivers"))
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
+            return redirect(url_for("drivers"))
 
     @app.route("/driver/<int:driver_id>/delete", methods=["POST"])
     def delete_driver(driver_id):
         """Delete driver"""
         driver = db.get_or_404(Driver, driver_id)
-        is_ajax = is_ajax_request()
 
         try:
             db.session.delete(driver)
             db.session.commit()
-            message = "Driver deleted successfully!"
-            response = _success_response(message, is_ajax)
-            if response:
-                return response
+            if is_ajax_request():
+                return json_success()
+            flash("Driver deleted successfully!", "success")
         except Exception as e:
             db.session.rollback()
             error_msg = f"Error deleting driver: {e}"
-            response = _error_response(error_msg, is_ajax)
-            if response:
-                return response
+            if is_ajax_request():
+                return json_error(error_msg)
+            flash(error_msg, "error")
 
         return redirect(url_for("drivers"))
 
