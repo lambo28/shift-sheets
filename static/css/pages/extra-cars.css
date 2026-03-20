@@ -1,0 +1,74 @@
+.status-badge-DRAFT { background-color: #6c757d; color: #fff; }
+.status-badge-OPEN { background-color: #0d6efd; color: #fff; }
+.status-badge-PARTIALLY_FILLED { background-color: #fd7e14; color: #fff; }
+.status-badge-FILLED { background-color: #198754; color: #fff; }
+.status-badge-CLOSED { background-color: #adb5bd; color: #fff; }
+
+.coverage-bar-container {
+    height: 14px;
+    background: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.coverage-bar-fill {
+    height: 100%;
+    background: #198754;
+    transition: width 0.3s ease;
+}
+
+.coverage-bar-fill.over {
+    background: #0d6efd;
+}
+
+.assignment-row td {
+    vertical-align: middle;
+}
+
+.extra-car-card {
+    border-left: 4px solid #0d6efd;
+}
+
+.extra-car-card.status-FILLED {
+    border-left-color: #198754;
+}
+
+.extra-car-card.status-CLOSED {
+    border-left-color: #adb5bd;
+}
+
+.extra-car-card.status-PARTIALLY_FILLED {
+    border-left-color: #fd7e14;
+}
+
+.toggle-driver-blocks-btn:focus,
+.toggle-driver-blocks-btn:active:focus {
+    box-shadow: none;
+}
+
+.toggle-driver-blocks-btn:focus-visible {
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+#alertBannerContainer {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 1080;
+    width: min(420px, calc(100vw - 2rem));
+}
+
+.alert-banner {
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    margin-bottom: 0.5rem;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.alert-banner.dismissing {
+    opacity: 0;
+    transform: translateX(12px);
+}
+
+#validationResult .alert {
+    font-size: 0.875rem;
+}

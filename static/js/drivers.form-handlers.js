@@ -30,65 +30,37 @@ function initializeAssignPatternForm() {
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
 
-        if (!validateAssignDates()) {
-            showAlertBanner('error', MESSAGES.INVALID_DATE_RANGE);
-            return false;
-        }
-
-        const submitBtn = document.getElementById('assignPatternSubmitBtn');
         const driverId = this.dataset.driverId;
-        const originalHtml = submitBtn.innerHTML;
-
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = MESSAGES.SAVING;
         DEBUG.log('Submitting assignment pattern', 'info', { driverId });
 
-        try {
-            const response = await fetch(this.action, {
-                method: 'POST',
-                body: new FormData(this),
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
+        await submitForm(form, 'assignPatternSubmitBtn', {
+            validateFn: () => (validateAssignDates() ? null : MESSAGES.INVALID_DATE_RANGE),
+            successMessage: MESSAGES.ASSIGNMENT_SAVED,
+            errorMessage: MESSAGES.SERVER_ERROR,
+            hideModal: 'assignPatternModal',
+            onSuccess: (result) => {
+                if (driverId) {
+                    driverAssignments[driverId] = result.driverAssignments || [];
+                    loadAssignmentHistory(driverId);
+                }
 
-            const result = await response.json();
+                // Reset form fields
+                this.action = `/driver/${driverId}/assign-pattern`;
+                document.getElementById('assign_pattern_id').value = '';
+                document.getElementById('assign_start_day').value = '1';
+                showAssignPatternPreview();
+                document.getElementById('assign_end_date').value = '';
+                document.getElementById('assignPatternSubmitBtn').innerHTML = '<i class="fas fa-calendar-plus"></i> Assign Pattern';
 
-            if (!response.ok || !result.ok) {
-                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
-                showAlertBanner('error', errorMsg);
-                DEBUG.warn('Assignment save failed', { driverId, error: errorMsg });
-                return;
+                DEBUG.log('Assignment saved', 'info', { driverId });
+
+                // Refresh driver table in background
+                setTimeout(() => refreshDriverRow(driverId), 500);
+            },
+            onError: (result) => {
+                DEBUG.warn('Assignment save failed', { driverId, error: result.error });
             }
-
-            if (driverId) {
-                driverAssignments[driverId] = result.driverAssignments || [];
-                loadAssignmentHistory(driverId);
-            }
-
-            hideModalById('assignPatternModal');
-
-            // Reset form
-            this.action = `/driver/${driverId}/assign-pattern`;
-            document.getElementById('assign_pattern_id').value = '';
-            document.getElementById('assign_start_day').value = '1';
-            showAssignPatternPreview();
-            document.getElementById('assign_end_date').value = '';
-            submitBtn.innerHTML = '<i class="fas fa-calendar-plus"></i> Assign Pattern';
-
-            showAlertBanner('success', result.message || MESSAGES.ASSIGNMENT_SAVED);
-            DEBUG.log('Assignment saved', 'info', { driverId });
-
-            // Refresh driver table in background
-            setTimeout(() => refreshDriverRow(driverId), 500);
-        } catch (error) {
-            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-            DEBUG.error('Error saving assignment', { error, driverId });
-        } finally {
-            submitBtn.disabled = false;
-            if (!submitBtn.innerHTML.includes('Assign Pattern') && 
-                !submitBtn.innerHTML.includes('Update Assignment')) {
-                submitBtn.innerHTML = originalHtml;
-            }
-        }
+        });
     });
 }
 
@@ -107,42 +79,27 @@ function initializeAssignmentActionForm() {
         const actionTitle = isDelete ? MESSAGES.ASSIGNMENT_DELETED : MESSAGES.ASSIGNMENT_ENDED;
         DEBUG.log(`Submitting assignment ${isDelete ? 'delete' : 'end'}`, 'info');
 
-        try {
-            const response = await fetch(formAction, {
-                method: 'POST',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
+        const submitBtn = this.querySelector('button[type="submit"]');
 
-            const result = await response.json();
+        await submitForm(form, submitBtn, {
+            action: formAction,
+            successMessage: actionTitle,
+            errorMessage: MESSAGES.SERVER_ERROR,
+            hideModal: 'assignmentActionModal',
+            onSuccess: (result) => {
+                const driverId = result.driverId;
+                if (driverId) {
+                    driverAssignments[driverId] = result.driverAssignments || [];
+                    loadAssignmentHistory(driverId);
+                    setTimeout(() => refreshDriverRow(driverId), 500);
+                }
 
-            if (!response.ok || !result.ok) {
-                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
-                showAlertBanner('error', errorMsg);
-                DEBUG.warn(`Assignment ${isDelete ? 'delete' : 'end'} failed`, { error: errorMsg });
-                return;
+                DEBUG.log(`Assignment ${isDelete ? 'deleted' : 'ended'}`, 'info', { driverId });
+            },
+            onError: (result) => {
+                DEBUG.warn(`Assignment ${isDelete ? 'delete' : 'end'} failed`, { error: result.error });
             }
-
-            // Close the action modal
-            hideModalById('assignmentActionModal');
-
-            // Update assignment history
-            const driverId = result.driverId;
-            if (driverId) {
-                driverAssignments[driverId] = result.driverAssignments || [];
-                loadAssignmentHistory(driverId);
-            }
-
-            showAlertBanner('success', result.message || actionTitle);
-            DEBUG.log(`Assignment ${isDelete ? 'deleted' : 'ended'}`, 'info', { driverId });
-
-            // Refresh driver table in background
-            if (driverId) {
-                setTimeout(() => refreshDriverRow(driverId), 500);
-            }
-        } catch (error) {
-            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-            DEBUG.error('Error processing assignment action', { error });
-        }
+        });
     });
 }
 
@@ -157,44 +114,21 @@ function initializeAddDriverForm() {
         e.preventDefault();
 
         const submitBtn = this.querySelector('button[type="submit"]');
-        const originalHtml = submitBtn.innerHTML;
-
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = MESSAGES.SAVING;
         DEBUG.log('Submitting add driver form', 'info');
 
-        try {
-            const response = await fetch(this.action, {
-                method: 'POST',
-                body: new FormData(this),
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-
-            const result = await response.json();
-
-            if (!response.ok || !result.ok) {
-                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
-                showAlertBanner('error', errorMsg);
-                DEBUG.warn('Add driver failed', { error: errorMsg });
-                return;
+        await submitForm(form, submitBtn, {
+            successMessage: MESSAGES.DRIVER_ADDED,
+            errorMessage: MESSAGES.SERVER_ERROR,
+            hideModal: 'addDriverModal',
+            resetForm: true,
+            onSuccess: (result) => {
+                DEBUG.log('Driver added successfully', 'info', { driverId: result.driverId });
+                setTimeout(() => location.reload(), 1500);
+            },
+            onError: (result) => {
+                DEBUG.warn('Add driver failed', { error: result.error });
             }
-
-            // Close modal
-            hideModalById('addDriverModal');
-
-            this.reset();
-
-            showAlertBanner('success', result.message || MESSAGES.DRIVER_ADDED);
-            DEBUG.log('Driver added successfully', 'info', { driverId: result.driverId });
-            
-            setTimeout(() => location.reload(), 1500);
-        } catch (error) {
-            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-            DEBUG.error('Error adding driver', { error });
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = originalHtml;
-        }
+        });
     });
 }
 
@@ -209,48 +143,26 @@ function initializeEditDriverForm() {
         e.preventDefault();
 
         const submitBtn = this.querySelector('button[type="submit"]');
-        const originalHtml = submitBtn.innerHTML;
-
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = MESSAGES.SAVING;
         DEBUG.log('Submitting edit driver form', 'info');
 
-        try {
-            const response = await fetch(this.action, {
-                method: 'POST',
-                body: new FormData(this),
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-
-            const result = await response.json();
-
-            if (!response.ok || !result.ok) {
-                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
-                showAlertBanner('error', errorMsg);
-                DEBUG.warn('Edit driver failed', { error: errorMsg });
-                return;
+        await submitForm(form, submitBtn, {
+            successMessage: MESSAGES.DRIVER_UPDATED,
+            errorMessage: MESSAGES.SERVER_ERROR,
+            hideModal: 'editDriverModal',
+            onSuccess: (result) => {
+                // Extract driver ID from form action
+                const driverId = this.action.match(/\/driver\/(\d+)\/edit/)?.[1];
+                if (driverId) {
+                    DEBUG.log('Driver updated', 'info', { driverId });
+                    setTimeout(() => refreshDriverRow(driverId), 500);
+                } else {
+                    setTimeout(() => location.reload(), 1500);
+                }
+            },
+            onError: (result) => {
+                DEBUG.warn('Edit driver failed', { error: result.error });
             }
-
-            // Close modal
-            hideModalById('editDriverModal');
-
-            // Extract driver ID from form action
-            const driverId = this.action.match(/\/driver\/(\d+)\/edit/)?.[1];
-            if (driverId) {
-                showAlertBanner('success', result.message || MESSAGES.DRIVER_UPDATED);
-                DEBUG.log('Driver updated', 'info', { driverId });
-                setTimeout(() => refreshDriverRow(driverId), 500);
-            } else {
-                showAlertBanner('success', result.message || MESSAGES.DRIVER_UPDATED);
-                setTimeout(() => location.reload(), 1500);
-            }
-        } catch (error) {
-            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-            DEBUG.error('Error updating driver', { error });
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = originalHtml;
-        }
+        });
     });
 }
 
@@ -265,41 +177,20 @@ function initializeDeleteDriverForm() {
         e.preventDefault();
 
         const submitBtn = this.querySelector('button[type="submit"]');
-        const originalHtml = submitBtn.innerHTML;
-
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = MESSAGES.SAVING;
         DEBUG.log('Submitting delete driver form', 'info');
 
-        try {
-            const response = await fetch(this.action, {
-                method: 'POST',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-
-            const result = await response.json();
-
-            if (!response.ok || !result.ok) {
-                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
-                showAlertBanner('error', errorMsg);
-                DEBUG.warn('Delete driver failed', { error: errorMsg });
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = originalHtml;
-                return;
+        await submitForm(form, submitBtn, {
+            successMessage: MESSAGES.DRIVER_DELETED,
+            errorMessage: MESSAGES.SERVER_ERROR,
+            hideModal: 'deleteModal',
+            onSuccess: () => {
+                DEBUG.log('Driver deleted successfully', 'info');
+                setTimeout(() => location.reload(), 1500);
+            },
+            onError: (result) => {
+                DEBUG.warn('Delete driver failed', { error: result.error });
             }
-
-            // Close modal if open
-            hideModalById('deleteModal');
-
-            showAlertBanner('success', result.message || MESSAGES.DRIVER_DELETED);
-            DEBUG.log('Driver deleted successfully', 'info');
-            setTimeout(() => location.reload(), 1500);
-        } catch (error) {
-            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-            DEBUG.error('Error deleting driver', { error });
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = originalHtml;
-        }
+        });
     });
 }
 

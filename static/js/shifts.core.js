@@ -183,23 +183,6 @@ function flushPendingMainFeedback() {
     }
 }
 
-async function requestJson(url, options = {}) {
-    const response = await fetch(url, options);
-
-    let data;
-    try {
-        data = await response.json();
-    } catch {
-        data = { success: false, error: `HTTP ${response.status}` };
-    }
-
-    if (!response.ok) {
-        return { success: false, error: data.error || `HTTP ${response.status}` };
-    }
-
-    return data;
-}
-
 function attachFormattedInputListener(inputId, formatter) {
     const inputEl = document.getElementById(inputId);
     if (!inputEl || inputEl.hasFormattingListener) return;
@@ -385,4 +368,30 @@ function initializeDayShiftSelect(selectId, selectedValues = ['day_off']) {
     const secondaryValue = normalized.length > 1 ? normalized[1] : '';
     updateSecondaryShiftVisibility(primarySelect, secondarySelect, secondaryValue);
 }
+
+/**
+ * Collect cycle day shift values from form and append to FormData
+ * Reduces duplication across create, edit, and copy pattern handlers
+ * 
+ * @param {FormData} formData - FormData object to append shift data to
+ * @param {number} cycleLength - Number of days in the cycle
+ * @param {string} idPrefix - Prefix for shift select IDs (e.g., 'create', 'edit', 'copy')
+ * 
+ * @example
+ * const formData = new FormData(form);
+ * collectCycleDayShifts(formData, 14, 'create');
+ * // Now formData contains day_0_shift, day_1_shift, etc.
+ */
+function collectCycleDayShifts(formData, cycleLength, idPrefix) {
+    for (let i = 0; i < cycleLength; i++) {
+        const select = document.getElementById(`${idPrefix}_day_${i}_shift`);
+        if (select) {
+            getSelectedDayShiftValues(select).forEach((value) => {
+                formData.append(`day_${i}_shift`, value);
+            });
+        }
+    }
+    return formData;
+}
+
 

@@ -1,0 +1,121 @@
+{# Form field macros - reusable Jinja2 macros to reduce template duplication #}
+
+{# Standard text/number/email input field with label #}
+{% macro text_field(name, label, field_type='text', required=False, placeholder='', help_text='', value='', class='') %}
+<div class="mb-3">
+    <label for="{{ name }}" class="form-label">
+        {{ label }}
+        {% if required %}<span class="text-danger">*</span>{% endif %}
+    </label>
+    <input type="{{ field_type }}" class="form-control {% if class %}{{ class }}{% endif %}" 
+           id="{{ name }}" name="{{ name }}"
+           {% if required %}required{% endif %}
+           {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
+           {% if value %}value="{{ value }}"{% endif %}>
+    {% if help_text %}<div class="form-text text-muted">{{ help_text }}</div>{% endif %}
+</div>
+{% endmacro %}
+
+{# Select dropdown field with label #}
+{% macro select_field(name, label, options, required=False, help_text='', selected='', class='') %}
+<div class="mb-3">
+    <label for="{{ name }}" class="form-label">
+        {{ label }}
+        {% if required %}<span class="text-danger">*</span>{% endif %}
+    </label>
+    <select class="form-select {% if class %}{{ class }}{% endif %}" id="{{ name }}" name="{{ name }}"
+            {% if required %}required{% endif %}>
+        {% for option_value, option_label in options.items() %}
+        <option value="{{ option_value }}" {% if selected == option_value %}selected{% endif %}>
+            {{ option_label }}
+        </option>
+        {% endfor %}
+    </select>
+    {% if help_text %}<div class="form-text text-muted">{{ help_text }}</div>{% endif %}
+</div>
+{% endmacro %}
+
+{# Checkbox field with label #}
+{% macro checkbox_field(name, label, value='1', checked=False, help_text='') %}
+<div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" id="{{ name }}" name="{{ name }}" 
+           value="{{ value }}"
+           {% if checked %}checked{% endif %}>
+    <label class="form-check-label" for="{{ name }}">
+        {{ label }}
+    </label>
+    {% if help_text %}<p class="form-text text-muted ms-4">{{ help_text }}</p>{% endif %}
+</div>
+{% endmacro %}
+
+{# Textarea field with label #}
+{% macro textarea_field(name, label, required=False, placeholder='', help_text='', value='', rows=3, class='') %}
+<div class="mb-3">
+    <label for="{{ name }}" class="form-label">
+        {{ label }}
+        {% if required %}<span class="text-danger">*</span>{% endif %}
+    </label>
+    <textarea class="form-control {% if class %}{{ class }}{% endif %}" id="{{ name }}" name="{{ name }}" 
+              rows="{{ rows }}"
+              {% if required %}required{% endif %}
+              {% if placeholder %}placeholder="{{ placeholder }}"{% endif %}
+              >{% if value %}{{ value }}{% endif %}</textarea>
+    {% if help_text %}<div class="form-text text-muted">{{ help_text }}</div>{% endif %}
+</div>
+{% endmacro %}
+
+{# Radio button group #}
+{% macro radio_group(name, label, options, required=False, help_text='', selected='') %}
+<fieldset class="mb-3">
+    <legend class="col-form-label">
+        {{ label }}
+        {% if required %}<span class="text-danger">*</span>{% endif %}
+    </legend>
+    <div>
+        {% for option_value, option_label in options.items() %}
+        <div class="form-check">
+            <input class="form-check-input" type="radio" name="{{ name }}" id="{{ name }}_{{ option_value }}"
+                   value="{{ option_value }}"
+                   {% if selected == option_value %}checked{% endif %}
+                   {% if required %}required{% endif %}>
+            <label class="form-check-label" for="{{ name }}_{{ option_value }}">
+                {{ option_label }}
+            </label>
+        </div>
+        {% endfor %}
+    </div>
+    {% if help_text %}<div class="form-text text-muted mt-2">{{ help_text }}</div>{% endif %}
+</fieldset>
+{% endmacro %}
+
+{# Date field #}
+{% macro date_field(name, label, required=False, help_text='', value='', min='', max='', class='') %}
+<div class="mb-3">
+    <label for="{{ name }}" class="form-label">
+        {{ label }}
+        {% if required %}<span class="text-danger">*</span>{% endif %}
+    </label>
+    <input type="date" class="form-control {% if class %}{{ class }}{% endif %}" 
+           id="{{ name }}" name="{{ name }}"
+           {% if required %}required{% endif %}
+           {% if value %}value="{{ value }}"{% endif %}
+           {% if min %}min="{{ min }}"{% endif %}
+           {% if max %}max="{{ max }}"{% endif %}>
+    {% if help_text %}<div class="form-text text-muted">{{ help_text }}</div>{% endif %}
+</div>
+{% endmacro %}
+
+{# Time field #}
+{% macro time_field(name, label, required=False, help_text='', value='', class='') %}
+<div class="mb-3">
+    <label for="{{ name }}" class="form-label">
+        {{ label }}
+        {% if required %}<span class="text-danger">*</span>{% endif %}
+    </label>
+    <input type="time" class="form-control {% if class %}{{ class }}{% endif %}" 
+           id="{{ name }}" name="{{ name }}"
+           {% if required %}required{% endif %}
+           {% if value %}value="{{ value }}"{% endif %}>
+    {% if help_text %}<div class="form-text text-muted">{{ help_text }}</div>{% endif %}
+</div>
+{% endmacro %}

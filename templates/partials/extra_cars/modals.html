@@ -1,0 +1,249 @@
+{% if finished_requests_with_coverage and finished_requests_with_coverage|length > 0 %}
+<div class="modal fade" id="finishedRequestsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-history"></i> Finished Extra Car Requests</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Date</th>
+                                <th>Window</th>
+                                <th>Coverage</th>
+                                <th>Status</th>
+                                <th>Notes</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in finished_requests_with_coverage %}
+                            {% set req = item.request %}
+                            {% set filled = item.filled_slots %}
+                            {% set cap = req.required_slots if not req.unlimited else None %}
+                            {% set req_timing = (all_shift_timings | selectattr('shift_type', 'equalto', req.shift_type) | list | first) if req.request_type == 'shift_type' else None %}
+                            <tr>
+                                <td><strong>{{ req.date.strftime('%a %d %b %Y') }}</strong></td>
+                                <td>
+                                    {% if req.request_type == 'shift_type' %}
+                                        <span class="badge {{ req_timing.badge_color if req_timing and req_timing.badge_color else 'bg-primary' }}">
+                                            <i class="{{ req_timing.icon if req_timing and req_timing.icon else 'fas fa-clock' }} me-1"></i>{{ req_timing.display_label if req_timing else (req.shift_type | shift_label) }}
+                                        </span>
+                                        <span class="ms-1">({{ req.display_window() }})</span>
+                                    {% else %}
+                                        <i class="fas fa-clock"></i>
+                                        {{ req.display_window() }}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if req.unlimited %}
+                                        <i class="fas fa-infinity text-muted"></i> {{ filled }} assignment{{ 's' if filled != 1 }}
+                                    {% else %}
+                                        {{ filled }}/{{ cap }} slot{{ 's' if cap != 1 }}
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge status-badge-{{ req.status }}">{{ req.status.replace('_', ' ') }}</span>
+                                </td>
+                                <td class="text-muted small">{{ req.notes or '—' }}</td>
+                                <td class="text-end">
+                                    {% if item.deletable %}
+                                    {% set delete_request_name = req.date.strftime('%d/%m/%Y') ~ ' - ' ~ req.display_window() %}
+                                    {% set delete_request_action = url_for('delete_extra_car_request', request_id=req.id) %}
+                                    <button type="button" class="btn btn-sm btn-danger"
+                                            onclick="showGlobalDeleteConfirm({
+                                                title: 'Delete Finished Extra Car Request',
+                                                message: 'Delete finished extra car request?',
+                                                name: '{{ delete_request_name }}',
+                                                action: '{{ delete_request_action }}'
+                                            })">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                    {% else %}
+                                    <button type="button" class="btn btn-sm btn-secondary" disabled
+                                            title="Available to delete after {{ item.delete_available_from }}">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="modal fade" id="editRequestModal" tabindex="-1" aria-labelledby="editRequestModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editRequestModalLabel">
+                    <i class="fas fa-edit"></i> Edit Extra Car Request
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" id="editRequestForm" action="">
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="editReqDate" class="form-label">Date <span class="text-danger">*</span></label>
+                            <input type="date" class="form-control" id="editReqDate" name="date" min="{{ today.isoformat() }}" required>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label for="editReqStatus" class="form-label">Status</label>
+                            <select class="form-select" id="editReqStatus" name="status">
+                                {% for s in ['DRAFT','OPEN','PARTIALLY_FILLED','FILLED','CLOSED'] %}
+                                <option value="{{ s }}">{{ s.replace('_', ' ') }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Window type <span class="text-danger">*</span></label>
+                            <div class="d-flex gap-2">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="request_type"
+                                           id="editRtShift" value="shift_type">
+                                    <label class="form-check-label" for="editRtShift">Shift type</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="request_type"
+                                           id="editRtWindow" value="time_window">
+                                    <label class="form-check-label" for="editRtWindow">Custom window</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12" id="editShiftTypeField">
+                            <label for="editReqShiftType" class="form-label">Shift type</label>
+                            <select class="form-select" id="editReqShiftType" name="shift_type">
+                                <option value="">— Select —</option>
+                                {% for st in all_shift_timings %}
+                                    {% if st.shift_type != 'day_off' %}
+                                    <option value="{{ st.shift_type }}" data-start="{{ st.start_time.strftime('%H:%M') if st.start_time }}" data-end="{{ st.end_time.strftime('%H:%M') if st.end_time }}">
+                                        {{ st.display_label }} ({{ st.start_time.strftime('%H:%M') if st.start_time }}–{{ st.end_time.strftime('%H:%M') if st.end_time }})
+                                    </option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="col-12 d-none" id="editTimeWindowField">
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label for="editReqWindowStart" class="form-label">Start</label>
+                                    <input type="time" class="form-control" id="editReqWindowStart" name="window_start">
+                                </div>
+                                <div class="col-6">
+                                    <label for="editReqWindowEnd" class="form-label">End</label>
+                                    <input type="time" class="form-control" id="editReqWindowEnd" name="window_end">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label">Capacity</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="editReqSlots" name="required_slots"
+                                       min="1" placeholder="Slots required">
+                                <div class="input-group-text">
+                                    <input class="form-check-input me-1" type="checkbox"
+                                           id="editReqUnlimited" name="unlimited" value="1">
+                                    <label class="form-check-label" for="editReqUnlimited">Unlimited</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-12">
+                            <label for="editReqNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                            <input type="text" class="form-control" id="editReqNotes" name="notes"
+                                   maxlength="300" placeholder="Optional notes">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="addAssignmentModal" tabindex="-1" aria-labelledby="addAssignmentModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addAssignmentModalLabel">
+                    <i class="fas fa-user-plus"></i> Add Driver Assignment
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="POST" id="addAssignmentForm" action="">
+                <div class="modal-body">
+                    <p class="text-muted small mb-3">
+                        Request window: <strong id="modalRequestWindow"></strong>
+                    </p>
+                    <div class="alert alert-info py-2 mb-3" role="note">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Normal driver break requirements and maximum daily hours apply.
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="modalDriverSelect" class="form-label">Driver <span class="text-danger">*</span></label>
+                        <select class="form-select" id="modalDriverSelect" name="driver_id" required>
+                            <option value="">— Select driver —</option>
+                            {% for driver in all_drivers %}
+                            <option value="{{ driver.id }}">
+                                {{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label for="modalStartTime" class="form-label">
+                                Start time <span class="text-muted">(leave blank = full window)</span>
+                            </label>
+                            <input type="time" class="form-control" id="modalStartTime" name="start_time">
+                        </div>
+                        <div class="col-6">
+                            <label for="modalEndTime" class="form-label">
+                                End time <span class="text-muted">(leave blank = full window)</span>
+                            </label>
+                            <input type="time" class="form-control" id="modalEndTime" name="end_time">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="modalNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                        <input type="text" class="form-control" id="modalNotes" name="notes"
+                               maxlength="200" placeholder="Optional">
+                    </div>
+
+                    <div id="validationResult" class="d-none"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="saveAssignmentBtn">
+                        <i class="fas fa-save"></i> Add Assignment
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

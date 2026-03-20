@@ -139,6 +139,185 @@ function formatTitleCase(value) {
         .join(' ');
 }
 
+/**
+ * Generic form submission handler with button state management, error handling, and UI feedback
+ * Reduces duplication across multiple form submission handlers
+ * @param {HTMLFormElement} form - The form element to submit
+ * @param {HTMLElement|string} submitButton - Submit button element or ID
+ * @param {object} options - Configuration options:
+ *   - action: {string} Form action URL (overrides form.action)
+ *   - successMessage: {string} Custom success message
+ *   - errorMessage: {string} Custom error message
+ *   - onSuccess: {function} Callback after successful submission
+ *   - onError: {function} Callback after error
+ *   - hideModal: {string} Modal ID to hide on success
+ *   - resetForm: {boolean} Reset form on success (default: false)
+ *   - validateFn: {function} Pre-submission validation function
+ *   - formDataFn: {function} Custom FormData preparation function (called with form, returns FormData)
+ *   - savingLabel: {string} Button text while saving (default: from MESSAGES.SAVING)
+ * @returns {Promise<object>} - Response data
+ */
+async function submitForm(form, submitButton, options = {}) {
+    if (!form) {
+        console.error('submitForm: Form element not found');
+        return { success: false };
+    }
+
+    // Resolve submit button
+    let btnEl = submitButton;
+    if (typeof submitButton === 'string') {
+        btnEl = document.getElementById(submitButton);
+    }
+    if (!btnEl) {
+        console.error('submitForm: Submit button not found', submitButton);
+        return { success: false };
+    }
+
+    // Run pre-submission validation if provided
+    if (options.validateFn && typeof options.validateFn === 'function') {
+        const validationError = options.validateFn();
+        if (validationError) {
+            showAlertBanner('error', validationError);
+            return { success: false };
+        }
+    }
+
+    // Save button state
+    const originalHtml = btnEl.innerHTML;
+    const savingLabel = options.savingLabel || (typeof MESSAGES !== 'undefined' && MESSAGES.SAVING ? MESSAGES.SAVING : 'Saving...');
+
+    // Disable button and show saving state
+    btnEl.disabled = true;
+    btnEl.innerHTML = savingLabel;
+
+    try {
+        // Prepare form data (use custom function if provided)
+        let formData;
+        if (options.formDataFn && typeof options.formDataFn === 'function') {
+            formData = options.formDataFn(form);
+        } else {
+            formData = new FormData(form);
+        }
+
+        const formAction = options.action || form.action || '/';
+        const fetchOptions = {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        };
+
+        // Make request
+        const responseData = await requestJson(formAction, fetchOptions);
+
+        // Handle response
+        if (responseData.success) {
+            const successMsg = options.successMessage || responseData.message || 'Saved successfully';
+            showAlertBanner('success', successMsg);
+
+            // Hide modal if specified
+            if (options.hideModal) {
+                hideModalById(options.hideModal);
+            }
+
+            // Reset form if specified
+            if (options.resetForm) {
+                form.reset();
+            }
+
+            // Custom success callback
+            if (options.onSuccess && typeof options.onSuccess === 'function') {
+                await options.onSuccess(responseData);
+            }
+
+            return responseData;
+        } else {
+            const errorMsg = options.errorMessage || responseData.error || 'An error occurred';
+            showAlertBanner('error', errorMsg);
+
+            // Custom error callback
+            if (options.onError && typeof options.onError === 'function') {
+                await options.onError(responseData);
+            }
+
+            return responseData;
+        }
+    } catch (error) {
+        console.error('Form submission error:', error);
+        const errorMsg = 'Network error. Please check your connection and try again.';
+        showAlertBanner('error', errorMsg);
+
+        if (options.onError && typeof options.onError === 'function') {
+            await options.onError({ success: false, error });
+        }
+
+        return { success: false, error };
+    } finally {
+        // Restore button state
+        btnEl.disabled = false;
+        btnEl.innerHTML = originalHtml;
+    }
+}
+
+/**
+ * Initialize modal data population from button data attributes
+ * Reduces duplication of modal show event handlers
+ * 
+ * @param {string} modalId - ID of the modal element
+ * @param {string} formId - ID of the form element
+ * @param {Object} fieldMappings - Mapping of data-* attribute names to form field IDs
+ *                                  and optional URL template parts
+ * 
+ * @example
+ * initializeModalDataPopulation('editTermModal', 'editTermForm', {
+ *     dataAttrToFormField: {
+ *         'data-term-id': null,  // Used only for URL, not a form field
+ *         'data-term-name': 'editTermName',
+ *         'data-term-start': 'editTermStartDate',
+ *         'data-term-end': 'editTermEndDate'
+ *     },
+ *     urlPattern: '/scheduling/term/{data-term-id}/edit'
+ * });
+ */
+function initializeModalDataPopulation(modalId, formId, config) {
+    const modal = document.getElementById(modalId);
+    const form = document.getElementById(formId);
+    
+    if (!modal || !form) return;
+    
+    modal.addEventListener('show.bs.modal', function(event) {
+        const button = event.relatedTarget;
+        if (!button) return;
+        
+        const dataAttrs = config.dataAttrToFormField || {};
+        const urlPattern = config.urlPattern || '';
+        
+        // Extract all data attributes from button
+        const buttonData = {};
+        Object.keys(dataAttrs).forEach(attr => {
+            buttonData[attr] = button.getAttribute(attr) || '';
+        });
+        
+        // Populate form fields from button data
+        Object.entries(dataAttrs).forEach(([attr, fieldId]) => {
+            if (fieldId && buttonData[attr]) {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.value = buttonData[attr];
+                }
+            }
+        });
+        
+        // Set form action URL if pattern provided
+        if (urlPattern) {
+            let actionUrl = urlPattern;
+            Object.entries(buttonData).forEach(([attr, value]) => {
+                actionUrl = actionUrl.replace(`{${attr}}`, value);
+            });
+            form.action = actionUrl;
+        }
+    });
+}
+
 
 /* ===== drivers.core.js ===== */
 /**
@@ -495,65 +674,37 @@ function initializeAssignPatternForm() {
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
 
-        if (!validateAssignDates()) {
-            showAlertBanner('error', MESSAGES.INVALID_DATE_RANGE);
-            return false;
-        }
-
-        const submitBtn = document.getElementById('assignPatternSubmitBtn');
         const driverId = this.dataset.driverId;
-        const originalHtml = submitBtn.innerHTML;
-
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = MESSAGES.SAVING;
         DEBUG.log('Submitting assignment pattern', 'info', { driverId });
 
-        try {
-            const response = await fetch(this.action, {
-                method: 'POST',
-                body: new FormData(this),
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
+        await submitForm(form, 'assignPatternSubmitBtn', {
+            validateFn: () => (validateAssignDates() ? null : MESSAGES.INVALID_DATE_RANGE),
+            successMessage: MESSAGES.ASSIGNMENT_SAVED,
+            errorMessage: MESSAGES.SERVER_ERROR,
+            hideModal: 'assignPatternModal',
+            onSuccess: (result) => {
+                if (driverId) {
+                    driverAssignments[driverId] = result.driverAssignments || [];
+                    loadAssignmentHistory(driverId);
+                }
 
-            const result = await response.json();
+                // Reset form fields
+                this.action = `/driver/${driverId}/assign-pattern`;
+                document.getElementById('assign_pattern_id').value = '';
+                document.getElementById('assign_start_day').value = '1';
+                showAssignPatternPreview();
+                document.getElementById('assign_end_date').value = '';
+                document.getElementById('assignPatternSubmitBtn').innerHTML = '<i class="fas fa-calendar-plus"></i> Assign Pattern';
 
-            if (!response.ok || !result.ok) {
-                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
-                showAlertBanner('error', errorMsg);
-                DEBUG.warn('Assignment save failed', { driverId, error: errorMsg });
-                return;
+                DEBUG.log('Assignment saved', 'info', { driverId });
+
+                // Refresh driver table in background
+                setTimeout(() => refreshDriverRow(driverId), 500);
+            },
+            onError: (result) => {
+                DEBUG.warn('Assignment save failed', { driverId, error: result.error });
             }
-
-            if (driverId) {
-                driverAssignments[driverId] = result.driverAssignments || [];
-                loadAssignmentHistory(driverId);
-            }
-
-            hideModalById('assignPatternModal');
-
-            // Reset form
-            this.action = `/driver/${driverId}/assign-pattern`;
-            document.getElementById('assign_pattern_id').value = '';
-            document.getElementById('assign_start_day').value = '1';
-            showAssignPatternPreview();
-            document.getElementById('assign_end_date').value = '';
-            submitBtn.innerHTML = '<i class="fas fa-calendar-plus"></i> Assign Pattern';
-
-            showAlertBanner('success', result.message || MESSAGES.ASSIGNMENT_SAVED);
-            DEBUG.log('Assignment saved', 'info', { driverId });
-
-            // Refresh driver table in background
-            setTimeout(() => refreshDriverRow(driverId), 500);
-        } catch (error) {
-            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-            DEBUG.error('Error saving assignment', { error, driverId });
-        } finally {
-            submitBtn.disabled = false;
-            if (!submitBtn.innerHTML.includes('Assign Pattern') && 
-                !submitBtn.innerHTML.includes('Update Assignment')) {
-                submitBtn.innerHTML = originalHtml;
-            }
-        }
+        });
     });
 }
 
@@ -572,42 +723,27 @@ function initializeAssignmentActionForm() {
         const actionTitle = isDelete ? MESSAGES.ASSIGNMENT_DELETED : MESSAGES.ASSIGNMENT_ENDED;
         DEBUG.log(`Submitting assignment ${isDelete ? 'delete' : 'end'}`, 'info');
 
-        try {
-            const response = await fetch(formAction, {
-                method: 'POST',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
+        const submitBtn = this.querySelector('button[type="submit"]');
 
-            const result = await response.json();
+        await submitForm(form, submitBtn, {
+            action: formAction,
+            successMessage: actionTitle,
+            errorMessage: MESSAGES.SERVER_ERROR,
+            hideModal: 'assignmentActionModal',
+            onSuccess: (result) => {
+                const driverId = result.driverId;
+                if (driverId) {
+                    driverAssignments[driverId] = result.driverAssignments || [];
+                    loadAssignmentHistory(driverId);
+                    setTimeout(() => refreshDriverRow(driverId), 500);
+                }
 
-            if (!response.ok || !result.ok) {
-                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
-                showAlertBanner('error', errorMsg);
-                DEBUG.warn(`Assignment ${isDelete ? 'delete' : 'end'} failed`, { error: errorMsg });
-                return;
+                DEBUG.log(`Assignment ${isDelete ? 'deleted' : 'ended'}`, 'info', { driverId });
+            },
+            onError: (result) => {
+                DEBUG.warn(`Assignment ${isDelete ? 'delete' : 'end'} failed`, { error: result.error });
             }
-
-            // Close the action modal
-            hideModalById('assignmentActionModal');
-
-            // Update assignment history
-            const driverId = result.driverId;
-            if (driverId) {
-                driverAssignments[driverId] = result.driverAssignments || [];
-                loadAssignmentHistory(driverId);
-            }
-
-            showAlertBanner('success', result.message || actionTitle);
-            DEBUG.log(`Assignment ${isDelete ? 'deleted' : 'ended'}`, 'info', { driverId });
-
-            // Refresh driver table in background
-            if (driverId) {
-                setTimeout(() => refreshDriverRow(driverId), 500);
-            }
-        } catch (error) {
-            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-            DEBUG.error('Error processing assignment action', { error });
-        }
+        });
     });
 }
 
@@ -622,44 +758,21 @@ function initializeAddDriverForm() {
         e.preventDefault();
 
         const submitBtn = this.querySelector('button[type="submit"]');
-        const originalHtml = submitBtn.innerHTML;
-
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = MESSAGES.SAVING;
         DEBUG.log('Submitting add driver form', 'info');
 
-        try {
-            const response = await fetch(this.action, {
-                method: 'POST',
-                body: new FormData(this),
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-
-            const result = await response.json();
-
-            if (!response.ok || !result.ok) {
-                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
-                showAlertBanner('error', errorMsg);
-                DEBUG.warn('Add driver failed', { error: errorMsg });
-                return;
+        await submitForm(form, submitBtn, {
+            successMessage: MESSAGES.DRIVER_ADDED,
+            errorMessage: MESSAGES.SERVER_ERROR,
+            hideModal: 'addDriverModal',
+            resetForm: true,
+            onSuccess: (result) => {
+                DEBUG.log('Driver added successfully', 'info', { driverId: result.driverId });
+                setTimeout(() => location.reload(), 1500);
+            },
+            onError: (result) => {
+                DEBUG.warn('Add driver failed', { error: result.error });
             }
-
-            // Close modal
-            hideModalById('addDriverModal');
-
-            this.reset();
-
-            showAlertBanner('success', result.message || MESSAGES.DRIVER_ADDED);
-            DEBUG.log('Driver added successfully', 'info', { driverId: result.driverId });
-            
-            setTimeout(() => location.reload(), 1500);
-        } catch (error) {
-            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-            DEBUG.error('Error adding driver', { error });
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = originalHtml;
-        }
+        });
     });
 }
 
@@ -674,48 +787,26 @@ function initializeEditDriverForm() {
         e.preventDefault();
 
         const submitBtn = this.querySelector('button[type="submit"]');
-        const originalHtml = submitBtn.innerHTML;
-
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = MESSAGES.SAVING;
         DEBUG.log('Submitting edit driver form', 'info');
 
-        try {
-            const response = await fetch(this.action, {
-                method: 'POST',
-                body: new FormData(this),
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-
-            const result = await response.json();
-
-            if (!response.ok || !result.ok) {
-                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
-                showAlertBanner('error', errorMsg);
-                DEBUG.warn('Edit driver failed', { error: errorMsg });
-                return;
+        await submitForm(form, submitBtn, {
+            successMessage: MESSAGES.DRIVER_UPDATED,
+            errorMessage: MESSAGES.SERVER_ERROR,
+            hideModal: 'editDriverModal',
+            onSuccess: (result) => {
+                // Extract driver ID from form action
+                const driverId = this.action.match(/\/driver\/(\d+)\/edit/)?.[1];
+                if (driverId) {
+                    DEBUG.log('Driver updated', 'info', { driverId });
+                    setTimeout(() => refreshDriverRow(driverId), 500);
+                } else {
+                    setTimeout(() => location.reload(), 1500);
+                }
+            },
+            onError: (result) => {
+                DEBUG.warn('Edit driver failed', { error: result.error });
             }
-
-            // Close modal
-            hideModalById('editDriverModal');
-
-            // Extract driver ID from form action
-            const driverId = this.action.match(/\/driver\/(\d+)\/edit/)?.[1];
-            if (driverId) {
-                showAlertBanner('success', result.message || MESSAGES.DRIVER_UPDATED);
-                DEBUG.log('Driver updated', 'info', { driverId });
-                setTimeout(() => refreshDriverRow(driverId), 500);
-            } else {
-                showAlertBanner('success', result.message || MESSAGES.DRIVER_UPDATED);
-                setTimeout(() => location.reload(), 1500);
-            }
-        } catch (error) {
-            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-            DEBUG.error('Error updating driver', { error });
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = originalHtml;
-        }
+        });
     });
 }
 
@@ -730,41 +821,20 @@ function initializeDeleteDriverForm() {
         e.preventDefault();
 
         const submitBtn = this.querySelector('button[type="submit"]');
-        const originalHtml = submitBtn.innerHTML;
-
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = MESSAGES.SAVING;
         DEBUG.log('Submitting delete driver form', 'info');
 
-        try {
-            const response = await fetch(this.action, {
-                method: 'POST',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-
-            const result = await response.json();
-
-            if (!response.ok || !result.ok) {
-                const errorMsg = result.error || MESSAGES.SERVER_ERROR;
-                showAlertBanner('error', errorMsg);
-                DEBUG.warn('Delete driver failed', { error: errorMsg });
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = originalHtml;
-                return;
+        await submitForm(form, submitBtn, {
+            successMessage: MESSAGES.DRIVER_DELETED,
+            errorMessage: MESSAGES.SERVER_ERROR,
+            hideModal: 'deleteModal',
+            onSuccess: () => {
+                DEBUG.log('Driver deleted successfully', 'info');
+                setTimeout(() => location.reload(), 1500);
+            },
+            onError: (result) => {
+                DEBUG.warn('Delete driver failed', { error: result.error });
             }
-
-            // Close modal if open
-            hideModalById('deleteModal');
-
-            showAlertBanner('success', result.message || MESSAGES.DRIVER_DELETED);
-            DEBUG.log('Driver deleted successfully', 'info');
-            setTimeout(() => location.reload(), 1500);
-        } catch (error) {
-            showAlertBanner('error', MESSAGES.NETWORK_ERROR);
-            DEBUG.error('Error deleting driver', { error });
-            submitBtn.disabled = false;
-            submitBtn.innerHTML = originalHtml;
-        }
+        });
     });
 }
 
@@ -1591,356 +1661,11 @@ function initializeDriverCalendarModule() {
 }
 
 
-/* ===== drivers.custom-timings.js ===== */
+/* ===== drivers.custom-timings.helpers.js ===== */
 /**
- * drivers.custom-timings.js
- * Custom timing panel and form logic for Driver Management
- * Dependencies: shared.core.js, drivers.core.js
+ * drivers.custom-timings.helpers.js
+ * Helper functions for custom timings UI and form state.
  */
-
-function initializeDriverCustomTimingsModule() {
-    const deleteModalEl = document.getElementById('deleteModal');
-    if (deleteModalEl) {
-        deleteModalEl.addEventListener('hidden.bs.modal', function() {
-            window.pendingCustomTimingDelete = null;
-        });
-    }
-
-    const deleteSubmitBtn = document.getElementById('globalDeleteSubmitBtn');
-    if (deleteSubmitBtn) {
-        deleteSubmitBtn.addEventListener('click', function(e) {
-            if (deleteSubmitBtn.type === 'button' && window.pendingCustomTimingDelete) {
-                e.preventDefault();
-                e.stopPropagation();
-
-                const { timingId, driverId } = window.pendingCustomTimingDelete;
-                hideModalById('deleteModal');
-                deleteCustomTiming(timingId, () => loadCustomTimings(driverId));
-                window.pendingCustomTimingDelete = null;
-            }
-        });
-    }
-
-    const assignmentSelect = document.getElementById('ctFormAssignmentId');
-    if (assignmentSelect) {
-        assignmentSelect.addEventListener('change', function() {
-            renderDayOfCycleMenu(this.value || '', null);
-            updateAssignmentCriteriaMutualExclusion('day');
-        });
-    }
-
-    const dayOfWeekSelect = document.getElementById('ctFormDayOfWeek');
-    if (dayOfWeekSelect) {
-        dayOfWeekSelect.addEventListener('change', function() {
-            updateDayOfWeekModeVisibility();
-            updateAssignmentCriteriaMutualExclusion('day');
-        });
-    }
-
-    const modeRadios = document.querySelectorAll('input[name="day_of_week_mode"]');
-    modeRadios.forEach(radio => {
-        radio.addEventListener('change', function() {
-            updateDayOfWeekModeFieldsVisibility();
-        });
-    });
-
-    document.addEventListener('click', function(e) {
-        if (e.target.closest('.toggle-custom-timings')) {
-            const btn = e.target.closest('.toggle-custom-timings');
-            const driverId = btn.getAttribute('data-driver-id');
-            const panel = document.getElementById(`custom-timings-panel-${driverId}`);
-            if (!panel) return;
-
-            const willOpen = panel.classList.contains('d-none');
-
-            if (willOpen) {
-                document.querySelectorAll('.custom-timings-panel').forEach((row) => row.classList.add('d-none'));
-                document.querySelectorAll('.assignments-panel').forEach((row) => row.classList.add('d-none'));
-                document.querySelectorAll('.toggle-custom-timings').forEach((toggleBtn) => toggleBtn.classList.remove('active'));
-                document.querySelectorAll('.assign-pattern-btn').forEach((assignBtn) => assignBtn.classList.remove('active'));
-            }
-
-            panel.classList.toggle('d-none', !willOpen);
-            btn.classList.toggle('active', willOpen);
-            btn.blur();
-
-            const list = panel.querySelector('.custom-timings-list');
-            if (willOpen && list && list.querySelector('.fa-spinner')) {
-                loadCustomTimings(driverId);
-            }
-        }
-
-        if (e.target.closest('.add-custom-timing-btn')) {
-            const btn = e.target.closest('.add-custom-timing-btn');
-            const driverId = btn.getAttribute('data-driver-id');
-            const driverNumber = btn.getAttribute('data-driver-number') || '';
-            const driverName = btn.getAttribute('data-driver-name');
-            openCustomTimingForm(driverId, driverName, driverNumber);
-        }
-
-        if (e.target.closest('.edit-custom-timing-inline')) {
-            const btn = e.target.closest('.edit-custom-timing-inline');
-            const driverId = btn.getAttribute('data-driver-id');
-            const timingId = btn.getAttribute('data-timing-id');
-            const driverNumber = btn.getAttribute('data-driver-number') || '';
-            const driverName = btn.getAttribute('data-driver-name');
-            editCustomTiming(driverId, timingId, driverName, driverNumber);
-        }
-
-        if (e.target.closest('.delete-custom-timing-inline')) {
-            const btn = e.target.closest('.delete-custom-timing-inline');
-            const timingId = btn.getAttribute('data-timing-id');
-            const driverId = btn.getAttribute('data-driver-id');
-
-            if (typeof window.showGlobalDeleteConfirm === 'function') {
-                window.pendingCustomTimingDelete = { timingId, driverId };
-                window.showGlobalDeleteConfirm({
-                    title: 'Delete Custom Timing',
-                    message: 'Are you sure you want to delete this custom timing?',
-                    warning: 'This action cannot be undone.',
-                    action: 'javascript:void(0);',
-                    submitLabel: 'Delete Timing'
-                });
-            } else {
-                deleteCustomTiming(timingId, () => {
-                    loadCustomTimings(driverId);
-                });
-            }
-        }
-    });
-
-    document.getElementById('customTimingForm')?.addEventListener('submit', function(e) {
-        e.preventDefault();
-        const driverId = document.getElementById('ctFormDriverId').value;
-        const timingId = document.getElementById('ctFormTimingId').value;
-        const formData = new FormData(this);
-
-        const url = timingId
-            ? `/custom-timing/${timingId}/edit`
-            : `/driver/${driverId}/custom-timing/add`;
-
-        fetch(url, {
-            method: 'POST',
-            body: formData,
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest'
-            }
-        })
-        .then(async (r) => {
-            let payload = null;
-            try {
-                payload = await r.json();
-            } catch (jsonErr) {
-                payload = null;
-            }
-
-            if (!r.ok) {
-                const errorMessage = payload?.error || `HTTP ${r.status}`;
-                throw new Error(errorMessage);
-            }
-
-            return payload || { success: false, error: 'Invalid server response.' };
-        })
-        .then(data => {
-            if (data.success) {
-                hideModalById('customTimingFormModal');
-
-                loadCustomTimings(driverId);
-                showAlertBanner('success', MESSAGES.CUSTOM_TIMING_SAVED);
-                DEBUG.log('Custom timing saved', 'info', { driverId });
-            } else {
-                const errorMsg = data.error || MESSAGES.CUSTOM_TIMING_SAVE_ERROR;
-                showAlertBanner('error', errorMsg);
-                DEBUG.warn('Save custom timing failed', { driverId, error: errorMsg });
-            }
-        })
-        .catch(err => {
-            console.error('Error saving custom timing:', err);
-            showAlertBanner('error', MESSAGES.CUSTOM_TIMING_SAVE_ERROR);
-            DEBUG.error('Error saving custom timing', { error: err.message, driverId });
-        });
-    });
-}
-
-function loadCustomTimings(driverId) {
-    fetch(`/driver/${driverId}/custom-timings/list`, {
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-        }
-    })
-        .then(r => {
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            return r.json();
-        })
-        .then(data => {
-            const list = document.querySelector(`.custom-timings-list[data-driver-id="${driverId}"]`);
-            updateDriverPatternTimingIndicators(driverId, data?.timings || []);
-            if (data.success && data.timings) {
-                if (data.timings.length === 0) {
-                    list.innerHTML = '<p class="text-muted text-center py-4">No custom timings set</p>';
-                } else {
-                    list.innerHTML = `
-                        <div class="list-group">
-                            ${data.timings.map(t => `
-                                    <div class="list-group-item">
-                                        ${(() => {
-                                            const patternText = t.assignment_name || 'Any Pattern';
-                                            const hasSpecificShiftType = Boolean(t.shift_type);
-                                            const shiftTiming = hasSpecificShiftType ? shiftTimings[t.shift_type] : null;
-                                            const shiftTypeLabel = hasSpecificShiftType
-                                                ? (shiftTiming?.label || t.shift_type)
-                                                : 'Any';
-                                            const shiftTypeBadgeClass = shiftTiming?.badgeColor || 'bg-secondary';
-                                            let priority = Number(t.priority ?? 4);
-                                            if (!Number.isFinite(priority) || priority < 1) priority = 4;
-                                            if (priority > 7) priority = 7;
-                                            const priorityBadgeClassMap = {
-                                                1: 'bg-danger',
-                                                2: 'bg-warning text-dark',
-                                                3: 'bg-info text-dark',
-                                                4: 'bg-primary',
-                                                5: 'bg-success',
-                                                6: 'bg-secondary',
-                                                7: 'bg-dark'
-                                            };
-                                            const priorityBadgeClass = priorityBadgeClassMap[priority] || 'bg-primary';
-                                            const hasSpecificAssignment = Boolean(t.assignment_name);
-                                            const hasShiftOnDay = t.day_of_cycle !== null && Array.isArray(t.day_cycle_shifts) && t.day_cycle_shifts.length > 0;
-                                            const hasCycleDay = t.day_of_cycle !== null;
-                                            const weekdayLabel = t.day_of_week !== null ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][t.day_of_week] : '';
-                                            const hasCustomTimes = Boolean(t.start_time) || Boolean(t.end_time);
-                                            const hasOverrideShift = Boolean(t.override_shift);
-                                            const isDayOffMode = Boolean(weekdayLabel) && t.override_shift === 'day_off';
-                                            const isShiftOverride = Boolean(weekdayLabel) && hasOverrideShift && !isDayOffMode;
-                                            const isCustomTimesMode = Boolean(weekdayLabel) && !hasOverrideShift && hasCustomTimes;
-                                            const shiftMatchesCycle = !hasSpecificShiftType || !hasCycleDay || !hasShiftOnDay || t.day_cycle_shifts.includes(t.shift_type);
-                                            const hasRuleCriteria = hasSpecificShiftType || hasCycleDay || Boolean(weekdayLabel);
-
-                                            let ruleSummaryHtml = '';
-                                            if (isDayOffMode) {
-                                                ruleSummaryHtml = `
-                                                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
-                                                        <span>Every</span>
-                                                        <span class="badge bg-light text-dark border">${weekdayLabel}</span>
-                                                        ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, set as</span>` : `<span>, set as</span>`}
-                                                        <span class="badge bg-secondary">OFF</span><span>.</span>
-                                                    </div>
-                                                `;
-                                            } else if (isShiftOverride) {
-                                                const overrideShiftDisplay = getShiftDisplay(t.override_shift);
-                                                ruleSummaryHtml = `
-                                                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
-                                                        <span>Every</span>
-                                                        <span class="badge bg-light text-dark border">${weekdayLabel}</span>
-                                                        ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, override to</span>` : `<span>, override to</span>`}
-                                                        <span class="d-inline-flex align-items-center gap-0"><span class="badge ${overrideShiftDisplay.badgeColor}">${overrideShiftDisplay.label}</span><span>.</span></span>
-                                                    </div>
-                                                `;
-                                            } else if (isCustomTimesMode) {
-                                                const customTimeSentence = (() => {
-                                                    const start = t.start_time || '';
-                                                    const end = t.end_time || '';
-                                                    if (start && end) return 'use custom starting and finishing times';
-                                                    if (start) return 'use custom starting time';
-                                                    return 'use custom finishing time';
-                                                })();
-                                                ruleSummaryHtml = `
-                                                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
-                                                        <span>Every</span>
-                                                        <span class="badge bg-light text-dark border">${weekdayLabel}</span>
-                                                        ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, ${customTimeSentence}.</span>` : `<span>, ${customTimeSentence}.</span>`}
-                                                    </div>
-                                                `;
-                                            } else if (hasRuleCriteria) {
-                                                ruleSummaryHtml = `
-                                                    <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
-                                                        <span>Any</span>
-                                                        ${hasSpecificShiftType ? `<span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span>` : ''}
-                                                        <span>Shift</span>
-                                                        ${weekdayLabel ? `<span>that is on a</span><span class="badge bg-light text-dark border">${weekdayLabel}</span>` : ''}
-                                                        ${hasCycleDay ? `<span>${weekdayLabel ? 'and on' : 'on'}</span><span class="badge bg-light text-dark border">Cycle Day ${t.day_of_cycle + 1}</span>` : ''}
-                                                        ${hasShiftOnDay
-                                                            ? `<span>which is a</span>${t.day_cycle_shifts.map((shiftType) => {
-                                                                const display = getShiftDisplay(shiftType);
-                                                                return `<span class="badge ${display.badgeColor}">${display.label}</span>`;
-                                                            }).join('')}`
-                                                            : ''}
-                                                    </div>
-                                                `;
-                                            }
-
-                                            const conflictWarningHtml = hasSpecificShiftType && hasCycleDay && hasShiftOnDay && !shiftMatchesCycle && !isShiftOverride
-                                                ? `<div class="mb-2"><span class="badge bg-danger">Conflict: selected shift is not on this cycle day</span></div>`
-                                                : '';
-                                            const timeText = (() => {
-                                                const start = t.start_time || '';
-                                                const end = t.end_time || '';
-                                                if (start && end) return `Starting ${start} · Finishing ${end}`;
-                                                if (start) return `Starting ${start}`;
-                                                if (end) return `Finishing ${end}`;
-                                                return 'Default time';
-                                            })();
-                                            const customTimeText = (() => {
-                                                const start = t.start_time || '';
-                                                const end = t.end_time || '';
-                                                if (start && end) return `Starting ${start} · Finishing ${end}`;
-                                                if (start) return `Starting ${start}`;
-                                                if (end) return `Finishing ${end}`;
-                                                return 'Time';
-                                            })();
-                                            const rightBadgeHtml = isDayOffMode
-                                                ? `<span class="badge bg-secondary fs-6 px-3 py-2 me-2">Day Off</span>`
-                                                : isShiftOverride
-                                                ? `<span class="badge bg-warning text-dark fs-6 px-3 py-2 me-2">Shift Override</span>`
-                                                : `<span class="badge bg-info text-dark fs-6 px-3 py-2 me-2">${isCustomTimesMode ? customTimeText : timeText}</span>`;
-
-                                            return `
-                                                <div class="d-flex justify-content-between align-items-center mb-2">
-                                                    <div class="me-2">
-                                                        <span class="badge ${priorityBadgeClass} fs-6 px-3 py-2 rounded-pill">Priority ${priority}</span>
-                                                    </div>
-                                                    <div class="small" style="flex: 1;">
-                                                        <div class="mb-2">
-                                                            ${hasSpecificAssignment
-                                                                ? `<span><span class="fw-bold me-1">Shifts on Pattern:</span>${patternText}</span>`
-                                                                : `<span class="fw-bold">Shifts on Any Pattern</span>`}
-                                                        </div>
-                                                        ${ruleSummaryHtml}
-                                                        ${conflictWarningHtml}
-                                                    </div>
-                                                    <div class="text-end ms-3 d-flex align-items-center justify-content-end" style="min-width: 320px;">
-                                                        ${rightBadgeHtml}
-                                                        <div class="btn-group btn-group-sm">
-                                                            <button type="button" class="btn btn-sm btn-primary edit-custom-timing-inline" data-driver-id="${driverId}" data-timing-id="${t.id}" data-driver-name="${data.driver_name}" data-driver-number="${(document.querySelector(`.add-custom-timing-btn[data-driver-id="${driverId}"]`)?.getAttribute('data-driver-number') || '').replace(/"/g, '&quot;')}">
-                                                                <i class="fas fa-edit"></i>
-                                                            </button>
-                                                            <button type="button" class="btn btn-sm btn-danger delete-custom-timing-inline" data-driver-id="${driverId}" data-timing-id="${t.id}">
-                                                                <i class="fas fa-trash"></i>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                ${t.notes ? `
-                                                    <div class="mt-2 pt-2 border-top small">
-                                                        <div class="fw-bold mb-1">Notes</div>
-                                                        <div>${t.notes}</div>
-                                                    </div>
-                                                ` : ''}
-                                            `;
-                                        })()}
-                                    </div>
-                            `).join('')}
-                        </div>
-                    `;
-                }
-            }
-        })
-        .catch(err => {
-            console.error('Error loading custom timings:', err);
-            document.querySelector(`.custom-timings-list[data-driver-id="${driverId}"]`).innerHTML = `<p class="text-danger text-center py-4">Error loading timings</p>`;
-        });
-}
 
 function updateDriverPatternTimingIndicators(driverId, timings) {
     const row = document.querySelector(`tr[data-driver-id="${driverId}"]`);
@@ -2142,7 +1867,7 @@ function renderDayOfCycleMenu(assignmentId, selectedDayOfCycle = null) {
     if (selectedValue === '') {
         dayDisplay.innerHTML = 'Any day in cycle';
     } else {
-        const dayIndex = parseInt(selectedValue);
+        const dayIndex = parseInt(selectedValue, 10);
         const dayShifts = normalizePatternDayShifts(patternData[dayIndex]);
         const shifts = dayShifts.length > 0 ? dayShifts : ['day_off'];
         const shiftBadges = shifts.map((shiftType) => {
@@ -2166,7 +1891,7 @@ function renderDayOfCycleMenu(assignmentId, selectedDayOfCycle = null) {
             if (value === '') {
                 dayDisplay.innerHTML = 'Any day in cycle';
             } else {
-                const dayIndex = parseInt(value);
+                const dayIndex = parseInt(value, 10);
                 const dayShifts = normalizePatternDayShifts(patternData[dayIndex]);
                 const shifts = dayShifts.length > 0 ? dayShifts : ['day_off'];
                 const shiftBadges = shifts.map((shiftType) => {
@@ -2606,6 +2331,363 @@ function deleteCustomTiming(timingId, callback) {
             DEBUG.error('Error deleting custom timing', { error: err.message });
         });
 }
+
+/**
+ * Renders the HTML for a single custom timing card in the list.
+ */
+function renderCustomTimingCard(t, driverId, driverName) {
+    const patternText = t.assignment_name || 'Any Pattern';
+    const hasSpecificShiftType = Boolean(t.shift_type);
+    const shiftTiming = hasSpecificShiftType ? shiftTimings[t.shift_type] : null;
+    const shiftTypeLabel = hasSpecificShiftType
+        ? (shiftTiming?.label || t.shift_type)
+        : 'Any';
+    const shiftTypeBadgeClass = shiftTiming?.badgeColor || 'bg-secondary';
+    let priority = Number(t.priority ?? 4);
+    if (!Number.isFinite(priority) || priority < 1) priority = 4;
+    if (priority > 7) priority = 7;
+    const priorityBadgeClassMap = {
+        1: 'bg-danger',
+        2: 'bg-warning text-dark',
+        3: 'bg-info text-dark',
+        4: 'bg-primary',
+        5: 'bg-success',
+        6: 'bg-secondary',
+        7: 'bg-dark'
+    };
+    const priorityBadgeClass = priorityBadgeClassMap[priority] || 'bg-primary';
+    const hasSpecificAssignment = Boolean(t.assignment_name);
+    const hasShiftOnDay = t.day_of_cycle !== null && Array.isArray(t.day_cycle_shifts) && t.day_cycle_shifts.length > 0;
+    const hasCycleDay = t.day_of_cycle !== null;
+    const weekdayLabel = t.day_of_week !== null ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][t.day_of_week] : '';
+    const hasCustomTimes = Boolean(t.start_time) || Boolean(t.end_time);
+    const hasOverrideShift = Boolean(t.override_shift);
+    const isDayOffMode = Boolean(weekdayLabel) && t.override_shift === 'day_off';
+    const isShiftOverride = Boolean(weekdayLabel) && hasOverrideShift && !isDayOffMode;
+    const isCustomTimesMode = Boolean(weekdayLabel) && !hasOverrideShift && hasCustomTimes;
+    const shiftMatchesCycle = !hasSpecificShiftType || !hasCycleDay || !hasShiftOnDay || t.day_cycle_shifts.includes(t.shift_type);
+    const hasRuleCriteria = hasSpecificShiftType || hasCycleDay || Boolean(weekdayLabel);
+    const driverNumber = (document.querySelector(`.add-custom-timing-btn[data-driver-id="${driverId}"]`)?.getAttribute('data-driver-number') || '').replace(/"/g, '&quot;');
+
+    let ruleSummaryHtml = '';
+    if (isDayOffMode) {
+        ruleSummaryHtml = `
+            <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
+                <span>Every</span>
+                <span class="badge bg-light text-dark border">${weekdayLabel}</span>
+                ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, set as</span>` : `<span>, set as</span>`}
+                <span class="badge bg-secondary">OFF</span><span>.</span>
+            </div>
+        `;
+    } else if (isShiftOverride) {
+        const overrideShiftDisplay = getShiftDisplay(t.override_shift);
+        ruleSummaryHtml = `
+            <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
+                <span>Every</span>
+                <span class="badge bg-light text-dark border">${weekdayLabel}</span>
+                ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, override to</span>` : `<span>, override to</span>`}
+                <span class="d-inline-flex align-items-center gap-0"><span class="badge ${overrideShiftDisplay.badgeColor}">${overrideShiftDisplay.label}</span><span>.</span></span>
+            </div>
+        `;
+    } else if (isCustomTimesMode) {
+        const customTimeSentence = (() => {
+            const start = t.start_time || '';
+            const end = t.end_time || '';
+            if (start && end) return 'use custom starting and finishing times';
+            if (start) return 'use custom starting time';
+            return 'use custom finishing time';
+        })();
+        ruleSummaryHtml = `
+            <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
+                <span>Every</span>
+                <span class="badge bg-light text-dark border">${weekdayLabel}</span>
+                ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, ${customTimeSentence}.</span>` : `<span>, ${customTimeSentence}.</span>`}
+            </div>
+        `;
+    } else if (hasRuleCriteria) {
+        ruleSummaryHtml = `
+            <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
+                <span>Any</span>
+                ${hasSpecificShiftType ? `<span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span>` : ''}
+                <span>Shift</span>
+                ${weekdayLabel ? `<span>that is on a</span><span class="badge bg-light text-dark border">${weekdayLabel}</span>` : ''}
+                ${hasCycleDay ? `<span>${weekdayLabel ? 'and on' : 'on'}</span><span class="badge bg-light text-dark border">Cycle Day ${t.day_of_cycle + 1}</span>` : ''}
+                ${hasShiftOnDay
+                    ? `<span>which is a</span>${t.day_cycle_shifts.map((shiftType) => {
+                        const display = getShiftDisplay(shiftType);
+                        return `<span class="badge ${display.badgeColor}">${display.label}</span>`;
+                    }).join('')}`
+                    : ''}
+            </div>
+        `;
+    }
+
+    const conflictWarningHtml = hasSpecificShiftType && hasCycleDay && hasShiftOnDay && !shiftMatchesCycle && !isShiftOverride
+        ? `<div class="mb-2"><span class="badge bg-danger">Conflict: selected shift is not on this cycle day</span></div>`
+        : '';
+
+    const timeText = (() => {
+        const start = t.start_time || '';
+        const end = t.end_time || '';
+        if (start && end) return `Starting ${start} · Finishing ${end}`;
+        if (start) return `Starting ${start}`;
+        if (end) return `Finishing ${end}`;
+        return 'Default time';
+    })();
+    const customTimeText = (() => {
+        const start = t.start_time || '';
+        const end = t.end_time || '';
+        if (start && end) return `Starting ${start} · Finishing ${end}`;
+        if (start) return `Starting ${start}`;
+        if (end) return `Finishing ${end}`;
+        return 'Time';
+    })();
+    const rightBadgeHtml = isDayOffMode
+        ? `<span class="badge bg-secondary fs-6 px-3 py-2 me-2">Day Off</span>`
+        : isShiftOverride
+        ? `<span class="badge bg-warning text-dark fs-6 px-3 py-2 me-2">Shift Override</span>`
+        : `<span class="badge bg-info text-dark fs-6 px-3 py-2 me-2">${isCustomTimesMode ? customTimeText : timeText}</span>`;
+
+    return `
+        <div class="list-group-item">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div class="me-2">
+                    <span class="badge ${priorityBadgeClass} fs-6 px-3 py-2 rounded-pill">Priority ${priority}</span>
+                </div>
+                <div class="small" style="flex: 1;">
+                    <div class="mb-2">
+                        ${hasSpecificAssignment
+                            ? `<span><span class="fw-bold me-1">Shifts on Pattern:</span>${patternText}</span>`
+                            : `<span class="fw-bold">Shifts on Any Pattern</span>`}
+                    </div>
+                    ${ruleSummaryHtml}
+                    ${conflictWarningHtml}
+                </div>
+                <div class="text-end ms-3 d-flex align-items-center justify-content-end" style="min-width: 320px;">
+                    ${rightBadgeHtml}
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-sm btn-primary edit-custom-timing-inline" data-driver-id="${driverId}" data-timing-id="${t.id}" data-driver-name="${driverName}" data-driver-number="${driverNumber}">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-danger delete-custom-timing-inline" data-driver-id="${driverId}" data-timing-id="${t.id}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            ${t.notes ? `
+                <div class="mt-2 pt-2 border-top small">
+                    <div class="fw-bold mb-1">Notes</div>
+                    <div>${t.notes}</div>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+
+/* ===== drivers.custom-timings.js ===== */
+/**
+ * drivers.custom-timings.js
+ * Custom timing panel and form logic for Driver Management
+ * Dependencies: shared.core.js, drivers.core.js
+ */
+
+function initializeDriverCustomTimingsModule() {
+    const deleteModalEl = document.getElementById('deleteModal');
+    if (deleteModalEl) {
+        deleteModalEl.addEventListener('hidden.bs.modal', function() {
+            window.pendingCustomTimingDelete = null;
+        });
+    }
+
+    const deleteSubmitBtn = document.getElementById('globalDeleteSubmitBtn');
+    if (deleteSubmitBtn) {
+        deleteSubmitBtn.addEventListener('click', function(e) {
+            if (deleteSubmitBtn.type === 'button' && window.pendingCustomTimingDelete) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const { timingId, driverId } = window.pendingCustomTimingDelete;
+                hideModalById('deleteModal');
+                deleteCustomTiming(timingId, () => loadCustomTimings(driverId));
+                window.pendingCustomTimingDelete = null;
+            }
+        });
+    }
+
+    const assignmentSelect = document.getElementById('ctFormAssignmentId');
+    if (assignmentSelect) {
+        assignmentSelect.addEventListener('change', function() {
+            renderDayOfCycleMenu(this.value || '', null);
+            updateAssignmentCriteriaMutualExclusion('day');
+        });
+    }
+
+    const dayOfWeekSelect = document.getElementById('ctFormDayOfWeek');
+    if (dayOfWeekSelect) {
+        dayOfWeekSelect.addEventListener('change', function() {
+            updateDayOfWeekModeVisibility();
+            updateAssignmentCriteriaMutualExclusion('day');
+        });
+    }
+
+    const modeRadios = document.querySelectorAll('input[name="day_of_week_mode"]');
+    modeRadios.forEach(radio => {
+        radio.addEventListener('change', function() {
+            updateDayOfWeekModeFieldsVisibility();
+        });
+    });
+
+    document.addEventListener('click', function(e) {
+        if (e.target.closest('.toggle-custom-timings')) {
+            const btn = e.target.closest('.toggle-custom-timings');
+            const driverId = btn.getAttribute('data-driver-id');
+            const panel = document.getElementById(`custom-timings-panel-${driverId}`);
+            if (!panel) return;
+
+            const willOpen = panel.classList.contains('d-none');
+
+            if (willOpen) {
+                document.querySelectorAll('.custom-timings-panel').forEach((row) => row.classList.add('d-none'));
+                document.querySelectorAll('.assignments-panel').forEach((row) => row.classList.add('d-none'));
+                document.querySelectorAll('.toggle-custom-timings').forEach((toggleBtn) => toggleBtn.classList.remove('active'));
+                document.querySelectorAll('.assign-pattern-btn').forEach((assignBtn) => assignBtn.classList.remove('active'));
+            }
+
+            panel.classList.toggle('d-none', !willOpen);
+            btn.classList.toggle('active', willOpen);
+            btn.blur();
+
+            const list = panel.querySelector('.custom-timings-list');
+            if (willOpen && list && list.querySelector('.fa-spinner')) {
+                loadCustomTimings(driverId);
+            }
+        }
+
+        if (e.target.closest('.add-custom-timing-btn')) {
+            const btn = e.target.closest('.add-custom-timing-btn');
+            const driverId = btn.getAttribute('data-driver-id');
+            const driverNumber = btn.getAttribute('data-driver-number') || '';
+            const driverName = btn.getAttribute('data-driver-name');
+            openCustomTimingForm(driverId, driverName, driverNumber);
+        }
+
+        if (e.target.closest('.edit-custom-timing-inline')) {
+            const btn = e.target.closest('.edit-custom-timing-inline');
+            const driverId = btn.getAttribute('data-driver-id');
+            const timingId = btn.getAttribute('data-timing-id');
+            const driverNumber = btn.getAttribute('data-driver-number') || '';
+            const driverName = btn.getAttribute('data-driver-name');
+            editCustomTiming(driverId, timingId, driverName, driverNumber);
+        }
+
+        if (e.target.closest('.delete-custom-timing-inline')) {
+            const btn = e.target.closest('.delete-custom-timing-inline');
+            const timingId = btn.getAttribute('data-timing-id');
+            const driverId = btn.getAttribute('data-driver-id');
+
+            if (typeof window.showGlobalDeleteConfirm === 'function') {
+                window.pendingCustomTimingDelete = { timingId, driverId };
+                window.showGlobalDeleteConfirm({
+                    title: 'Delete Custom Timing',
+                    message: 'Are you sure you want to delete this custom timing?',
+                    warning: 'This action cannot be undone.',
+                    action: 'javascript:void(0);',
+                    submitLabel: 'Delete Timing'
+                });
+            } else {
+                deleteCustomTiming(timingId, () => {
+                    loadCustomTimings(driverId);
+                });
+            }
+        }
+    });
+
+    document.getElementById('customTimingForm')?.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const driverId = document.getElementById('ctFormDriverId').value;
+        const timingId = document.getElementById('ctFormTimingId').value;
+        const formData = new FormData(this);
+
+        const url = timingId
+            ? `/custom-timing/${timingId}/edit`
+            : `/driver/${driverId}/custom-timing/add`;
+
+        fetch(url, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(async (r) => {
+            let payload = null;
+            try {
+                payload = await r.json();
+            } catch (jsonErr) {
+                payload = null;
+            }
+
+            if (!r.ok) {
+                const errorMessage = payload?.error || `HTTP ${r.status}`;
+                throw new Error(errorMessage);
+            }
+
+            return payload || { success: false, error: 'Invalid server response.' };
+        })
+        .then(data => {
+            if (data.success) {
+                hideModalById('customTimingFormModal');
+
+                loadCustomTimings(driverId);
+                showAlertBanner('success', MESSAGES.CUSTOM_TIMING_SAVED);
+                DEBUG.log('Custom timing saved', 'info', { driverId });
+            } else {
+                const errorMsg = data.error || MESSAGES.CUSTOM_TIMING_SAVE_ERROR;
+                showAlertBanner('error', errorMsg);
+                DEBUG.warn('Save custom timing failed', { driverId, error: errorMsg });
+            }
+        })
+        .catch(err => {
+            console.error('Error saving custom timing:', err);
+            showAlertBanner('error', MESSAGES.CUSTOM_TIMING_SAVE_ERROR);
+            DEBUG.error('Error saving custom timing', { error: err.message, driverId });
+        });
+    });
+}
+
+function loadCustomTimings(driverId) {
+    fetch(`/driver/${driverId}/custom-timings/list`, {
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+        .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
+        .then(data => {
+            const list = document.querySelector(`.custom-timings-list[data-driver-id="${driverId}"]`);
+            updateDriverPatternTimingIndicators(driverId, data?.timings || []);
+            if (data.success && data.timings) {
+                if (data.timings.length === 0) {
+                    list.innerHTML = '<p class="text-muted text-center py-4">No custom timings set</p>';
+                } else {
+                    list.innerHTML = `
+                        <div class="list-group">
+                            ${data.timings.map(t => renderCustomTimingCard(t, driverId, data.driver_name)).join('')}
+                        </div>
+                    `;
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Error loading custom timings:', err);
+            document.querySelector(`.custom-timings-list[data-driver-id="${driverId}"]`).innerHTML = `<p class="text-danger text-center py-4">Error loading timings</p>`;
+        });
+}
+
 
 
 /* ===== drivers.page-init.js ===== */

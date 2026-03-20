@@ -6,12 +6,12 @@
 <div class="row">
     <div class="col-md-8 mx-auto">
         <div class="card">
-            <div class="card-header">
-                <h3 class="mb-0">
-                    <i class="fas fa-car"></i> Cars Working Calculator
-                </h3>
-                <p class="mb-0 text-muted">Find out how many cars are working at any specific time</p>
-            </div>
+            {% set card_title_level = '3' %}
+            {% set card_icon = 'fas fa-car' %}
+            {% set card_title = 'Cars Working Calculator' %}
+            {% set card_subtitle = 'Find out how many cars are working at any specific time' %}
+            {% set card_header_class = '' %}
+            {% include "partials/components/card_header_title.html" %}
             <div class="card-body">
                 <form method="POST">
                     <div class="row">

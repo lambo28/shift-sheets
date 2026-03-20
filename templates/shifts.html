@@ -3,35 +3,7 @@
 {% block title %}Shift Patterns - Driver Shift Sheets{% endblock %}
 
 {% block extra_head %}
-<style>
-.btn-group .btn {
-    transition: all 0.3s ease !important;
-    transform: scale(1) !important;
-}
-
-.btn-group .btn:hover {
-    transform: scale(1.1) !important;
-    box-shadow: 0 6px 12px rgba(0,0,0,0.3) !important;
-    z-index: 10 !important;
-    position: relative !important;
-}
-
-.btn-primary:hover {
-    background-color: #0056b3 !important;
-}
-
-.btn-success:hover {
-    background-color: #155724 !important;
-}
-
-.btn-danger:hover {
-    background-color: #721c24 !important;
-}
-
-#shiftTypesTableBody td {
-    vertical-align: middle;
-}
-</style>
+<link href="{{ url_for('static', filename='css/pages/shifts.css') }}" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
@@ -43,14 +15,15 @@
 
 <!-- Manage Shift Types -->
 <div class="card mb-4">
-    <div class="card-header">
-        <div class="d-flex justify-content-between align-items-center">
-            <h5 class="mb-0"><i class="fas fa-clock"></i> Shift Types</h5>
-            <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addShiftTypeModal">
-                <i class="fas fa-plus"></i> Add Shift Type
-            </button>
-        </div>
-    </div>
+    {% set card_icon = 'fas fa-clock' %}
+    {% set card_title = 'Shift Types' %}
+    {% set card_header_actions_class = '' %}
+    {% set card_actions_html %}
+    <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addShiftTypeModal">
+        <i class="fas fa-plus"></i> Add Shift Type
+    </button>
+    {% endset %}
+    {% include "partials/components/card_header_actions.html" %}
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-sm table-hover mb-0">
@@ -158,20 +131,21 @@
 
 {% if patterns %}
     <div class="card">
-        <div class="card-header">
-            <div class="d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-calendar-week"></i> Shift Patterns</h5>
-                {% if all_timings %}
-                <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createPatternModal">
-                    <i class="fas fa-plus"></i> Create Pattern
-                </button>
-                {% else %}
-                <button type="button" class="btn btn-sm btn-secondary" disabled title="Add shift types first">
-                    <i class="fas fa-plus"></i> Create Pattern
-                </button>
-                {% endif %}
-            </div>
-        </div>
+        {% set card_icon = 'fas fa-calendar-week' %}
+        {% set card_title = 'Shift Patterns' %}
+        {% set card_header_actions_class = '' %}
+        {% set card_actions_html %}
+        {% if all_timings %}
+        <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#createPatternModal">
+            <i class="fas fa-plus"></i> Create Pattern
+        </button>
+        {% else %}
+        <button type="button" class="btn btn-sm btn-secondary" disabled title="Add shift types first">
+            <i class="fas fa-plus"></i> Create Pattern
+        </button>
+        {% endif %}
+        {% endset %}
+        {% include "partials/components/card_header_actions.html" %}
         {% if not all_timings %}
         <div class="alert alert-warning m-3">
             <i class="fas fa-exclamation-triangle"></i>
@@ -342,386 +316,7 @@
     </div>
 </div>
 
-<!-- Edit Pattern Modal -->
-<div class="modal fade" id="editPatternModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Edit Shift Pattern</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="editPatternForm" action="" method="POST">
-                    <input type="hidden" id="editPatternId" name="pattern_id">
-                    
-                    <div class="row">
-                        <div class="col-md-8">
-                            <div class="mb-3">
-                                <label for="editName" class="form-label">Pattern Name *</label>
-                                <input type="text" class="form-control" id="editName" name="name" required>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="mb-3">
-                                <label for="editCycleLength" class="form-label">Cycle Length *</label>
-                                <select class="form-select" id="editCycleLength" name="cycle_length" required>
-                                    <option value="7">7 days</option>
-                                    <option value="8">8 days</option>
-                                    <option value="14">14 days</option>
-                                    <option value="16">16 days</option>
-                                    <option value="21">21 days</option>
-                                    <option value="24">24 days</option>
-                                    <option value="28">28 days</option>
-                                    <option value="32">32 days</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="editDescription" class="form-label">Description</label>
-                        <textarea class="form-control" id="editDescription" name="description" rows="2"></textarea>
-                    </div>
-                    
-                    <div id="editPatternDays">
-                        <h6>Daily Shift Assignment</h6>
-                        <div id="editPatternDaysContainer" class="row">
-                            <!-- Days populated by JavaScript -->
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="savePatternBtn">Save Changes</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Pattern Detail Modal -->
-<div class="modal fade" id="patternModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Pattern Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div id="patternDetails"></div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Add Shift Type Modal -->
-<div class="modal fade" id="addShiftTypeModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Add New Shift Type</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="addShiftTypeForm" action="{{ url_for('add_shift_type') }}" method="POST">
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="add_shift_type" class="form-label">Shift Name *</label>
-                            <input type="text" class="form-control" id="add_shift_type" name="shift_type" placeholder="e.g., Afternoons" required>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <label for="add_shift_start" class="form-label">Start Time *</label>
-                            <input type="time" class="form-control" id="add_shift_start" name="start_time" required>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <label for="add_shift_end" class="form-label">End Time *</label>
-                            <input type="time" class="form-control" id="add_shift_end" name="end_time" required>
-                        </div>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="add_shift_color" class="form-label">Badge Color</label>
-                            <select class="form-select" id="add_shift_color" name="badge_color">
-                                <option value="bg-primary" selected>Blue</option>
-                                <option value="bg-success">Green</option>
-                                <option value="bg-danger">Red</option>
-                                <option value="bg-warning">Yellow</option>
-                                <option value="bg-info">Cyan</option>
-                                <option value="bg-secondary">Gray</option>
-                                <option value="bg-dark">Dark</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label for="add_shift_icon" class="form-label">Icon</label>
-                            <select class="form-select" id="add_shift_icon" name="icon">
-                                <option value="fas fa-sun">☀️ Sun</option>
-                                <option value="fas fa-moon">🌙 Moon</option>
-                                <option value="fas fa-clock" selected>🕐 Clock</option>
-                                <option value="fas fa-briefcase">💼 Briefcase</option>
-                                <option value="fas fa-star">⭐ Star</option>
-                                <option value="fas fa-heart">❤️ Heart</option>
-                                <option value="fas fa-bolt">⚡ Lightning</option>
-                                <option value="fas fa-fire">🔥 Fire</option>
-                                <option value="fas fa-tree">🌳 Tree</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-12 mb-3">
-                            <label for="add_shift_parent" class="form-label">Group Under (Optional)</label>
-                            <select class="form-select" id="add_shift_parent" name="parent_shift_type">
-                                <option value="_none" selected>Main Shift (Standalone)</option>
-                                {% for timing in all_timings %}
-                                <option value="{{ timing.shift_type }}">{{ timing.display_label }}</option>
-                                {% endfor %}
-                            </select>
-                            <small class="text-muted">Sub-shifts appear grouped under their parent on daily sheets</small>
-                        </div>
-                    </div>
-
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" id="add_shift_school_term_only" name="school_term_only" value="1">
-                        <label class="form-check-label" for="add_shift_school_term_only">
-                            Term-time only shift
-                        </label>
-                    </div>
-
-                    <div class="alert alert-info">
-                        <i class="fas fa-info-circle"></i>
-                        End time can be next day if earlier than start time.
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="submitAddShiftTypeBtn">Add Shift Type</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Edit Shift Type Modal -->
-<div class="modal fade" id="editShiftTypeModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Edit Shift Type</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="editShiftTypeForm" method="POST">
-                    <input type="hidden" id="edit_shift_type_original" name="shift_type_original">
-                    
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="edit_shift_type" class="form-label">Shift Name *</label>
-                            <input type="text" class="form-control" id="edit_shift_type" name="shift_type" required>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <label for="edit_shift_start" class="form-label">Start Time *</label>
-                            <input type="time" class="form-control" id="edit_shift_start" name="start_time" required>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <label for="edit_shift_end" class="form-label">End Time *</label>
-                            <input type="time" class="form-control" id="edit_shift_end" name="end_time" required>
-                        </div>
-                    </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label for="edit_shift_color" class="form-label">Badge Color</label>
-                            <select class="form-select" id="edit_shift_color" name="badge_color">
-                                <option value="bg-primary">Blue</option>
-                                <option value="bg-success">Green</option>
-                                <option value="bg-danger">Red</option>
-                                <option value="bg-warning">Yellow</option>
-                                <option value="bg-info">Cyan</option>
-                                <option value="bg-secondary">Gray</option>
-                                <option value="bg-dark">Dark</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label for="edit_shift_icon" class="form-label">Icon</label>
-                            <select class="form-select" id="edit_shift_icon" name="icon">
-                                <option value="fas fa-sun">☀️ Sun</option>
-                                <option value="fas fa-moon">🌙 Moon</option>
-                                <option value="fas fa-clock">🕐 Clock</option>
-                                <option value="fas fa-briefcase">💼 Briefcase</option>
-                                <option value="fas fa-star">⭐ Star</option>
-                                <option value="fas fa-heart">❤️ Heart</option>
-                                <option value="fas fa-bolt">⚡ Lightning</option>
-                                <option value="fas fa-fire">🔥 Fire</option>
-                                <option value="fas fa-tree">🌳 Tree</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-12 mb-3">
-                            <label for="edit_shift_parent" class="form-label">Group Under (Optional)</label>
-                            <select class="form-select" id="edit_shift_parent" name="parent_shift_type">
-                                <option value="_none">Main Shift (Standalone)</option>
-                                <option id="edit_shift_parent_placeholder" value="" style="display:none;"></option>
-                            </select>
-                            <small class="text-muted">Sub-shifts appear grouped under their parent on daily sheets</small>
-                        </div>
-                    </div>
-
-                    <div class="form-check mb-3">
-                        <input class="form-check-input" type="checkbox" id="edit_shift_school_term_only" name="school_term_only" value="1">
-                        <label class="form-check-label" for="edit_shift_school_term_only">
-                            Term-time only shift
-                        </label>
-                    </div>
-
-                    <div class="alert alert-info">
-                        <i class="fas fa-info-circle"></i>
-                        End time can be next day if earlier than start time.
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="submitEditShiftTypeBtn">Update Shift Type</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Copy Pattern Modal -->
-<div class="modal fade" id="copyPatternModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Copy Shift Pattern</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p class="text-muted mb-3">Creating a copy of an existing pattern</p>
-                <form id="copyPatternForm" action="{{ url_for('add_shift_pattern') }}" method="POST">
-                    <div class="row">
-                        <div class="col-md-8">
-                            <div class="mb-3">
-                                <label for="copyName" class="form-label">Pattern Name *</label>
-                                <input type="text" class="form-control" id="copyName" name="name" required 
-                                       placeholder="e.g., Standard 7-Day, Night Shift Rotation">
-                                <div class="form-text">Give this pattern a descriptive name</div>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="mb-3">
-                                <label for="copyCycleLength" class="form-label">Cycle Length (Days) *</label>
-                                <select class="form-select" id="copyCycleLength" name="cycle_length" required>
-                                    <option value="">Select</option>
-                                    <option value="7">7 days (1 week)</option>
-                                    <option value="8">8 days</option>
-                                    <option value="14">14 days (2 weeks)</option>
-                                    <option value="16">16 days</option>
-                                    <option value="21">21 days (3 weeks)</option>
-                                    <option value="24">24 days</option>
-                                    <option value="28">28 days (4 weeks)</option>
-                                    <option value="32">32 days</option>
-                                </select>
-                                <div class="form-text">How many days before pattern repeats</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="copyDescription" class="form-label">Description</label>
-                        <textarea class="form-control" id="copyDescription" name="description" rows="2" 
-                                  placeholder="Optional description of this shift pattern..."></textarea>
-                    </div>
-                    
-                    <div id="copyPatternDays" style="display: none;">
-                        <hr>
-                        <h6><i class="fas fa-calendar"></i> Daily Shift Assignment</h6>
-                        <p class="text-muted small">Set the shift type for each day of the cycle:</p>
-                        <div id="copyPatternDaysContainer" class="row">
-                            <!-- Days populated by JavaScript -->
-                        </div>
-                        
-                        <div class="mt-3">
-                            <p class="text-muted small"><i class="fas fa-info-circle"></i> Pick the main shift; a second option appears only when a sub-shift is selected.</p>
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-success" id="copyPatternBtn">Create Copy</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Create Pattern Modal -->
-<div class="modal fade" id="createPatternModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Create New Shift Pattern</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="createPatternForm" action="{{ url_for('add_shift_pattern') }}" method="POST">
-                    <div class="row">
-                        <div class="col-md-8">
-                            <div class="mb-3">
-                                <label for="createName" class="form-label">Pattern Name *</label>
-                                <input type="text" class="form-control" id="createName" name="name" required 
-                                       placeholder="e.g., Standard 7-Day, Night Shift Rotation">
-                                <div class="form-text">Give this pattern a descriptive name</div>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="mb-3">
-                                <label for="createCycleLength" class="form-label">Cycle Length (Days) *</label>
-                                <select class="form-select" id="createCycleLength" name="cycle_length" required>
-                                    <option value="">Select</option>
-                                    <option value="7">7 days (1 week)</option>
-                                    <option value="8">8 days</option>
-                                    <option value="14">14 days (2 weeks)</option>
-                                    <option value="16">16 days</option>
-                                    <option value="21">21 days (3 weeks)</option>
-                                    <option value="24">24 days</option>
-                                    <option value="28">28 days (4 weeks)</option>
-                                    <option value="32">32 days</option>
-                                </select>
-                                <div class="form-text">How many days before pattern repeats</div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="mb-3">
-                        <label for="createDescription" class="form-label">Description</label>
-                        <textarea class="form-control" id="createDescription" name="description" rows="2" 
-                                  placeholder="Optional description of this shift pattern..."></textarea>
-                    </div>
-                    
-                    <div id="createPatternDays" style="display: none;">
-                        <hr>
-                        <h6><i class="fas fa-calendar"></i> Daily Shift Assignment</h6>
-                        <p class="text-muted small">Set the shift type for each day of the cycle:</p>
-                        <div id="createPatternDaysContainer" class="row">
-                            <!-- Days populated by JavaScript -->
-                        </div>
-                        
-                        <div class="mt-3">
-                            <p class="text-muted small"><i class="fas fa-info-circle"></i> Pick the main shift; a second option appears only when a sub-shift is selected.</p>
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="createPatternBtn" disabled>Create Pattern</button>
-            </div>
-        </div>
-    </div>
-</div>
+{% include "partials/shifts/modals.html" %}
 
 <!-- Notification Alert Banner Container -->
 <div id="alertBannerContainer"></div>

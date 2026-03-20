@@ -139,6 +139,185 @@ function formatTitleCase(value) {
         .join(' ');
 }
 
+/**
+ * Generic form submission handler with button state management, error handling, and UI feedback
+ * Reduces duplication across multiple form submission handlers
+ * @param {HTMLFormElement} form - The form element to submit
+ * @param {HTMLElement|string} submitButton - Submit button element or ID
+ * @param {object} options - Configuration options:
+ *   - action: {string} Form action URL (overrides form.action)
+ *   - successMessage: {string} Custom success message
+ *   - errorMessage: {string} Custom error message
+ *   - onSuccess: {function} Callback after successful submission
+ *   - onError: {function} Callback after error
+ *   - hideModal: {string} Modal ID to hide on success
+ *   - resetForm: {boolean} Reset form on success (default: false)
+ *   - validateFn: {function} Pre-submission validation function
+ *   - formDataFn: {function} Custom FormData preparation function (called with form, returns FormData)
+ *   - savingLabel: {string} Button text while saving (default: from MESSAGES.SAVING)
+ * @returns {Promise<object>} - Response data
+ */
+async function submitForm(form, submitButton, options = {}) {
+    if (!form) {
+        console.error('submitForm: Form element not found');
+        return { success: false };
+    }
+
+    // Resolve submit button
+    let btnEl = submitButton;
+    if (typeof submitButton === 'string') {
+        btnEl = document.getElementById(submitButton);
+    }
+    if (!btnEl) {
+        console.error('submitForm: Submit button not found', submitButton);
+        return { success: false };
+    }
+
+    // Run pre-submission validation if provided
+    if (options.validateFn && typeof options.validateFn === 'function') {
+        const validationError = options.validateFn();
+        if (validationError) {
+            showAlertBanner('error', validationError);
+            return { success: false };
+        }
+    }
+
+    // Save button state
+    const originalHtml = btnEl.innerHTML;
+    const savingLabel = options.savingLabel || (typeof MESSAGES !== 'undefined' && MESSAGES.SAVING ? MESSAGES.SAVING : 'Saving...');
+
+    // Disable button and show saving state
+    btnEl.disabled = true;
+    btnEl.innerHTML = savingLabel;
+
+    try {
+        // Prepare form data (use custom function if provided)
+        let formData;
+        if (options.formDataFn && typeof options.formDataFn === 'function') {
+            formData = options.formDataFn(form);
+        } else {
+            formData = new FormData(form);
+        }
+
+        const formAction = options.action || form.action || '/';
+        const fetchOptions = {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        };
+
+        // Make request
+        const responseData = await requestJson(formAction, fetchOptions);
+
+        // Handle response
+        if (responseData.success) {
+            const successMsg = options.successMessage || responseData.message || 'Saved successfully';
+            showAlertBanner('success', successMsg);
+
+            // Hide modal if specified
+            if (options.hideModal) {
+                hideModalById(options.hideModal);
+            }
+
+            // Reset form if specified
+            if (options.resetForm) {
+                form.reset();
+            }
+
+            // Custom success callback
+            if (options.onSuccess && typeof options.onSuccess === 'function') {
+                await options.onSuccess(responseData);
+            }
+
+            return responseData;
+        } else {
+            const errorMsg = options.errorMessage || responseData.error || 'An error occurred';
+            showAlertBanner('error', errorMsg);
+
+            // Custom error callback
+            if (options.onError && typeof options.onError === 'function') {
+                await options.onError(responseData);
+            }
+
+            return responseData;
+        }
+    } catch (error) {
+        console.error('Form submission error:', error);
+        const errorMsg = 'Network error. Please check your connection and try again.';
+        showAlertBanner('error', errorMsg);
+
+        if (options.onError && typeof options.onError === 'function') {
+            await options.onError({ success: false, error });
+        }
+
+        return { success: false, error };
+    } finally {
+        // Restore button state
+        btnEl.disabled = false;
+        btnEl.innerHTML = originalHtml;
+    }
+}
+
+/**
+ * Initialize modal data population from button data attributes
+ * Reduces duplication of modal show event handlers
+ * 
+ * @param {string} modalId - ID of the modal element
+ * @param {string} formId - ID of the form element
+ * @param {Object} fieldMappings - Mapping of data-* attribute names to form field IDs
+ *                                  and optional URL template parts
+ * 
+ * @example
+ * initializeModalDataPopulation('editTermModal', 'editTermForm', {
+ *     dataAttrToFormField: {
+ *         'data-term-id': null,  // Used only for URL, not a form field
+ *         'data-term-name': 'editTermName',
+ *         'data-term-start': 'editTermStartDate',
+ *         'data-term-end': 'editTermEndDate'
+ *     },
+ *     urlPattern: '/scheduling/term/{data-term-id}/edit'
+ * });
+ */
+function initializeModalDataPopulation(modalId, formId, config) {
+    const modal = document.getElementById(modalId);
+    const form = document.getElementById(formId);
+    
+    if (!modal || !form) return;
+    
+    modal.addEventListener('show.bs.modal', function(event) {
+        const button = event.relatedTarget;
+        if (!button) return;
+        
+        const dataAttrs = config.dataAttrToFormField || {};
+        const urlPattern = config.urlPattern || '';
+        
+        // Extract all data attributes from button
+        const buttonData = {};
+        Object.keys(dataAttrs).forEach(attr => {
+            buttonData[attr] = button.getAttribute(attr) || '';
+        });
+        
+        // Populate form fields from button data
+        Object.entries(dataAttrs).forEach(([attr, fieldId]) => {
+            if (fieldId && buttonData[attr]) {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.value = buttonData[attr];
+                }
+            }
+        });
+        
+        // Set form action URL if pattern provided
+        if (urlPattern) {
+            let actionUrl = urlPattern;
+            Object.entries(buttonData).forEach(([attr, value]) => {
+                actionUrl = actionUrl.replace(`{${attr}}`, value);
+            });
+            form.action = actionUrl;
+        }
+    });
+}
+
 
 /* ===== scheduling.flash-banner.js ===== */
 document.addEventListener('DOMContentLoaded', function () {
@@ -323,6 +502,21 @@ function disposeTooltipsIn(containerEl) {
         }
     });
 }
+
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+
+/* ===== scheduling.holiday-calendar.js ===== */
+/**
+ * scheduling.holiday-calendar.js
+ * Holiday calendar widget for scheduling.
+ */
 
 // ---------------------------------------------------------------------------
 // Holiday calendar widget
@@ -562,7 +756,7 @@ function disposeTooltipsIn(containerEl) {
         const next = document.getElementById('calNext');
         const clearBtn = document.getElementById('clearHolidaySelection');
         const driverSelect = document.getElementById('holidayDriverSelect');
-        
+
         if (prev) {
             prev.addEventListener('click', function () {
                 calViewDate.setMonth(calViewDate.getMonth() - 1);
@@ -604,7 +798,7 @@ function disposeTooltipsIn(containerEl) {
         }
         if (driverSelect) {
             driverSelect.addEventListener('change', function () {
-                selectedDriverId = this.value ? parseInt(this.value) : null;
+                selectedDriverId = this.value ? parseInt(this.value, 10) : null;
                 // Clear calendar selection when driver is deselected
                 if (!selectedDriverId) {
                     calStartDate = null;
@@ -636,281 +830,292 @@ function disposeTooltipsIn(containerEl) {
             renderCalendar();
         }
     };
-
 })();
 
 
-    // ---------------------------------------------------------------------------
-    // Adjustment calendar widget (single-date picker)
-    // ---------------------------------------------------------------------------
+/* ===== scheduling.adjustment-calendar.js ===== */
+/**
+ * scheduling.adjustment-calendar.js
+ * Adjustment calendar widget for scheduling.
+ */
 
-    (function () {
-        'use strict';
+// ---------------------------------------------------------------------------
+// Adjustment calendar widget (single-date picker)
+// ---------------------------------------------------------------------------
 
-        let adjCalViewDate = new Date();
-        adjCalViewDate.setDate(1);
+(function () {
+    'use strict';
 
-        let adjSelectedDate = null;
-        let adjSelectedDriverId = null;
-        let adjDriverShiftData = null;
-        let adjSelectedDateAllowsAdjustment = false;
+    let adjCalViewDate = new Date();
+    adjCalViewDate.setDate(1);
 
-        async function fetchAdjustmentDriverShifts(driverId, monthStr) {
-            if (!driverId) {
-                adjDriverShiftData = null;
-                return;
-            }
+    let adjSelectedDate = null;
+    let adjSelectedDriverId = null;
+    let adjDriverShiftData = null;
+    let adjSelectedDateAllowsAdjustment = false;
 
-            try {
-                const response = await fetch(`/driver/${driverId}/calendar-data?month=${monthStr}`);
-                const data = await response.json();
-                if (data.success) {
-                    adjDriverShiftData = data;
-                } else {
-                    adjDriverShiftData = null;
-                }
-            } catch (err) {
-                console.error('Error fetching adjustment driver shifts:', err);
-                adjDriverShiftData = null;
-            }
+    async function fetchAdjustmentDriverShifts(driverId, monthStr) {
+        if (!driverId) {
+            adjDriverShiftData = null;
+            return;
         }
 
-        function getAdjustmentShiftsForDate(dateStr) {
-            if (!adjDriverShiftData || !adjDriverShiftData.days) return null;
-            return adjDriverShiftData.days.find(day => day.date === dateStr) || null;
-        }
-
-        function formatDateISO(d) {
-            const yr = d.getFullYear();
-            const mo = String(d.getMonth() + 1).padStart(2, '0');
-            const da = String(d.getDate()).padStart(2, '0');
-            return `${yr}-${mo}-${da}`;
-        }
-
-        function updateAdjustmentDateDisplay() {
-            const display = document.getElementById('adjDateDisplay');
-            if (!display) return;
-
-            if (!adjSelectedDate) {
-                display.textContent = 'Select a driver, then click a date on the calendar.';
-                return;
-            }
-
-            const parts = adjSelectedDate.split('-');
-            const date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-            const formatted = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-            display.innerHTML = `<strong>Selected:</strong> ${formatted}`;
-        }
-
-        function updateAdjustmentFormInput() {
-            const input = document.getElementById('adjDate');
-            if (input) input.value = adjSelectedDate || '';
-
-            const saveBtn = document.getElementById('saveAdjustmentBtn');
-            if (saveBtn) saveBtn.disabled = !adjSelectedDate || !adjSelectedDateAllowsAdjustment;
-        }
-
-        function updateAdjustmentShiftStatus() {
-            const statusEl = document.getElementById('adjShiftStatus');
-            if (!statusEl) return;
-
-            if (!adjSelectedDriverId || !adjSelectedDate) {
-                adjSelectedDateAllowsAdjustment = false;
-                statusEl.innerHTML = '';
-                return;
-            }
-
-            const dayData = getAdjustmentShiftsForDate(adjSelectedDate);
-            const shifts = dayData && Array.isArray(dayData.shifts) ? dayData.shifts : [];
-            const workingShifts = shifts.filter(shift => shift.shift_type !== 'day_off');
-            const nonExtraWorkingShifts = workingShifts.filter(shift => !shift.is_extra);
-            const isSplitShiftDay = nonExtraWorkingShifts.length >= 2;
-
-            if (isSplitShiftDay) {
-                adjSelectedDateAllowsAdjustment = false;
-                const labels = workingShifts.map(shift => shift.label).join(', ');
-                statusEl.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Split shift day selected (${labels}). Late starts and early finishes are not used on split shift days.</span>`;
-                return;
-            }
-
-            if (workingShifts.length > 0) {
-                adjSelectedDateAllowsAdjustment = true;
-                const labels = workingShifts.map(shift => shift.label).join(', ');
-                statusEl.innerHTML = `<span class="text-success"><i class="fas fa-check-circle me-1"></i>Shift on selected day: ${labels}</span>`;
-                return;
-            }
-
-            adjSelectedDateAllowsAdjustment = false;
-
-            if (dayData && dayData.is_holiday) {
-                const typeMap = {
-                    holiday: 'Holiday',
-                    sickness: 'Sickness',
-                    vor: 'VOR',
-                    other: 'Other'
-                };
-                const reason = typeMap[dayData.time_off_type] || 'Time Off';
-                statusEl.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is marked as having time off (${reason}).</span>`;
-                return;
-            }
-
-            statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is marked as Day Off on selected day.</span>';
-        }
-
-        async function renderAdjustmentCalendar() {
-            const tbody = document.getElementById('adjCalBody');
-            const monthLabel = document.getElementById('adjCalMonthLabel');
-            if (!tbody || !monthLabel) return;
-
-            disposeTooltipsIn(tbody);
-
-            const year = adjCalViewDate.getFullYear();
-            const month = adjCalViewDate.getMonth();
-            monthLabel.textContent = adjCalViewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
-
-            if (adjSelectedDriverId) {
-                const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
-                await fetchAdjustmentDriverShifts(adjSelectedDriverId, monthStr);
+        try {
+            const response = await fetch(`/driver/${driverId}/calendar-data?month=${monthStr}`);
+            const data = await response.json();
+            if (data.success) {
+                adjDriverShiftData = data;
             } else {
                 adjDriverShiftData = null;
             }
+        } catch (err) {
+            console.error('Error fetching adjustment driver shifts:', err);
+            adjDriverShiftData = null;
+        }
+    }
 
-            const todayStr = formatDateISO(new Date());
-            const firstDay = new Date(year, month, 1);
-            let startOffset = firstDay.getDay() - 1;
-            if (startOffset < 0) startOffset = 6;
+    function getAdjustmentShiftsForDate(dateStr) {
+        if (!adjDriverShiftData || !adjDriverShiftData.days) return null;
+        return adjDriverShiftData.days.find(day => day.date === dateStr) || null;
+    }
 
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+    function formatDateISO(d) {
+        const yr = d.getFullYear();
+        const mo = String(d.getMonth() + 1).padStart(2, '0');
+        const da = String(d.getDate()).padStart(2, '0');
+        return `${yr}-${mo}-${da}`;
+    }
 
-            let html = '<tr>';
-            let dayCounter = 1;
+    function updateAdjustmentDateDisplay() {
+        const display = document.getElementById('adjDateDisplay');
+        if (!display) return;
 
-            for (let i = 0; i < totalCells; i++) {
-                if (i % 7 === 0 && i > 0) html += '</tr><tr>';
+        if (!adjSelectedDate) {
+            display.textContent = 'Select a driver, then click a date on the calendar.';
+            return;
+        }
 
-                if (i < startOffset || dayCounter > daysInMonth) {
-                    html += '<td class="cal-empty"></td>';
-                    continue;
+        const parts = adjSelectedDate.split('-');
+        const date = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        const formatted = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        display.innerHTML = `<strong>Selected:</strong> ${formatted}`;
+    }
+
+    function updateAdjustmentFormInput() {
+        const input = document.getElementById('adjDate');
+        if (input) input.value = adjSelectedDate || '';
+
+        const saveBtn = document.getElementById('saveAdjustmentBtn');
+        if (saveBtn) saveBtn.disabled = !adjSelectedDate || !adjSelectedDateAllowsAdjustment;
+    }
+
+    function updateAdjustmentShiftStatus() {
+        const statusEl = document.getElementById('adjShiftStatus');
+        if (!statusEl) return;
+
+        if (!adjSelectedDriverId || !adjSelectedDate) {
+            adjSelectedDateAllowsAdjustment = false;
+            statusEl.innerHTML = '';
+            return;
+        }
+
+        const dayData = getAdjustmentShiftsForDate(adjSelectedDate);
+        const shifts = dayData && Array.isArray(dayData.shifts) ? dayData.shifts : [];
+        const workingShifts = shifts.filter(shift => shift.shift_type !== 'day_off');
+        const nonExtraWorkingShifts = workingShifts.filter(shift => !shift.is_extra);
+        const isSplitShiftDay = nonExtraWorkingShifts.length >= 2;
+
+        if (isSplitShiftDay) {
+            adjSelectedDateAllowsAdjustment = false;
+            const labels = workingShifts.map(shift => shift.label).join(', ');
+            statusEl.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Split shift day selected (${labels}). Late starts and early finishes are not used on split shift days.</span>`;
+            return;
+        }
+
+        if (workingShifts.length > 0) {
+            adjSelectedDateAllowsAdjustment = true;
+            const labels = workingShifts.map(shift => shift.label).join(', ');
+            statusEl.innerHTML = `<span class="text-success"><i class="fas fa-check-circle me-1"></i>Shift on selected day: ${labels}</span>`;
+            return;
+        }
+
+        adjSelectedDateAllowsAdjustment = false;
+
+        if (dayData && dayData.is_holiday) {
+            const typeMap = {
+                holiday: 'Holiday',
+                sickness: 'Sickness',
+                vor: 'VOR',
+                other: 'Other'
+            };
+            const reason = typeMap[dayData.time_off_type] || 'Time Off';
+            statusEl.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is marked as having time off (${reason}).</span>`;
+            return;
+        }
+
+        statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is marked as Day Off on selected day.</span>';
+    }
+
+    async function renderAdjustmentCalendar() {
+        const tbody = document.getElementById('adjCalBody');
+        const monthLabel = document.getElementById('adjCalMonthLabel');
+        if (!tbody || !monthLabel) return;
+
+        disposeTooltipsIn(tbody);
+
+        const year = adjCalViewDate.getFullYear();
+        const month = adjCalViewDate.getMonth();
+        monthLabel.textContent = adjCalViewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+        if (adjSelectedDriverId) {
+            const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+            await fetchAdjustmentDriverShifts(adjSelectedDriverId, monthStr);
+        } else {
+            adjDriverShiftData = null;
+        }
+
+        const todayStr = formatDateISO(new Date());
+        const firstDay = new Date(year, month, 1);
+        let startOffset = firstDay.getDay() - 1;
+        if (startOffset < 0) startOffset = 6;
+
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+
+        let html = '<tr>';
+        let dayCounter = 1;
+
+        for (let i = 0; i < totalCells; i++) {
+            if (i % 7 === 0 && i > 0) html += '</tr><tr>';
+
+            if (i < startOffset || dayCounter > daysInMonth) {
+                html += '<td class="cal-empty"></td>';
+                continue;
+            }
+
+            const dateStr = formatDateISO(new Date(year, month, dayCounter));
+            const isToday = dateStr === todayStr;
+            const isSelected = dateStr === adjSelectedDate;
+
+            let classes = 'cal-day';
+            if (isToday) classes += ' cal-today';
+            if (isSelected) classes += ' cal-selected';
+
+            const dayData = getAdjustmentShiftsForDate(dateStr);
+            const visuals = buildUnifiedCalendarCellContent(dayData);
+            const inlineRowHtml = `${visuals.contentHtml}${visuals.extraShiftIconHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
+
+            html += `<td class="${classes}" data-date="${dateStr}">
+                <div class="cal-day-header">
+                    <div class="fw-bold small">${dayCounter}</div>
+                </div>
+                <div class="cal-day-inline">${inlineRowHtml}</div>
+            </td>`;
+            dayCounter++;
+        }
+
+        html += '</tr>';
+        tbody.innerHTML = html;
+
+        tbody.querySelectorAll('td.cal-day').forEach(function (td) {
+            td.addEventListener('click', function () {
+                if (!adjSelectedDriverId) return;
+                adjSelectedDate = td.getAttribute('data-date');
+                updateAdjustmentDateDisplay();
+                updateAdjustmentShiftStatus();
+                updateAdjustmentFormInput();
+                renderAdjustmentCalendar();
+            });
+        });
+
+        if (window.bootstrap && window.bootstrap.Tooltip) {
+            tbody.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+                window.bootstrap.Tooltip.getOrCreateInstance(el);
+            });
+        }
+    }
+
+    function initAdjustmentCalendar() {
+        const body = document.getElementById('adjCalBody');
+        if (!body) return;
+
+        const prev = document.getElementById('adjCalPrev');
+        const next = document.getElementById('adjCalNext');
+        const clearBtn = document.getElementById('clearAdjSelection');
+        const driverSelect = document.getElementById('adjDriverSelect');
+
+        if (prev) {
+            prev.addEventListener('click', function () {
+                adjCalViewDate.setMonth(adjCalViewDate.getMonth() - 1);
+                renderAdjustmentCalendar();
+            });
+        }
+
+        if (next) {
+            next.addEventListener('click', function () {
+                adjCalViewDate.setMonth(adjCalViewDate.getMonth() + 1);
+                renderAdjustmentCalendar();
+            });
+        }
+
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function () {
+                const driverSelectEl = document.getElementById('adjDriverSelect');
+                const typeSelectEl = document.getElementById('adjType');
+                const timeEl = document.getElementById('adjTime');
+                const notesEl = document.getElementById('adjNotes');
+
+                if (driverSelectEl) {
+                    driverSelectEl.value = '';
+                }
+                if (typeSelectEl) {
+                    typeSelectEl.value = '';
+                }
+                if (timeEl) {
+                    timeEl.value = '';
+                }
+                if (notesEl) {
+                    notesEl.value = '';
                 }
 
-                const dateStr = formatDateISO(new Date(year, month, dayCounter));
-                const isToday = dateStr === todayStr;
-                const isSelected = dateStr === adjSelectedDate;
-
-                let classes = 'cal-day';
-                if (isToday) classes += ' cal-today';
-                if (isSelected) classes += ' cal-selected';
-
-                const dayData = getAdjustmentShiftsForDate(dateStr);
-                const visuals = buildUnifiedCalendarCellContent(dayData);
-                const inlineRowHtml = `${visuals.contentHtml}${visuals.extraShiftIconHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
-
-                html += `<td class="${classes}" data-date="${dateStr}">
-                    <div class="cal-day-header">
-                        <div class="fw-bold small">${dayCounter}</div>
-                    </div>
-                    <div class="cal-day-inline">${inlineRowHtml}</div>
-                </td>`;
-                dayCounter++;
-            }
-
-            html += '</tr>';
-            tbody.innerHTML = html;
-
-            tbody.querySelectorAll('td.cal-day').forEach(function (td) {
-                td.addEventListener('click', function () {
-                    if (!adjSelectedDriverId) return;
-                    adjSelectedDate = td.getAttribute('data-date');
-                    updateAdjustmentDateDisplay();
-                    updateAdjustmentShiftStatus();
-                    updateAdjustmentFormInput();
-                    renderAdjustmentCalendar();
-                });
+                adjSelectedDriverId = null;
+                adjDriverShiftData = null;
+                adjSelectedDate = null;
+                updateAdjustmentDateDisplay();
+                updateAdjustmentShiftStatus();
+                updateAdjustmentFormInput();
+                renderAdjustmentCalendar();
             });
-
-            if (window.bootstrap && window.bootstrap.Tooltip) {
-                tbody.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
-                    window.bootstrap.Tooltip.getOrCreateInstance(el);
-                });
-            }
         }
 
-        function initAdjustmentCalendar() {
-            const body = document.getElementById('adjCalBody');
-            if (!body) return;
-
-            const prev = document.getElementById('adjCalPrev');
-            const next = document.getElementById('adjCalNext');
-            const clearBtn = document.getElementById('clearAdjSelection');
-            const driverSelect = document.getElementById('adjDriverSelect');
-
-            if (prev) {
-                prev.addEventListener('click', function () {
-                    adjCalViewDate.setMonth(adjCalViewDate.getMonth() - 1);
-                    renderAdjustmentCalendar();
-                });
-            }
-
-            if (next) {
-                next.addEventListener('click', function () {
-                    adjCalViewDate.setMonth(adjCalViewDate.getMonth() + 1);
-                    renderAdjustmentCalendar();
-                });
-            }
-
-            if (clearBtn) {
-                clearBtn.addEventListener('click', function () {
-                    const driverSelectEl = document.getElementById('adjDriverSelect');
-                    const typeSelectEl = document.getElementById('adjType');
-                    const timeEl = document.getElementById('adjTime');
-                    const notesEl = document.getElementById('adjNotes');
-
-                    if (driverSelectEl) {
-                        driverSelectEl.value = '';
-                    }
-                    if (typeSelectEl) {
-                        typeSelectEl.value = '';
-                    }
-                    if (timeEl) {
-                        timeEl.value = '';
-                    }
-                    if (notesEl) {
-                        notesEl.value = '';
-                    }
-
-                    adjSelectedDriverId = null;
-                    adjDriverShiftData = null;
-                    adjSelectedDate = null;
-                    updateAdjustmentDateDisplay();
-                    updateAdjustmentShiftStatus();
-                    updateAdjustmentFormInput();
-                    renderAdjustmentCalendar();
-                });
-            }
-
-            if (driverSelect) {
-                driverSelect.addEventListener('change', function () {
-                    adjSelectedDriverId = this.value ? parseInt(this.value, 10) : null;
-                    adjSelectedDate = null;
-                    updateAdjustmentDateDisplay();
-                    updateAdjustmentShiftStatus();
-                    updateAdjustmentFormInput();
-                    renderAdjustmentCalendar();
-                });
-            }
-
-            updateAdjustmentDateDisplay();
-            updateAdjustmentShiftStatus();
-            updateAdjustmentFormInput();
-            renderAdjustmentCalendar();
+        if (driverSelect) {
+            driverSelect.addEventListener('change', function () {
+                adjSelectedDriverId = this.value ? parseInt(this.value, 10) : null;
+                adjSelectedDate = null;
+                updateAdjustmentDateDisplay();
+                updateAdjustmentShiftStatus();
+                updateAdjustmentFormInput();
+                renderAdjustmentCalendar();
+            });
         }
 
-        window.schedulingAdjustmentCalendar = {
-            init: initAdjustmentCalendar
-        };
-    })();
+        updateAdjustmentDateDisplay();
+        updateAdjustmentShiftStatus();
+        updateAdjustmentFormInput();
+        renderAdjustmentCalendar();
+    }
 
+    window.schedulingAdjustmentCalendar = {
+        init: initAdjustmentCalendar
+    };
+})();
+
+
+/* ===== scheduling.swap.js ===== */
+/**
+ * scheduling.swap.js
+ * Swap validation and dual-calendar swap selection widget.
+ */
 
 // ---------------------------------------------------------------------------
 // Swap validation helpers
@@ -984,7 +1189,7 @@ async function validateSwapForm() {
 
     let swapGiveUpCalViewDate = new Date();
     swapGiveUpCalViewDate.setDate(1);
-    
+
     let swapWorkCalViewDate = new Date();
     swapWorkCalViewDate.setDate(1);
 
@@ -1268,7 +1473,7 @@ async function validateSwapForm() {
         // Give-up calendar navigation
         const giveUpPrev = document.getElementById('swapGiveUpCalPrev');
         const giveUpNext = document.getElementById('swapGiveUpCalNext');
-        
+
         if (giveUpPrev) {
             giveUpPrev.addEventListener('click', function () {
                 swapGiveUpCalViewDate.setMonth(swapGiveUpCalViewDate.getMonth() - 1);
@@ -1286,7 +1491,7 @@ async function validateSwapForm() {
         // Work calendar navigation
         const workPrev = document.getElementById('swapWorkCalPrev');
         const workNext = document.getElementById('swapWorkCalNext');
-        
+
         if (workPrev) {
             workPrev.addEventListener('click', function () {
                 swapWorkCalViewDate.setMonth(swapWorkCalViewDate.getMonth() - 1);
@@ -1460,6 +1665,13 @@ async function validateSwapForm() {
     };
 })();
 
+
+/* ===== scheduling.calendar-view.js ===== */
+/**
+ * scheduling.calendar-view.js
+ * Calendar view modal rendering for all drivers' time off.
+ */
+
 // ---------------------------------------------------------------------------
 // Calendar View Modal
 // ---------------------------------------------------------------------------
@@ -1504,14 +1716,14 @@ async function validateSwapForm() {
         const month = calViewModalDate.getMonth();
 
         document.getElementById('calViewMonthLabel').textContent = calViewModalDate.toLocaleString(
-            'default', 
+            'default',
             { month: 'long', year: 'numeric' }
         );
 
         // Fetch data for current month
         const success = await fetchAllDriversTimeOff(year, month);
         if (!success) {
-            document.getElementById('calendarViewBody').innerHTML = 
+            document.getElementById('calendarViewBody').innerHTML =
                 '<tr><td colspan="7" class="text-center text-muted">Unable to load calendar data</td></tr>';
             return;
         }
@@ -1593,16 +1805,7 @@ async function validateSwapForm() {
     document.addEventListener('DOMContentLoaded', function () {
         initCalendarViewModal();
     });
-
 })();
-
-function escapeHtml(str) {
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
-}
 
 
 /* ===== scheduling.event-bindings.js ===== */
@@ -1956,4 +2159,40 @@ function loadHolidayGroupForEdit(driverId, startDate, endDate, timeOffType, note
         })
         .catch(err => console.error('Error fetching driver:', err));
 }
+
+
+/* ===== scheduling.modal-init.js ===== */
+/**
+ * scheduling.modal-init.js
+ * Initialization handlers for scheduling modal forms (school terms and closures).
+ */
+
+(function () {
+    'use strict';
+
+    document.addEventListener('DOMContentLoaded', function () {
+        // Initialize edit term modal
+        initializeModalDataPopulation('editSchoolTermModal', 'editSchoolTermForm', {
+            dataAttrToFormField: {
+                'data-term-id': null,
+                'data-term-name': 'editTermName',
+                'data-term-start': 'editTermStartDate',
+                'data-term-end': 'editTermEndDate'
+            },
+            urlPattern: '/scheduling/term/{data-term-id}/edit'
+        });
+        
+        // Initialize edit closure modal
+        initializeModalDataPopulation('editSchoolClosureModal', 'editSchoolClosureForm', {
+            dataAttrToFormField: {
+                'data-closure-id': null,
+                'data-closure-date': 'editClosureDate',
+                'data-closure-type': 'editClosureType',
+                'data-closure-notes': 'editClosureNotes'
+            },
+            urlPattern: '/scheduling/school-closure/{data-closure-id}/edit'
+        });
+    });
+
+})();
 

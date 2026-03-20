@@ -1,0 +1,10 @@
+<div class="{{ stat_col_class|default('col-md-2') }}">
+    <div class="card {{ stat_card_class }}">
+        <div class="card-body text-center">
+            <h4>{{ stat_value }}</h4>
+            <p class="mb-0">
+                {% if stat_icon %}<i class="{{ stat_icon }}"></i> {% endif %}{{ stat_label }}
+            </p>
+        </div>
+    </div>
+</div>

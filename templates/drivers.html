@@ -3,52 +3,20 @@
 {% block title %}Drivers - Driver Shift Sheets{% endblock %}
 
 {% block extra_head %}
-<style>
-    .assign-pattern-btn,
-    .toggle-custom-timings {
-        position: relative;
-        overflow: visible;
-    }
-
-    .assign-pattern-btn.active::after,
-    .toggle-custom-timings.active::after {
-        content: "\f0d7";
-        font-family: "Font Awesome 6 Free";
-        font-weight: 900;
-        position: absolute;
-        left: 50%;
-        transform: translateX(-50%);
-        bottom: -9px;
-        font-size: 0.62rem;
-        color: #212529;
-        line-height: 1;
-        pointer-events: none;
-    }
-
-    .toggle-custom-timings:focus,
-    .toggle-custom-timings:focus-visible,
-    .toggle-custom-timings:active,
-    .toggle-custom-timings.active {
-        background-color: #ffc107 !important;
-        border-color: #ffc107 !important;
-        color: #000 !important;
-        box-shadow: none !important;
-    }
-</style>
+<link href="{{ url_for('static', filename='css/calendars.css') }}" rel="stylesheet">
+<link href="{{ url_for('static', filename='css/pages/drivers.css') }}" rel="stylesheet">
 {% endblock %}
 
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4 page-header-stack">
-    <h1>
-        <i class="fas fa-users"></i> Driver Management
-    </h1>
-    <div class="page-header-actions">
-        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addDriverModal">
-            <i class="fas fa-user-plus"></i> Add New Driver
-        </button>
-    </div>
-</div>
+{% set page_header_icon = 'fas fa-users' %}
+{% set page_header_title = 'Driver Management' %}
+{% set page_header_actions_html %}
+<button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addDriverModal">
+    <i class="fas fa-user-plus"></i> Add New Driver
+</button>
+{% endset %}
+{% include "partials/components/page_header.html" %}
 
 {% if drivers %}
     <div class="card">
@@ -76,31 +44,15 @@
                                 <strong>{{ driver.formatted_name() }}</strong>
                             </td>
                             <td>
-                                <span class="badge bg-{{ 'success' if driver.car_type == 'Standard' else 'info' if driver.car_type == 'Estate' else 'warning' if driver.car_type == 'XL Estate' else 'secondary' }}">
-                                    {{ driver.car_type }}{% if driver.electric_vehicle %}&nbsp;&nbsp;<i class="fas fa-bolt" data-bs-toggle="tooltip" data-bs-placement="top" title="Electric Vehicle"></i>{% endif %}
-                                </span>
+                                {% set vehicle_badge_driver = driver %}
+                                {% set vehicle_badge_show_electric = true %}
+                                {% include "partials/components/driver_vehicle_badge.html" %}
                             </td>
                             <td>
-                                <div class="d-flex flex-column">
-                                    {% if driver.school_badge %}
-                                        <span class="badge bg-warning mb-1">
-                                            <i class="fas fa-school"></i> School Badge
-                                        </span>
-                                    {% endif %}
-                                    {% if driver.pet_friendly %}
-                                        <span class="badge bg-success mb-1">
-                                            <i class="fas fa-paw"></i> Pet Friendly
-                                        </span>
-                                    {% endif %}
-                                    {% if driver.assistance_guide_dogs_exempt %}
-                                        <span class="badge bg-info mb-1">
-                                            <i class="fas fa-eye"></i> No Assistance Dogs
-                                        </span>
-                                    {% endif %}
-                                    {% if not driver.school_badge and not driver.pet_friendly and not driver.assistance_guide_dogs_exempt %}
-                                        <span class="text-muted">-</span>
-                                    {% endif %}
-                                </div>
+                                {% set attribute_badge_driver = driver %}
+                                {% set attribute_badges_mode = 'stacked' %}
+                                {% set attribute_empty_placeholder = true %}
+                                {% include "partials/components/driver_attribute_badges.html" %}
                             </td>
                             <td>
                                 {% set affected_pattern_ids = custom_timing_pattern_ids.get(driver.id, []) %}
@@ -245,60 +197,53 @@
 
     <!-- Summary Stats -->
     <div class="row mt-4">
-        <div class="col-md-2">
-            <div class="card bg-primary text-white">
-                <div class="card-body text-center">
-                    <h4>{{ drivers|length }}</h4>
-                    <p class="mb-0">Total Drivers</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card bg-warning text-dark">
-                <div class="card-body text-center">
-                    <h4>{{ drivers|selectattr('school_badge')|list|length }}</h4>
-                    <p class="mb-0"><i class="fas fa-school"></i> School Badge</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card bg-success text-white">
-                <div class="card-body text-center">
-                    <h4>{{ drivers|selectattr('pet_friendly')|list|length }}</h4>
-                    <p class="mb-0"><i class="fas fa-paw"></i> Pet Friendly</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card bg-info text-white">
-                <div class="card-body text-center">
-                    <h4>{{ drivers|selectattr('assistance_guide_dogs_exempt')|list|length }}</h4>
-                    <p class="mb-0"><i class="fas fa-eye"></i> No Assistance</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card bg-dark text-white">
-                <div class="card-body text-center">
-                    <h4>{{ drivers|selectattr('electric_vehicle')|list|length }}</h4>
-                    <p class="mb-0"><i class="fas fa-bolt"></i> Electric</p>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-2">
-            <div class="card bg-secondary text-white">
-                <div class="card-body text-center">
-                    {% set drivers_with_patterns = [] %}
-                    {% for driver in drivers %}
-                        {% if driver.get_current_assignment() %}
-                            {% set _ = drivers_with_patterns.append(driver) %}
-                        {% endif %}
-                    {% endfor %}
-                    <h4>{{ drivers_with_patterns|length }}</h4>
-                    <p class="mb-0">With Patterns</p>
-                </div>
-            </div>
-        </div>
+        {% set stat_col_class = 'col-md-2' %}
+        {% set stat_card_class = 'bg-primary text-white' %}
+        {% set stat_value = drivers|length %}
+        {% set stat_label = 'Total Drivers' %}
+        {% set stat_icon = '' %}
+        {% include "partials/components/stat_card.html" %}
+
+        {% set stat_col_class = 'col-md-2' %}
+        {% set stat_card_class = 'bg-warning text-dark' %}
+        {% set stat_value = drivers|selectattr('school_badge')|list|length %}
+        {% set stat_label = 'School Badge' %}
+        {% set stat_icon = 'fas fa-school' %}
+        {% include "partials/components/stat_card.html" %}
+
+        {% set stat_col_class = 'col-md-2' %}
+        {% set stat_card_class = 'bg-success text-white' %}
+        {% set stat_value = drivers|selectattr('pet_friendly')|list|length %}
+        {% set stat_label = 'Pet Friendly' %}
+        {% set stat_icon = 'fas fa-paw' %}
+        {% include "partials/components/stat_card.html" %}
+
+        {% set stat_col_class = 'col-md-2' %}
+        {% set stat_card_class = 'bg-info text-white' %}
+        {% set stat_value = drivers|selectattr('assistance_guide_dogs_exempt')|list|length %}
+        {% set stat_label = 'No Assistance' %}
+        {% set stat_icon = 'fas fa-eye' %}
+        {% include "partials/components/stat_card.html" %}
+
+        {% set stat_col_class = 'col-md-2' %}
+        {% set stat_card_class = 'bg-dark text-white' %}
+        {% set stat_value = drivers|selectattr('electric_vehicle')|list|length %}
+        {% set stat_label = 'Electric' %}
+        {% set stat_icon = 'fas fa-bolt' %}
+        {% include "partials/components/stat_card.html" %}
+
+        {% set drivers_with_patterns = [] %}
+        {% for driver in drivers %}
+            {% if driver.get_current_assignment() %}
+                {% set _ = drivers_with_patterns.append(driver) %}
+            {% endif %}
+        {% endfor %}
+        {% set stat_col_class = 'col-md-2' %}
+        {% set stat_card_class = 'bg-secondary text-white' %}
+        {% set stat_value = drivers_with_patterns|length %}
+        {% set stat_label = 'With Patterns' %}
+        {% set stat_icon = '' %}
+        {% include "partials/components/stat_card.html" %}
     </div>
 
 {% else %}
@@ -314,383 +259,7 @@
     </div>
 {% endif %}
 
-<div class="modal fade" id="addDriverModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <form method="POST" action="{{ url_for('add_driver') }}">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="fas fa-user-plus"></i> Add New Driver</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="add_driver_number" class="form-label">Driver Number *</label>
-                        <input type="number" class="form-control" id="add_driver_number" name="driver_number" required min="1">
-                    </div>
-                    <div class="mb-3">
-                        <label for="add_name" class="form-label">Full Name *</label>
-                        <input type="text" class="form-control" id="add_name" name="name" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="add_car_type" class="form-label">Vehicle Type *</label>
-                        <select class="form-select" id="add_car_type" name="car_type" required>
-                            <option value="">Select vehicle type</option>
-                            <option value="Standard">Standard</option>
-                            <option value="Estate">Estate</option>
-                            <option value="XL Estate">XL Estate</option>
-                            <option value="Minibus">Minibus</option>
-                        </select>
-                    </div>
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="checkbox" id="add_electric_vehicle" name="electric_vehicle" value="1">
-                        <label class="form-check-label" for="add_electric_vehicle"><i class="fas fa-bolt text-warning"></i> Electric Vehicle</label>
-                    </div>
-                    <label class="form-label mt-2">Driver Attributes</label>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="add_school_badge" name="school_badge" value="1">
-                        <label class="form-check-label" for="add_school_badge"><i class="fas fa-school text-warning"></i> School Badge</label>
-                    </div>
-                    <div class="form-check mt-2">
-                        <input class="form-check-input" type="checkbox" id="add_pet_friendly" name="pet_friendly" value="1">
-                        <label class="form-check-label" for="add_pet_friendly"><i class="fas fa-paw text-success"></i> Pet Friendly</label>
-                    </div>
-                    <div class="form-check mt-2">
-                        <input class="form-check-input" type="checkbox" id="add_assistance_guide_dogs_exempt" name="assistance_guide_dogs_exempt" value="1">
-                        <label class="form-check-label" for="add_assistance_guide_dogs_exempt"><i class="fas fa-eye text-info"></i> Exempt from Assistance/Guide Dogs</label>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary"><i class="fas fa-user-plus"></i> Add Driver</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<div class="modal fade" id="editDriverModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <form method="POST" id="editDriverForm">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="fas fa-edit"></i> Edit Driver</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label for="edit_driver_number" class="form-label">Driver Number *</label>
-                        <input type="number" class="form-control" id="edit_driver_number" name="driver_number" required min="1">
-                    </div>
-                    <div class="mb-3">
-                        <label for="edit_name" class="form-label">Full Name *</label>
-                        <input type="text" class="form-control" id="edit_name" name="name" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="edit_car_type" class="form-label">Vehicle Type *</label>
-                        <select class="form-select" id="edit_car_type" name="car_type" required>
-                            <option value="">Select vehicle type</option>
-                            <option value="Standard">Standard</option>
-                            <option value="Estate">Estate</option>
-                            <option value="XL Estate">XL Estate</option>
-                            <option value="Minibus">Minibus</option>
-                        </select>
-                    </div>
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="checkbox" id="edit_electric_vehicle" name="electric_vehicle" value="1">
-                        <label class="form-check-label" for="edit_electric_vehicle"><i class="fas fa-bolt text-warning"></i> Electric Vehicle</label>
-                    </div>
-                    <label class="form-label mt-2">Driver Attributes</label>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="edit_school_badge" name="school_badge" value="1">
-                        <label class="form-check-label" for="edit_school_badge"><i class="fas fa-school text-warning"></i> School Badge</label>
-                    </div>
-                    <div class="form-check mt-2">
-                        <input class="form-check-input" type="checkbox" id="edit_pet_friendly" name="pet_friendly" value="1">
-                        <label class="form-check-label" for="edit_pet_friendly"><i class="fas fa-paw text-success"></i> Pet Friendly</label>
-                    </div>
-                    <div class="form-check mt-2">
-                        <input class="form-check-input" type="checkbox" id="edit_assistance_guide_dogs_exempt" name="assistance_guide_dogs_exempt" value="1">
-                        <label class="form-check-label" for="edit_assistance_guide_dogs_exempt"><i class="fas fa-eye text-info"></i> Exempt from Assistance/Guide Dogs</label>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Update Driver</button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<div class="modal fade" id="assignPatternModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <form method="POST" id="assignPatternForm">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="assignPatternModalTitle"><i class="fas fa-calendar-plus"></i> Assign Shift Pattern</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    {% if patterns %}
-                        <div class="mb-3">
-                            <label for="assign_pattern_id" class="form-label">Select Shift Pattern *</label>
-                            <select class="form-select" id="assign_pattern_id" name="pattern_id" required>
-                                <option value="">Choose a pattern...</option>
-                                {% for pattern in patterns %}
-                                    <option value="{{ pattern.id }}" 
-                                            data-cycle="{{ pattern.cycle_length }}" 
-                                            data-pattern='{{ pattern.get_pattern_data()|tojson|forceescape }}'>
-                                        {{ pattern.name }} ({{ pattern.cycle_length }} day cycle)
-                                    </option>
-                                {% endfor %}
-                            </select>
-                        </div>
-
-                        <!-- Starting Day of Cycle -->
-                        <div class="mb-3" id="startDaySection" style="display: none;">
-                            <label for="assign_start_day" class="form-label">Starting Day of Cycle *</label>
-                            <select class="form-select" id="assign_start_day" name="start_day_of_cycle">
-                                <option value="1">Day 1</option>
-                            </select>
-                            <div class="form-text">Which day of the pattern cycle to start on</div>
-                        </div>
-
-                        <!-- Pattern Preview -->
-                        <div id="assignPatternPreview" style="display: none;">
-                            <div class="card bg-light mb-3">
-                                <div class="card-body">
-                                    <h6><i class="fas fa-eye"></i> Pattern Preview</h6>
-                                    <div id="assignPatternDisplay" class="d-flex flex-wrap gap-1"></div>
-                                    <small class="text-muted d-block mt-2">
-                                        Abbreviations shown, OFF=Rest Day, multiple badges = split shift day
-                                    </small>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label for="assign_start_date" class="form-label">Assignment Start Date *</label>
-                                    <input type="date" class="form-control" id="assign_start_date" name="start_date" required>
-                                    <div class="form-text">When this pattern assignment begins</div>
-                                </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label for="assign_end_date" class="form-label">Assignment End Date</label>
-                                    <input type="date" class="form-control" id="assign_end_date" name="end_date">
-                                    <div class="form-text">Leave empty for ongoing assignment</div>
-                                    <div class="invalid-feedback">End date must be after start date</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="alert alert-warning" id="assign_current_assignment_warning" style="display: none;">
-                            <i class="fas fa-exclamation-triangle"></i> 
-                            <strong>Current Assignment:</strong> <span id="assign_warning_text"></span>
-                        </div>
-                    {% else %}
-                        <div class="text-center py-4">
-                            <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
-                            <h5 class="text-muted">No Shift Patterns Available</h5>
-                            <p class="text-muted">You need to create at least one shift pattern before assigning to drivers.</p>
-                        </div>
-                    {% endif %}
-
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    {% if patterns %}
-                        <button type="submit" id="assignPatternSubmitBtn" class="btn btn-primary"><i class="fas fa-calendar-plus"></i> Assign Pattern</button>
-                    {% endif %}
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Assignment Action Confirmation Modal -->
-<div class="modal fade" id="assignmentActionModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="assignmentActionTitle">Confirm Action</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <p id="assignmentActionMessage">Are you sure?</p>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <form id="assignmentActionForm" method="POST" style="display: inline;">
-                    <button type="submit" class="btn btn-danger" id="assignmentActionSubmitBtn">Confirm</button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Custom Timing Form Modal -->
-<div class="modal fade" id="customTimingFormModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="customTimingFormTitle">Add Custom Timing</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form id="customTimingForm" method="POST">
-                <div class="modal-body">
-                    <div class="alert alert-light border small py-2 mb-3">
-                        Priority works like this: lower number = higher priority. Rules are evaluated with 1 first and 7 last (default is 4).
-                    </div>
-                    <input type="hidden" name="driver_id" id="ctFormDriverId">
-                    <input type="hidden" name="timing_id" id="ctFormTimingId">
-                    
-                    <div class="mb-3">
-                        <label class="form-label small fw-semibold">Choose Assignment</label>
-                        <select class="form-select form-select-sm" name="assignment_id" id="ctFormAssignmentId">
-                            <option value="">Any assignment</option>
-                        </select>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label small fw-semibold">Shift Type</label>
-                        <input type="hidden" name="shift_type" id="ctFormShiftType">
-                        <div class="dropdown">
-                            <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start d-flex justify-content-between align-items-center" 
-                                    id="ctFormShiftTypeButton" 
-                                    data-bs-toggle="dropdown" 
-                                    aria-expanded="false" 
-                                    style="min-height: 31px;">
-                                <span id="ctFormShiftTypeDisplay">Any shift type</span>
-                            </button>
-                            <ul class="dropdown-menu w-100" id="ctFormShiftTypeMenu" style="max-height: 300px; overflow-y: auto;"></ul>
-                        </div>
-                        <div class="form-text">Applies to this specific shift type only.</div>
-                    </div>
-                    <div class="mb-3 d-none" id="ctFormDayOfCycleGroup">
-                        <label class="form-label small fw-semibold">Day of Cycle</label>
-                        <input type="hidden" name="day_of_cycle" id="ctFormDayOfCycle">
-                        <div class="dropdown">
-                            <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start d-flex justify-content-between align-items-center" 
-                                    id="ctFormDayOfCycleButton" 
-                                    data-bs-toggle="dropdown" 
-                                    aria-expanded="false" 
-                                    style="min-height: 31px;">
-                                <span id="ctFormDayOfCycleDisplay">Any day in cycle</span>
-                            </button>
-                            <ul class="dropdown-menu w-100" id="ctFormDayOfCycleMenu" style="max-height: 300px; overflow-y: auto;"></ul>
-                        </div>
-                        <div class="form-text">Choose a day from the selected assignment cycle.</div>
-                    </div>
-                    <div class="form-text mb-3">
-                        <strong>Shift Type</strong> is the <strong>Filter Shift</strong> (which pattern shift this rule applies to). For day-of-week rules, choose whether to <strong>Override shift type</strong>, <strong>Keep shift type and use custom times</strong>, or make the day <strong>Day off</strong>.
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label small fw-semibold">Day of Week</label>
-                        <select class="form-select form-select-sm" name="day_of_week" id="ctFormDayOfWeek">
-                            <option value="">Any day of week</option>
-                            <option value="0">Monday</option>
-                            <option value="1">Tuesday</option>
-                            <option value="2">Wednesday</option>
-                            <option value="3">Thursday</option>
-                            <option value="4">Friday</option>
-                            <option value="5">Saturday</option>
-                            <option value="6">Sunday</option>
-                        </select>
-                    </div>
-                    <div class="mb-3 d-none" id="ctFormDayOfWeekModeGroup">
-                        <label class="form-label small fw-semibold">When this day occurs:</label>
-                        <div class="form-check">
-                            <input type="radio" class="form-check-input" name="day_of_week_mode" id="ctFormModeOverride" value="override" checked>
-                            <label class="form-check-label small" for="ctFormModeOverride">
-                                Override shift type
-                            </label>
-                        </div>
-                        <div class="form-check">
-                            <input type="radio" class="form-check-input" name="day_of_week_mode" id="ctFormModeCustomTimes" value="custom_times">
-                            <label class="form-check-label small" for="ctFormModeCustomTimes">
-                                Keep shift type, use custom times
-                            </label>
-                        </div>
-                        <div class="form-check">
-                            <input type="radio" class="form-check-input" name="day_of_week_mode" id="ctFormModeDayOff" value="day_off">
-                            <label class="form-check-label small" for="ctFormModeDayOff">
-                                Make this day off
-                            </label>
-                        </div>
-                    </div>
-                    <div class="mb-3 d-none" id="ctFormOverrideShiftGroup">
-                        <label class="form-label small fw-semibold">Work this shift instead</label>
-                        <input type="hidden" name="override_shift" id="ctFormOverrideShift">
-                        <div class="dropdown">
-                            <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start d-flex justify-content-between align-items-center" 
-                                    id="ctFormOverrideShiftButton" 
-                                    data-bs-toggle="dropdown" 
-                                    aria-expanded="false" 
-                                    style="min-height: 31px;">
-                                <span id="ctFormOverrideShiftDisplay">Select shift</span>
-                            </button>
-                            <ul class="dropdown-menu w-100" id="ctFormOverrideShiftMenu" style="max-height: 300px; overflow-y: auto;"></ul>
-                        </div>
-                        <div class="form-text">Choose which shift to work on this day.</div>
-                    </div>
-                    <div class="row g-2 time-inputs-row">
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">Start Time <span class="text-muted">(optional)</span></label>
-                            <input type="time" class="form-control form-control-sm" name="start_time" id="ctFormStartTime">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label small fw-semibold">End Time <span class="text-muted">(optional)</span></label>
-                            <input type="time" class="form-control form-control-sm" name="end_time" id="ctFormEndTime">
-                        </div>
-                    </div>
-                    <div class="mb-3 mt-2">
-                        <label class="form-label small fw-semibold">Priority</label>
-                        <input type="number" class="form-control form-control-sm" name="priority" id="ctFormPriority" min="1" max="7" value="4">
-                        <div class="form-text">1 = highest, 7 = lowest (default: 4).</div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label small fw-semibold">Notes</label>
-                        <input type="text" class="form-control form-control-sm" name="notes" id="ctFormNotes" placeholder="e.g., Doctor's appointment">
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary btn-sm">
-                        <i class="fas fa-save"></i> Save
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Driver Calendar Modal -->
-<div class="modal fade" id="driverCalendarModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="driverCalendarTitle">Driver Calendar</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <button type="button" class="btn btn-sm btn-outline-secondary" id="driverCalendarPrevMonth">
-                        <i class="fas fa-chevron-left"></i> Previous
-                    </button>
-                    <h6 class="mb-0" id="driverCalendarMonthLabel">&nbsp;</h6>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" id="driverCalendarNextMonth">
-                        Next <i class="fas fa-chevron-right"></i>
-                    </button>
-                </div>
-                <div id="driverCalendarBody">
-                    <div class="text-center text-muted py-5"><i class="fas fa-spinner fa-spin"></i> Loading calendar...</div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
+{% include "partials/drivers/modals.html" %}
 
 <!-- Notification Alert Banner Container -->
 <div id="alertBannerContainer"></div>

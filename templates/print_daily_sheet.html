@@ -49,14 +49,7 @@
                                 <table class="table table-sm table-bordered mb-0">
                                     <caption class="visually-hidden">Printable roster for {{ (shift_timing.display_label if shift_timing else (shift_type|shift_label)).upper() }} shift</caption>
                                     <thead class="table-light">
-                                        <tr>
-                                            <th scope="col" style="width: 80px;">Driver #</th>
-                                            <th scope="col">Name</th>
-                                            <th scope="col" style="width: 100px;">Vehicle</th>
-                                            <th scope="col" style="width: 90px;">Times</th>
-                                            <th scope="col" style="width: 60px;">Badges</th>
-                                            <th scope="col" style="width: 120px;">Signature</th>
-                                        </tr>
+                                        {% include "partials/components/print_roster_header_row.html" %}
                                     </thead>
                                     <tbody>
                                         {% for driver_info in drivers %}
@@ -75,22 +68,8 @@
                                         </tr>
                                         {% endfor %}
                                         <!-- Extra rows for manual additions -->
-                                        <tr style="height: 30px;">
-                                            <td></td>
-                                            <td></td>
-                                            <td></td>
-                                            <td></td>
-                                            <td></td>
-                                            <td></td>
-                                        </tr>
-                                        <tr style="height: 30px;">
-                                            <td></td>
-                                            <td></td>
-                                            <td></td>
-                                            <td></td>
-                                            <td></td>
-                                            <td></td>
-                                        </tr>
+                                        {% include "partials/components/print_blank_signature_row.html" %}
+                                        {% include "partials/components/print_blank_signature_row.html" %}
                                     </tbody>
                                 </table>
                             {% else %}
@@ -100,25 +79,11 @@
                                     <table class="table table-sm table-bordered mt-2">
                                         <caption class="visually-hidden">Blank rows for manual entries for {{ shift_type|shift_label }} shift</caption>
                                         <thead class="table-light">
-                                            <tr>
-                                                <th scope="col" style="width: 80px;">Driver #</th>
-                                                <th scope="col">Name</th>
-                                                <th scope="col" style="width: 100px;">Vehicle</th>
-                                                <th scope="col" style="width: 90px;">Times</th>
-                                                <th scope="col" style="width: 60px;">Badges</th>
-                                                <th scope="col" style="width: 120px;">Signature</th>
-                                            </tr>
+                                            {% include "partials/components/print_roster_header_row.html" %}
                                         </thead>
                                         <tbody>
                                             {% for i in range(3) %}
-                                            <tr style="height: 30px;">
-                                                <td></td>
-                                                <td></td>
-                                                <td></td>
-                                                <td></td>
-                                                <td></td>
-                                                <td></td>
-                                            </tr>
+                                            {% include "partials/components/print_blank_signature_row.html" %}
                                             {% endfor %}
                                         </tbody>
                                     </table>

@@ -6,11 +6,12 @@
 <div class="row">
     <div class="col-md-6 mx-auto">
         <div class="card">
-            <div class="card-header">
-                <h3 class="mb-0">
-                    <i class="fas fa-calendar-day"></i> Generate Daily Shift Sheet
-                </h3>
-            </div>
+            {% set card_title_level = '3' %}
+            {% set card_icon = 'fas fa-calendar-day' %}
+            {% set card_title = 'Generate Daily Shift Sheet' %}
+            {% set card_subtitle = '' %}
+            {% set card_header_class = '' %}
+            {% include "partials/components/card_header_title.html" %}
             <div class="card-body">
                 <p class="text-muted mb-4">
                     Select a date to generate a shift sheet showing all drivers working that day, organized by shift type.
