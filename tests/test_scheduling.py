@@ -124,6 +124,118 @@ class TestSwapCalendarData:
         assert target_day['shifts'][0]['is_swap'] is True
         assert target_day['shifts'][0]['swap_role'] == 'work'
 
+    def test_calendar_data_applies_day_off_override(self, client, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'morning', '06:00', '14:00')
+            ref = date(2026, 6, 1)
+            pattern = make_pattern(db, 'Day Off Override Pattern', 7,
+                ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            driver = make_driver(db, '12', 'Override Driver')
+            driver_id = driver.id
+            assignment = make_assignment(db, driver, pattern, ref, start_day_of_cycle=1)
+
+            db.session.add(DriverCustomTiming(
+                driver_id=driver_id,
+                assignment_id=assignment.id,
+                shift_type='morning',
+                day_of_week=0,  # Monday
+                override_shift='day_off',
+                priority=1,
+            ))
+            db.session.commit()
+
+        resp = client.get(f'/driver/{driver_id}/calendar-data?month=2026-06')
+        assert resp.status_code == 200
+        payload = json.loads(resp.data)
+        assert payload.get('success') is True
+
+        target_day = next(d for d in payload['days'] if d['date'] == '2026-06-01')
+        assert len(target_day['shifts']) == 1
+        assert target_day['shifts'][0]['shift_type'] == 'day_off'
+        assert target_day['shifts'][0]['label'] == 'OFF'
+        assert target_day['shifts'][0]['start_time'] is None
+        assert target_day['shifts'][0]['end_time'] is None
+        assert target_day['shifts'][0]['is_override'] is True
+
+    def test_calendar_data_applies_shift_override(self, client, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'morning', '06:00', '14:00')
+            make_shift_timing(db, 'afternoon', '14:00', '22:00')
+            ref = date(2026, 6, 1)
+            pattern = make_pattern(db, 'Shift Override Pattern', 7,
+                ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            driver = make_driver(db, '13', 'Shift Override Driver')
+            driver_id = driver.id
+            assignment = make_assignment(db, driver, pattern, ref, start_day_of_cycle=1)
+
+            db.session.add(DriverCustomTiming(
+                driver_id=driver_id,
+                assignment_id=assignment.id,
+                shift_type='morning',
+                day_of_week=0,  # Monday
+                override_shift='afternoon',
+                priority=1,
+            ))
+            db.session.commit()
+
+        resp = client.get(f'/driver/{driver_id}/calendar-data?month=2026-06')
+        assert resp.status_code == 200
+        payload = json.loads(resp.data)
+        assert payload.get('success') is True
+
+        target_day = next(d for d in payload['days'] if d['date'] == '2026-06-01')
+        assert len(target_day['shifts']) == 1
+        assert target_day['shifts'][0]['shift_type'] == 'afternoon'
+        assert target_day['shifts'][0]['label'] == 'Afternoon'
+        assert target_day['shifts'][0]['start_time'] == '14:00'
+        assert target_day['shifts'][0]['end_time'] == '22:00'
+        assert target_day['shifts'][0]['is_override'] is True
+
+    def test_calendar_data_day_off_priority_beats_cycle_day_custom_time(self, client, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'morning', '06:00', '14:00')
+
+            sunday = date(2026, 6, 7)  # Sunday
+            pattern = make_pattern(db, 'Priority Resolution Pattern', 7,
+                ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            driver = make_driver(db, '14', 'Priority Driver')
+            driver_id = driver.id
+            assignment = make_assignment(db, driver, pattern, sunday, start_day_of_cycle=1)
+
+            # Higher-priority (lower number) driver-wide Sunday rule: day off
+            db.session.add(DriverCustomTiming(
+                driver_id=driver_id,
+                assignment_id=None,
+                shift_type='morning',
+                day_of_week=6,  # Sunday
+                override_shift='day_off',
+                priority=3,
+            ))
+
+            # Lower-priority assignment-specific cycle-day rule: start at 10:00
+            db.session.add(DriverCustomTiming(
+                driver_id=driver_id,
+                assignment_id=assignment.id,
+                shift_type='morning',
+                day_of_cycle=0,
+                start_time=time(10, 0),
+                priority=4,
+            ))
+            db.session.commit()
+
+        resp = client.get(f'/driver/{driver_id}/calendar-data?month={sunday.strftime("%Y-%m")}')
+        assert resp.status_code == 200
+        payload = json.loads(resp.data)
+        assert payload.get('success') is True
+
+        target_day = next(d for d in payload['days'] if d['date'] == sunday.strftime('%Y-%m-%d'))
+        assert len(target_day['shifts']) == 1
+        assert target_day['shifts'][0]['shift_type'] == 'day_off'
+        assert target_day['shifts'][0]['label'] == 'OFF'
+        assert target_day['shifts'][0]['start_time'] is None
+        assert target_day['shifts'][0]['end_time'] is None
+        assert target_day['shifts'][0]['is_override'] is True
+
 
 class TestShiftGroupingAndOrdering:
     def test_pattern_data_sorts_multi_shift_day_by_time(self, db):

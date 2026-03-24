@@ -123,7 +123,18 @@ function initializeAddDriverForm() {
             resetForm: true,
             onSuccess: (result) => {
                 DEBUG.log('Driver added successfully', 'info', { driverId: result.driverId });
-                setTimeout(() => location.reload(), 1500);
+                const inserted = insertDriverRow(
+                    result.driver,
+                    result.current_assignment,
+                    result.future_assignments || [],
+                    result.assignments || [],
+                    result.custom_timing_pattern_ids || []
+                );
+                if (!inserted) {
+                    setTimeout(() => location.reload(), 1500);
+                    return;
+                }
+                updateDriverSummaryStats(result.summary_stats);
             },
             onError: (result) => {
                 DEBUG.warn('Add driver failed', { error: result.error });
@@ -183,9 +194,14 @@ function initializeDeleteDriverForm() {
             successMessage: MESSAGES.DRIVER_DELETED,
             errorMessage: MESSAGES.SERVER_ERROR,
             hideModal: 'deleteModal',
-            onSuccess: () => {
-                DEBUG.log('Driver deleted successfully', 'info');
-                setTimeout(() => location.reload(), 1500);
+            onSuccess: (result) => {
+                const driverId = result.driverId || this.action.match(/\/driver\/(\d+)\/delete/)?.[1];
+                DEBUG.log('Driver deleted successfully', 'info', { driverId });
+                if (!driverId || !removeDriverRow(driverId)) {
+                    setTimeout(() => location.reload(), 1500);
+                    return;
+                }
+                updateDriverSummaryStats(result.summary_stats);
             },
             onError: (result) => {
                 DEBUG.warn('Delete driver failed', { error: result.error });

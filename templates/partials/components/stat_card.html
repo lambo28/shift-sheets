@@ -1,7 +1,7 @@
 <div class="{{ stat_col_class|default('col-md-2') }}">
-    <div class="card {{ stat_card_class }}">
+    <div class="card {{ stat_card_class }}"{% if stat_key is defined and stat_key %} data-driver-stat-card="{{ stat_key }}"{% endif %}>
         <div class="card-body text-center">
-            <h4>{{ stat_value }}</h4>
+            <h4{% if stat_key is defined and stat_key %} data-driver-stat-value="{{ stat_key }}"{% endif %}>{{ stat_value }}</h4>
             <p class="mb-0">
                 {% if stat_icon %}<i class="{{ stat_icon }}"></i> {% endif %}{{ stat_label }}
             </p>

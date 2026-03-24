@@ -61,7 +61,6 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof initializeEventBindings === 'function') {
         initializeEventBindings();
     }
-
     openCustomTimingsPanelFromQuery();
 
     if (typeof initializeDriverCustomTimingsModule === 'function') {

@@ -144,7 +144,7 @@
                                     <h6><i class="fas fa-eye"></i> Pattern Preview</h6>
                                     <div id="assignPatternDisplay" class="d-flex flex-wrap gap-1"></div>
                                     <small class="text-muted d-block mt-2">
-                                        Abbreviations shown, OFF=Rest Day, multiple badges = split shift day
+                                        Abbreviations shown OFF = Rest Day and multiple badges = split shift day
                                     </small>
                                 </div>
                             </div>
@@ -176,7 +176,7 @@
                         <div class="text-center py-4">
                             <i class="fas fa-calendar-times fa-3x text-muted mb-3"></i>
                             <h5 class="text-muted">No Shift Patterns Available</h5>
-                            <p class="text-muted">You need to create at least one shift pattern before assigning to drivers.</p>
+                            <p class="text-muted">You need to create at least one shift pattern before assigning to drivers</p>
                         </div>
                     {% endif %}
 
@@ -222,7 +222,7 @@
             <form id="customTimingForm" method="POST">
                 <div class="modal-body">
                     <div class="alert alert-light border small py-2 mb-3">
-                        Priority works like this: lower number = higher priority. Rules are evaluated with 1 first and 7 last (default is 4).
+                        Priority works like this lower number = higher priority and rules run with 1 first and 7 last (default 4)
                     </div>
                     <input type="hidden" name="driver_id" id="ctFormDriverId">
                     <input type="hidden" name="timing_id" id="ctFormTimingId">
@@ -246,7 +246,7 @@
                             </button>
                             <ul class="dropdown-menu w-100" id="ctFormShiftTypeMenu" style="max-height: 300px; overflow-y: auto;"></ul>
                         </div>
-                        <div class="form-text">Applies to this specific shift type only.</div>
+                        <div class="form-text">Applies to this specific shift type only</div>
                     </div>
                     <div class="mb-3 d-none" id="ctFormDayOfCycleGroup">
                         <label class="form-label small fw-semibold">Day of Cycle</label>
@@ -261,10 +261,10 @@
                             </button>
                             <ul class="dropdown-menu w-100" id="ctFormDayOfCycleMenu" style="max-height: 300px; overflow-y: auto;"></ul>
                         </div>
-                        <div class="form-text">Choose a day from the selected assignment cycle.</div>
+                        <div class="form-text">Choose a day from the selected assignment cycle</div>
                     </div>
                     <div class="form-text mb-3">
-                        <strong>Shift Type</strong> is the <strong>Filter Shift</strong> (which pattern shift this rule applies to). For day-of-week rules, choose whether to <strong>Override shift type</strong>, <strong>Keep shift type and use custom times</strong>, or make the day <strong>Day off</strong>.
+                        <strong>Shift Type</strong> is the <strong>Filter Shift</strong> for this rule and for day of week rules choose <strong>Override shift type</strong> or <strong>Keep shift type and use custom times</strong> or make the day <strong>Day off</strong>
                     </div>
                     <div class="mb-3">
                         <label class="form-label small fw-semibold">Day of Week</label>
@@ -290,7 +290,7 @@
                         <div class="form-check">
                             <input type="radio" class="form-check-input" name="day_of_week_mode" id="ctFormModeCustomTimes" value="custom_times">
                             <label class="form-check-label small" for="ctFormModeCustomTimes">
-                                Keep shift type, use custom times
+                                Keep shift type and use custom times
                             </label>
                         </div>
                         <div class="form-check">
@@ -313,7 +313,7 @@
                             </button>
                             <ul class="dropdown-menu w-100" id="ctFormOverrideShiftMenu" style="max-height: 300px; overflow-y: auto;"></ul>
                         </div>
-                        <div class="form-text">Choose which shift to work on this day.</div>
+                        <div class="form-text">Choose which shift to work on this day</div>
                     </div>
                     <div class="row g-2 time-inputs-row">
                         <div class="col-md-6">
@@ -328,11 +328,11 @@
                     <div class="mb-3 mt-2">
                         <label class="form-label small fw-semibold">Priority</label>
                         <input type="number" class="form-control form-control-sm" name="priority" id="ctFormPriority" min="1" max="7" value="4">
-                        <div class="form-text">1 = highest, 7 = lowest (default: 4).</div>
+                        <div class="form-text">1 = highest · 7 = lowest (default 4)</div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label small fw-semibold">Notes</label>
-                        <input type="text" class="form-control form-control-sm" name="notes" id="ctFormNotes" placeholder="e.g., Doctor's appointment">
+                        <input type="text" class="form-control form-control-sm" name="notes" id="ctFormNotes" placeholder="eg Doctor's appointment">
                     </div>
                 </div>
                 <div class="modal-footer">

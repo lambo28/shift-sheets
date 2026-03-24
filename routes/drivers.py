@@ -1,4 +1,4 @@
-from flask import render_template, request, redirect, url_for, flash
+from flask import render_template, request, redirect, url_for, flash, jsonify
 from datetime import datetime
 
 from extensions import db
@@ -10,6 +10,56 @@ from utils import (
 
 
 def register(app):
+    def _serialize_driver_summary_stats():
+        all_drivers = Driver.query.all()
+        return {
+            "total": len(all_drivers),
+            "school_badge": sum(1 for driver in all_drivers if driver.school_badge),
+            "pet_friendly": sum(1 for driver in all_drivers if driver.pet_friendly),
+            "assistance_guide_dogs_exempt": sum(1 for driver in all_drivers if driver.assistance_guide_dogs_exempt),
+            "electric_vehicle": sum(1 for driver in all_drivers if driver.electric_vehicle),
+            "with_patterns": sum(1 for driver in all_drivers if driver.get_current_assignment()),
+        }
+
+    def _serialize_driver_refresh_payload(driver):
+        today = datetime.now().date()
+        current_assignment = driver.get_current_assignment()
+        future_assignments = [a for a in driver.assignments if a.start_date > today]
+
+        return {
+            "driver": {
+                "id": driver.id,
+                "driver_number": driver.driver_number,
+                "formatted_driver_number": driver.formatted_driver_number(),
+                "formatted_name": driver.formatted_name(),
+                "name": driver.name,
+                "car_type": driver.car_type,
+                "school_badge": driver.school_badge,
+                "pet_friendly": driver.pet_friendly,
+                "assistance_guide_dogs_exempt": driver.assistance_guide_dogs_exempt,
+                "electric_vehicle": driver.electric_vehicle,
+                "created_at": driver.created_at.strftime('%d/%m/%Y'),
+            },
+            "current_assignment": {
+                "pattern_id": current_assignment.shift_pattern_id if current_assignment else None,
+                "pattern_name": current_assignment.shift_pattern.name if current_assignment else None,
+                "start_date": current_assignment.start_date.strftime('%Y-%m-%d') if current_assignment else None,
+                "end_date": current_assignment.end_date.strftime('%Y-%m-%d') if current_assignment and current_assignment.end_date else None,
+                "has_end_date": current_assignment.end_date is not None if current_assignment else False,
+            } if current_assignment else None,
+            "future_assignments": [
+                {
+                    "pattern_id": a.shift_pattern_id,
+                    "pattern_name": a.shift_pattern.name,
+                    "start_date": a.start_date.strftime('%Y-%m-%d'),
+                }
+                for a in future_assignments
+            ],
+            "assignments": serialize_driver_assignment_items(driver),
+            "custom_timing_pattern_ids": sorted(get_custom_timing_affected_pattern_ids(driver)),
+            "summary_stats": _serialize_driver_summary_stats(),
+        }
+
     @app.route("/drivers")
     def drivers():
         """Manage drivers"""
@@ -69,7 +119,7 @@ def register(app):
             db.session.add(driver)
             db.session.commit()
             if is_ajax_request():
-                return json_success()
+                return json_success(driverId=driver.id, **_serialize_driver_refresh_payload(driver))
             flash("Driver added successfully!", "success")
             return redirect(url_for("drivers"))
         except Exception as e:
@@ -99,7 +149,7 @@ def register(app):
         try:
             db.session.commit()
             if is_ajax_request():
-                return json_success()
+                return json_success(driverId=driver.id, summary_stats=_serialize_driver_summary_stats())
             flash("Driver updated successfully!", "success")
             return redirect(url_for("drivers"))
         except Exception as e:
@@ -119,7 +169,7 @@ def register(app):
             db.session.delete(driver)
             db.session.commit()
             if is_ajax_request():
-                return json_success()
+                return json_success(driverId=driver_id, summary_stats=_serialize_driver_summary_stats())
             flash("Driver deleted successfully!", "success")
         except Exception as e:
             db.session.rollback()
@@ -134,39 +184,4 @@ def register(app):
     def get_driver_data(driver_id):
         """Get current driver data for background refresh"""
         driver = db.get_or_404(Driver, driver_id)
-        today = datetime.now().date()
-
-        current_assignment = driver.get_current_assignment()
-        future_assignments = [a for a in driver.assignments if a.start_date > today]
-
-        return jsonify({
-            "ok": True,
-            "driver": {
-                "id": driver.id,
-                "formatted_driver_number": driver.formatted_driver_number(),
-                "formatted_name": driver.formatted_name(),
-                "name": driver.name,
-                "car_type": driver.car_type,
-                "school_badge": driver.school_badge,
-                "pet_friendly": driver.pet_friendly,
-                "assistance_guide_dogs_exempt": driver.assistance_guide_dogs_exempt,
-                "electric_vehicle": driver.electric_vehicle,
-                "created_at": driver.created_at.strftime('%d/%m/%Y'),
-            },
-            "current_assignment": {
-                "pattern_id": current_assignment.shift_pattern_id if current_assignment else None,
-                "pattern_name": current_assignment.shift_pattern.name if current_assignment else None,
-                "start_date": current_assignment.start_date.strftime('%Y-%m-%d') if current_assignment else None,
-                "end_date": current_assignment.end_date.strftime('%Y-%m-%d') if current_assignment and current_assignment.end_date else None,
-                "has_end_date": current_assignment.end_date is not None if current_assignment else False,
-            } if current_assignment else None,
-            "future_assignments": [
-                {
-                    "pattern_id": a.shift_pattern_id,
-                    "pattern_name": a.shift_pattern.name,
-                    "start_date": a.start_date.strftime('%Y-%m-%d'),
-                }
-                for a in future_assignments
-            ],
-            "assignments": serialize_driver_assignment_items(driver),
-        })
+        return jsonify({"ok": True, **_serialize_driver_refresh_payload(driver)})

@@ -5,7 +5,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./data:/app/data
+      - ./data-test:/app/data
     networks:
       - lambertnet_proxy
     labels:

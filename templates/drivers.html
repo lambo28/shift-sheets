@@ -18,7 +18,7 @@
 {% endset %}
 {% include "partials/components/page_header.html" %}
 
-{% if drivers %}
+<div id="driversTableSection" class="{% if not drivers %}d-none{% endif %}">
     <div class="card">
         <div class="card-body">
             <div class="table-responsive">
@@ -196,12 +196,13 @@
     </div>
 
     <!-- Summary Stats -->
-    <div class="row mt-4">
+    <div class="row mt-4 {% if not drivers %}d-none{% endif %}" id="driverSummaryStats">
         {% set stat_col_class = 'col-md-2' %}
         {% set stat_card_class = 'bg-primary text-white' %}
         {% set stat_value = drivers|length %}
         {% set stat_label = 'Total Drivers' %}
         {% set stat_icon = '' %}
+        {% set stat_key = 'total' %}
         {% include "partials/components/stat_card.html" %}
 
         {% set stat_col_class = 'col-md-2' %}
@@ -209,6 +210,7 @@
         {% set stat_value = drivers|selectattr('school_badge')|list|length %}
         {% set stat_label = 'School Badge' %}
         {% set stat_icon = 'fas fa-school' %}
+        {% set stat_key = 'school_badge' %}
         {% include "partials/components/stat_card.html" %}
 
         {% set stat_col_class = 'col-md-2' %}
@@ -216,6 +218,7 @@
         {% set stat_value = drivers|selectattr('pet_friendly')|list|length %}
         {% set stat_label = 'Pet Friendly' %}
         {% set stat_icon = 'fas fa-paw' %}
+        {% set stat_key = 'pet_friendly' %}
         {% include "partials/components/stat_card.html" %}
 
         {% set stat_col_class = 'col-md-2' %}
@@ -223,6 +226,7 @@
         {% set stat_value = drivers|selectattr('assistance_guide_dogs_exempt')|list|length %}
         {% set stat_label = 'No Assistance' %}
         {% set stat_icon = 'fas fa-eye' %}
+        {% set stat_key = 'assistance_guide_dogs_exempt' %}
         {% include "partials/components/stat_card.html" %}
 
         {% set stat_col_class = 'col-md-2' %}
@@ -230,6 +234,7 @@
         {% set stat_value = drivers|selectattr('electric_vehicle')|list|length %}
         {% set stat_label = 'Electric' %}
         {% set stat_icon = 'fas fa-bolt' %}
+        {% set stat_key = 'electric_vehicle' %}
         {% include "partials/components/stat_card.html" %}
 
         {% set drivers_with_patterns = [] %}
@@ -243,10 +248,12 @@
         {% set stat_value = drivers_with_patterns|length %}
         {% set stat_label = 'With Patterns' %}
         {% set stat_icon = '' %}
+        {% set stat_key = 'with_patterns' %}
         {% include "partials/components/stat_card.html" %}
     </div>
+</div>
 
-{% else %}
+<div id="driversEmptyState" class="{% if drivers %}d-none{% endif %}">
     <div class="card">
         <div class="card-body text-center py-5">
             <i class="fas fa-user-times fa-4x text-muted mb-3"></i>
@@ -257,7 +264,7 @@
             </button>
         </div>
     </div>
-{% endif %}
+</div>
 
 {% include "partials/drivers/modals.html" %}
 

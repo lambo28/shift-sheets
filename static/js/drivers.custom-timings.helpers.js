@@ -711,8 +711,8 @@ function renderCustomTimingCard(t, driverId, driverName) {
             <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
                 <span>Every</span>
                 <span class="badge bg-light text-dark border">${weekdayLabel}</span>
-                ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, set as</span>` : `<span>, set as</span>`}
-                <span class="badge bg-secondary">OFF</span><span>.</span>
+                ${hasSpecificShiftType ? `<span>that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>set as</span>` : `<span>set as</span>`}
+                <span class="badge bg-secondary">OFF</span>
             </div>
         `;
     } else if (isShiftOverride) {
@@ -721,8 +721,8 @@ function renderCustomTimingCard(t, driverId, driverName) {
             <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
                 <span>Every</span>
                 <span class="badge bg-light text-dark border">${weekdayLabel}</span>
-                ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, override to</span>` : `<span>, override to</span>`}
-                <span class="d-inline-flex align-items-center gap-0"><span class="badge ${overrideShiftDisplay.badgeColor}">${overrideShiftDisplay.label}</span><span>.</span></span>
+                ${hasSpecificShiftType ? `<span>that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>override to</span>` : `<span>override to</span>`}
+                <span class="d-inline-flex align-items-center gap-0"><span class="badge ${overrideShiftDisplay.badgeColor}">${overrideShiftDisplay.label}</span></span>
             </div>
         `;
     } else if (isCustomTimesMode) {
@@ -737,7 +737,7 @@ function renderCustomTimingCard(t, driverId, driverName) {
             <div class="mb-2 d-flex align-items-center flex-wrap gap-1 fw-bold">
                 <span>Every</span>
                 <span class="badge bg-light text-dark border">${weekdayLabel}</span>
-                ${hasSpecificShiftType ? `<span>, that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>, ${customTimeSentence}.</span>` : `<span>, ${customTimeSentence}.</span>`}
+                ${hasSpecificShiftType ? `<span>that is</span><span class="badge ${shiftTypeBadgeClass}">${shiftTypeLabel}</span><span>${customTimeSentence}</span>` : `<span>${customTimeSentence}</span>`}
             </div>
         `;
     } else if (hasRuleCriteria) {

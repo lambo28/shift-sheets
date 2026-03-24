@@ -525,8 +525,9 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_s
             )
 
             effective_shift_type = base_shift_type
-            if custom_timing and custom_timing.override_shift and custom_timing.override_shift in timings_dict:
-                effective_shift_type = custom_timing.override_shift
+            if custom_timing and custom_timing.override_shift:
+                if custom_timing.override_shift == 'day_off' or custom_timing.override_shift in timings_dict:
+                    effective_shift_type = custom_timing.override_shift
 
             if not is_shift_allowed_for_date(effective_shift_type):
                 timing_meta_for_filter = timings_dict.get(effective_shift_type) or timings_dict.get(base_shift_type)
@@ -534,7 +535,10 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_s
                     filtered_term_only_shift = True
                 continue
 
-            default_timing = timings_dict.get(effective_shift_type) or timings_dict.get(base_shift_type)
+            if effective_shift_type == 'day_off':
+                default_timing = None
+            else:
+                default_timing = timings_dict.get(effective_shift_type) or timings_dict.get(base_shift_type)
 
             if custom_timing and custom_timing.start_time is not None:
                 start_time = custom_timing.start_time
@@ -686,8 +690,12 @@ def get_driver_adjustment_time_window(driver, target_date, timings_dict=None):
             )
 
             effective_shift_type = base_shift_type
-            if custom_timing and custom_timing.override_shift and custom_timing.override_shift in timings_dict:
-                effective_shift_type = custom_timing.override_shift
+            if custom_timing and custom_timing.override_shift:
+                if custom_timing.override_shift == 'day_off' or custom_timing.override_shift in timings_dict:
+                    effective_shift_type = custom_timing.override_shift
+
+            if effective_shift_type == 'day_off':
+                continue
 
             if not is_shift_allowed_for_date(effective_shift_type):
                 continue

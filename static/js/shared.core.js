@@ -93,11 +93,25 @@ async function requestJson(url, options = {}) {
     try {
         data = await response.json();
     } catch {
-        data = { success: false, error: `HTTP ${response.status}` };
+        data = { success: false, ok: false, error: `HTTP ${response.status}` };
+    }
+
+    if (typeof data === 'object' && data !== null) {
+        if (typeof data.success !== 'boolean' && typeof data.ok === 'boolean') {
+            data.success = data.ok;
+        }
+        if (typeof data.ok !== 'boolean' && typeof data.success === 'boolean') {
+            data.ok = data.success;
+        }
     }
 
     if (!response.ok) {
-        return { success: false, error: data.error || `HTTP ${response.status}` };
+        return {
+            ...data,
+            success: false,
+            ok: false,
+            error: data.error || `HTTP ${response.status}`
+        };
     }
 
     return data;

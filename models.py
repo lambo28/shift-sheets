@@ -212,7 +212,8 @@ class DriverCustomTiming(db.Model):
         candidates.extend(driver_wide)
 
         # Collect all matches, then choose deterministically by:
-        # assignment-specific > driver-wide, lower priority number, higher specificity
+        # lower priority number, higher specificity,
+        # then assignment-specific > driver-wide for ties.
         matching_candidates = []
         for timing in candidates:
             # Check if this timing matches all criteria
@@ -238,9 +239,9 @@ class DriverCustomTiming(db.Model):
 
         matching_candidates.sort(
             key=lambda item: (
-                item[0].assignment_id is None,
                 item[0].priority,
                 -item[1],
+                item[0].assignment_id is None,
                 item[0].id
             )
         )
