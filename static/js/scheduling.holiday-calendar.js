@@ -61,6 +61,15 @@
         return day || null;
     }
 
+    function getMinimumSelectableDateStr() {
+        const now = new Date();
+        const minDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (now.getHours() < 6) {
+            minDate.setDate(minDate.getDate() - 1);
+        }
+        return formatDateISO(minDate);
+    }
+
     /**
      * Render the calendar for the current calViewDate month.
      */
@@ -94,6 +103,16 @@
 
         const today = new Date();
         const todayStr = formatDateISO(today);
+        const minSelectableDateStr = getMinimumSelectableDateStr();
+
+        if (calStartDate && calStartDate < minSelectableDateStr) {
+            calStartDate = null;
+            calEndDate = null;
+            updateDateDisplay();
+            updateFormInputs();
+            const btn = document.getElementById('saveHolidayBtn');
+            if (btn) btn.disabled = true;
+        }
 
         // First day of month (0=Sun ... 6=Sat). Convert to Mon-based (0=Mon ... 6=Sun)
         const firstDay = new Date(year, month, 1);
@@ -129,12 +148,13 @@
                 const dayData = getShiftsForDate(dateStr);
                 const dayWorkingShifts = ((dayData && dayData.shifts) || []).filter(function (s) { return s.shift_type !== 'day_off'; });
                 const isDayWorking = dayWorkingShifts.length > 0;
+                const isSwapWorkDay = Boolean(dayData && dayData.has_swap_work);
 
-                if (selectedDriverId && !isDayWorking) classes += ' cal-disabled';
+                if (selectedDriverId && (!isDayWorking || isSwapWorkDay || dateStr < minSelectableDateStr)) classes += ' cal-disabled';
 
                 // Only highlight in-range days that are working days when a driver is selected
                 const showInRange = isInRange && calStartDate && calEndDate && calStartDate !== calEndDate;
-                if (showInRange && (!selectedDriverId || isDayWorking)) classes += ' cal-in-range';
+                if (showInRange && (!selectedDriverId || (isDayWorking && !isSwapWorkDay))) classes += ' cal-in-range';
 
                 const visuals = buildUnifiedCalendarCellContent(dayData);
                 const inlineRowHtml = `${visuals.contentHtml}${visuals.extraShiftIconHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;

@@ -92,11 +92,14 @@
                                             </button>
                                             <ul class="dropdown-menu w-100" id="timeOffTypeMenu" aria-labelledby="timeOffTypeBtn" style="width: 100% !important;"></ul>
                                         </div>
-                                        <div class="form-text" id="holidayDateDisplay">Select a driver, then click a start and end date on the calendar.</div>
                                     </div>
                                     <div class="mb-3">
                                         <label for="holidayNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
                                         <input type="text" class="form-control" id="holidayNotes" name="notes" maxlength="200" placeholder="Optional">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Date Range</label>
+                                        <div class="form-text" id="holidayDateDisplay">Select a driver, then click a start and end date on the calendar.</div>
                                     </div>
                                     <button type="submit" class="btn btn-primary w-100" id="saveHolidayBtn" disabled>
                                         <i class="fas fa-save"></i> Save Time Off
@@ -458,6 +461,7 @@
                                         <label class="form-label">Date</label>
                                         <div class="form-text" id="adjDateDisplay">Select a driver, then click a date on the calendar.</div>
                                         <div class="form-text mt-1" id="adjShiftStatus"></div>
+                                        <div id="adjValidationResult" class="mt-2" style="display:none;"></div>
                                         <input type="hidden" id="adjDate" name="adjustment_date" required>
                                     </div>
                                     <button type="submit" class="btn btn-primary w-100" id="saveAdjustmentBtn" disabled>
@@ -875,118 +879,21 @@
                                 Swap rules: pick one worked day to give up and one off day to work, choose a valid shift type, and keep at least <strong>8 hours</strong> rest; reusing a swap date is allowed once only if the shift type is different.
                             </div>
                             <div class="row g-3 mb-3">
-                                <div class="col-12">
-                                    <label for="swapDriver" class="form-label">Driver</label>
-                                    <select class="form-select" id="swapDriver" name="driver_id" required>
-                                        <option value="">— Select driver —</option>
-                                        {% for driver in drivers %}
-                                            <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
-                                        {% endfor %}
-                                    </select>
-                                    <div class="form-text" id="swapDriverRequiredHint">
-                                        <i class="fas fa-info-circle me-1"></i>Select a driver to enable the calendar
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="row g-3 mb-3">
                                 <div class="col-md-6">
-                                    <input type="date" class="form-control" id="swapGiveUpDate" name="give_up_date" required hidden>
-                                </div>
-                                <div class="col-md-6">
-                                    <input type="date" class="form-control" id="swapWorkDate" name="work_date" required hidden>
-                                </div>
-                            </div>
-
-                            <div class="card mb-3">
-                                <div class="card-body p-2">
-                                    <div class="row g-2">
-                                        <!-- Give-up day calendar -->
-                                        <div class="col-md-6">
-                                            <div class="border-end pe-2">
-                                                <div class="d-flex align-items-center justify-content-between mb-2">
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="swapGiveUpCalPrev">
-                                                        <i class="fas fa-chevron-left"></i>
-                                                    </button>
-                                                    <div class="text-center">
-                                                        <strong style="font-size: 0.95rem;">Day to Give Up</strong>
-                                                        <div id="swapGiveUpCalMonthLabel" style="font-size: 0.85rem; color: #666;">Month Year</div>
-                                                    </div>
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="swapGiveUpCalNext">
-                                                        <i class="fas fa-chevron-right"></i>
-                                                    </button>
-                                                </div>
-                                                <div class="holiday-calendar compact">
-                                                    <table class="table table-bordered align-middle mb-0" style="font-size: 0.9rem;">
-                                                        <thead class="table-light">
-                                                            <tr>
-                                                                <th class="text-center" style="padding: 0.4rem;">Mon</th>
-                                                                <th class="text-center" style="padding: 0.4rem;">Tue</th>
-                                                                <th class="text-center" style="padding: 0.4rem;">Wed</th>
-                                                                <th class="text-center" style="padding: 0.4rem;">Thu</th>
-                                                                <th class="text-center" style="padding: 0.4rem;">Fri</th>
-                                                                <th class="text-center" style="padding: 0.4rem;">Sat</th>
-                                                                <th class="text-center" style="padding: 0.4rem;">Sun</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody id="swapGiveUpCalBody">
-                                                            <tr>
-                                                                <td colspan="7" class="text-center text-muted" style="padding: 0.5rem;">Loading…</td>
-                                                            </tr>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <!-- Work day calendar -->
-                                        <div class="col-md-6">
-                                            <div class="ps-2">
-                                                <div class="d-flex align-items-center justify-content-between mb-2">
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="swapWorkCalPrev">
-                                                        <i class="fas fa-chevron-left"></i>
-                                                    </button>
-                                                    <div class="text-center">
-                                                        <strong style="font-size: 0.95rem;">Day to Work</strong>
-                                                        <div id="swapWorkCalMonthLabel" style="font-size: 0.85rem; color: #666;">Month Year</div>
-                                                    </div>
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="swapWorkCalNext">
-                                                        <i class="fas fa-chevron-right"></i>
-                                                    </button>
-                                                </div>
-                                                <div class="holiday-calendar compact">
-                                                    <table class="table table-bordered align-middle mb-0" style="font-size: 0.9rem;">
-                                                        <thead class="table-light">
-                                                            <tr>
-                                                                <th class="text-center" style="padding: 0.4rem;">Mon</th>
-                                                                <th class="text-center" style="padding: 0.4rem;">Tue</th>
-                                                                <th class="text-center" style="padding: 0.4rem;">Wed</th>
-                                                                <th class="text-center" style="padding: 0.4rem;">Thu</th>
-                                                                <th class="text-center" style="padding: 0.4rem;">Fri</th>
-                                                                <th class="text-center" style="padding: 0.4rem;">Sat</th>
-                                                                <th class="text-center" style="padding: 0.4rem;">Sun</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody id="swapWorkCalBody">
-                                                            <tr>
-                                                                <td colspan="7" class="text-center text-muted" style="padding: 0.5rem;">Loading…</td>
-                                                            </tr>
-                                                        </tbody>
-                                                    </table>
-                                                </div>
-                                            </div>
+                                    <div class="mb-3">
+                                        <label for="swapDriver" class="form-label">Driver</label>
+                                        <select class="form-select" id="swapDriver" name="driver_id" required>
+                                            <option value="">— Select driver —</option>
+                                            {% for driver in drivers %}
+                                                <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <div class="form-text" id="swapDriverRequiredHint">
+                                            <i class="fas fa-info-circle me-1"></i>Select a driver to enable the calendar
                                         </div>
                                     </div>
-                                </div>
-                                <div class="card-footer py-2 d-flex justify-content-between align-items-center">
-                                    <small id="swapDateSelectionDisplay" class="text-muted">Select a driver, then click a worked day (left) and an off day (right) on the calendars.</small>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="clearSwapSelection">
-                                        Clear Selection
-                                    </button>
-                                </div>
-                            </div>
 
-                            <div class="row g-3 mb-3">
-                                <div class="col-md-6">
+                                    <div class="mb-3">
                                     <label for="swapWorkShiftType" class="form-label">Shift type on worked day</label>
                                     <div class="dropdown">
                                         <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" id="swapWorkShiftTypeBtn" data-bs-toggle="dropdown" aria-expanded="false" style="text-align: left !important;">
@@ -1023,24 +930,96 @@
                                             <ul class="dropdown-menu w-100" id="swapSecondShiftTypeMenu" aria-labelledby="swapSecondShiftTypeBtn" style="width: 100% !important;"></ul>
                                         </div>
                                     </div>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label class="form-label">Dates</label>
+                                        <div class="form-text" id="swapDateSelectionDisplay">Select a driver, then click a worked day (left) and an off day (right) on the calendars.</div>
+                                        <input type="date" class="form-control" id="swapGiveUpDate" name="give_up_date" required hidden>
+                                        <input type="date" class="form-control" id="swapWorkDate" name="work_date" required hidden>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="swapApprovedBy" class="form-label">Approved by</label>
+                                        <input type="text" class="form-control" id="swapApprovedBy" name="approved_by" maxlength="120" required placeholder="Manager / Director name">
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="swapNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                                        <input type="text" class="form-control" id="swapNotes" name="notes" maxlength="200">
+                                    </div>
+
+                                    <div id="swapValidationResult" class="mb-2" style="display:none;"></div>
+
+                                    <div class="d-flex gap-2">
+                                        <button type="submit" class="btn btn-primary w-100" id="confirmSwapBtn" disabled>
+                                            <i class="fas fa-exchange-alt"></i> Confirm Swap
+                                        </button>
+                                    </div>
                                 </div>
+
                                 <div class="col-md-6">
-                                    <label for="swapNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
-                                    <input type="text" class="form-control" id="swapNotes" name="notes" maxlength="200">
+                                    <div class="mb-3">
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <label class="form-label mb-0">Day to Give Up <small class="text-muted">(worked day)</small></label>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary" id="clearSwapSelection">
+                                                <i class="fas fa-times"></i> Clear Selection
+                                            </button>
+                                        </div>
+                                        <div class="holiday-calendar compact border rounded p-2 bg-white">
+                                            <div class="cal-header">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="swapGiveUpCalPrev">
+                                                    <i class="fas fa-chevron-left"></i>
+                                                </button>
+                                                <strong id="swapGiveUpCalMonthLabel"></strong>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="swapGiveUpCalNext">
+                                                    <i class="fas fa-chevron-right"></i>
+                                                </button>
+                                            </div>
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>Mo</th><th>Tu</th><th>We</th><th>Th</th><th>Fr</th><th>Sa</th><th>Su</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="swapGiveUpCalBody">
+                                                    <tr>
+                                                        <td colspan="7" class="text-center text-muted" style="padding: 0.5rem;">Loading…</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label class="form-label mb-2">Day to Work <small class="text-muted">(scheduled off day)</small></label>
+                                        <div class="holiday-calendar compact border rounded p-2 bg-white">
+                                            <div class="cal-header">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="swapWorkCalPrev">
+                                                    <i class="fas fa-chevron-left"></i>
+                                                </button>
+                                                <strong id="swapWorkCalMonthLabel"></strong>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" id="swapWorkCalNext">
+                                                    <i class="fas fa-chevron-right"></i>
+                                                </button>
+                                            </div>
+                                            <table>
+                                                <thead>
+                                                    <tr>
+                                                        <th>Mo</th><th>Tu</th><th>We</th><th>Th</th><th>Fr</th><th>Sa</th><th>Su</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody id="swapWorkCalBody">
+                                                    <tr>
+                                                        <td colspan="7" class="text-center text-muted" style="padding: 0.5rem;">Loading…</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
-                            <!-- Validation result area -->
-                            <div id="swapValidationResult" class="mb-3" style="display:none;"></div>
-
-                            <div class="d-flex gap-2">
-                                <button type="button" class="btn btn-outline-secondary flex-fill" id="validateSwapBtn">
-                                    <i class="fas fa-check-circle"></i> Validate
-                                </button>
-                                <button type="submit" class="btn btn-primary flex-fill" id="confirmSwapBtn" disabled>
-                                    <i class="fas fa-exchange-alt"></i> Confirm Swap
-                                </button>
-                            </div>
                         </form>
                     </div>
                 </div>

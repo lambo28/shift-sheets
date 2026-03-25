@@ -17,6 +17,8 @@
     let adjSelectedDriverId = null;
     let adjDriverShiftData = null;
     let adjSelectedDateAllowsAdjustment = false;
+    let adjServerValidationPassed = false;
+    let adjValidationTimer = null;
 
     async function fetchAdjustmentDriverShifts(driverId, monthStr) {
         if (!driverId) {
@@ -50,6 +52,15 @@
         return `${yr}-${mo}-${da}`;
     }
 
+    function getMinimumSelectableDateStr() {
+        const now = new Date();
+        const minDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (now.getHours() < 6) {
+            minDate.setDate(minDate.getDate() - 1);
+        }
+        return formatDateISO(minDate);
+    }
+
     function updateAdjustmentDateDisplay() {
         const display = document.getElementById('adjDateDisplay');
         if (!display) return;
@@ -70,7 +81,82 @@
         if (input) input.value = adjSelectedDate || '';
 
         const saveBtn = document.getElementById('saveAdjustmentBtn');
-        if (saveBtn) saveBtn.disabled = !adjSelectedDate || !adjSelectedDateAllowsAdjustment;
+        const typeValue = (document.getElementById('adjType')?.value || '').trim();
+        const timeValue = (document.getElementById('adjTime')?.value || '').trim();
+        const requiredComplete = Boolean(adjSelectedDate && typeValue && timeValue);
+        if (saveBtn) saveBtn.disabled = !requiredComplete || !adjSelectedDateAllowsAdjustment || !adjServerValidationPassed;
+    }
+
+    function clearAdjustmentValidationResult() {
+        const resultEl = document.getElementById('adjValidationResult');
+        if (!resultEl) return;
+        resultEl.style.display = 'none';
+        resultEl.innerHTML = '';
+    }
+
+    function setAdjustmentValidationResult(level, message) {
+        const resultEl = document.getElementById('adjValidationResult');
+        if (!resultEl) return;
+        resultEl.innerHTML = `<div class="alert alert-${level} mb-0">${message}</div>`;
+        resultEl.style.display = '';
+    }
+
+    function resetAdjustmentValidationState() {
+        adjServerValidationPassed = false;
+        clearAdjustmentValidationResult();
+        updateAdjustmentFormInput();
+    }
+
+    async function runAdjustmentAutoValidation() {
+        const typeValue = (document.getElementById('adjType')?.value || '').trim();
+        const timeValue = (document.getElementById('adjTime')?.value || '').trim();
+
+        if (!adjSelectedDriverId || !adjSelectedDate || !typeValue || !timeValue || !adjSelectedDateAllowsAdjustment) {
+            resetAdjustmentValidationState();
+            return;
+        }
+
+        try {
+            const response = await fetch('/scheduling/adjustment/validate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({
+                    driver_id: adjSelectedDriverId,
+                    adjustment_date: adjSelectedDate,
+                    adjustment_type: typeValue,
+                    adjusted_time: timeValue
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                adjServerValidationPassed = true;
+                setAdjustmentValidationResult('success', '<i class="fas fa-check-circle me-1"></i>Adjustment is valid. Click <strong>Save Adjustment</strong> to save.');
+            } else {
+                adjServerValidationPassed = false;
+                const errors = data.errors || [data.error || 'Validation failed.'];
+                setAdjustmentValidationResult('danger', `<i class="fas fa-times-circle me-1"></i><strong>Validation failed:</strong> ${errors.join(' ')}`);
+            }
+        } catch (err) {
+            adjServerValidationPassed = false;
+            setAdjustmentValidationResult('danger', '<i class="fas fa-times-circle me-1"></i>Could not reach the server. Please try again.');
+        }
+
+        updateAdjustmentFormInput();
+    }
+
+    function scheduleAdjustmentAutoValidation() {
+        resetAdjustmentValidationState();
+        if (adjValidationTimer) {
+            clearTimeout(adjValidationTimer);
+        }
+        adjValidationTimer = setTimeout(function () {
+            runAdjustmentAutoValidation();
+        }, 180);
     }
 
     function updateAdjustmentShiftStatus() {
@@ -80,6 +166,7 @@
         if (!adjSelectedDriverId || !adjSelectedDate) {
             adjSelectedDateAllowsAdjustment = false;
             statusEl.innerHTML = '';
+            scheduleAdjustmentAutoValidation();
             return;
         }
 
@@ -93,13 +180,14 @@
             adjSelectedDateAllowsAdjustment = false;
             const labels = workingShifts.map(shift => shift.label).join(', ');
             statusEl.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Split shift day selected (${labels}). Late starts and early finishes are not used on split shift days.</span>`;
+            scheduleAdjustmentAutoValidation();
             return;
         }
 
         if (workingShifts.length > 0) {
             adjSelectedDateAllowsAdjustment = true;
-            const labels = workingShifts.map(shift => shift.label).join(', ');
-            statusEl.innerHTML = `<span class="text-success"><i class="fas fa-check-circle me-1"></i>Shift on selected day: ${labels}</span>`;
+            statusEl.innerHTML = '';
+            scheduleAdjustmentAutoValidation();
             return;
         }
 
@@ -114,10 +202,13 @@
             };
             const reason = typeMap[dayData.time_off_type] || 'Time Off';
             statusEl.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is marked as having time off (${reason}).</span>`;
+            scheduleAdjustmentAutoValidation();
             return;
         }
 
         statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is marked as Day Off on selected day.</span>';
+
+        scheduleAdjustmentAutoValidation();
     }
 
     async function renderAdjustmentCalendar() {
@@ -149,6 +240,15 @@
         }
 
         const todayStr = formatDateISO(new Date());
+        const minSelectableDateStr = getMinimumSelectableDateStr();
+
+        if (adjSelectedDate && adjSelectedDate < minSelectableDateStr) {
+            adjSelectedDate = null;
+            updateAdjustmentDateDisplay();
+            updateAdjustmentShiftStatus();
+            updateAdjustmentFormInput();
+        }
+
         const firstDay = new Date(year, month, 1);
         let startOffset = firstDay.getDay() - 1;
         if (startOffset < 0) startOffset = 6;
@@ -181,7 +281,7 @@
                 const dayShifts = (dayData && dayData.shifts) || [];
                 const dayWorkingShifts = dayShifts.filter(function (s) { return s.shift_type !== 'day_off'; });
                 const dayNonExtraShifts = dayWorkingShifts.filter(function (s) { return !s.is_extra; });
-                if (!dayWorkingShifts.length || dayNonExtraShifts.length >= 2) {
+                if (dateStr < minSelectableDateStr || !dayWorkingShifts.length || dayNonExtraShifts.length >= 2) {
                     classes += ' cal-disabled';
                 }
             }
@@ -267,6 +367,7 @@
                 adjSelectedDriverId = null;
                 adjDriverShiftData = null;
                 adjSelectedDate = null;
+                resetAdjustmentValidationState();
                 updateAdjustmentDateDisplay();
                 updateAdjustmentShiftStatus();
                 updateAdjustmentFormInput();
@@ -278,10 +379,28 @@
             driverSelect.addEventListener('change', function () {
                 adjSelectedDriverId = this.value ? parseInt(this.value, 10) : null;
                 adjSelectedDate = null;
+                resetAdjustmentValidationState();
                 updateAdjustmentDateDisplay();
                 updateAdjustmentShiftStatus();
                 updateAdjustmentFormInput();
                 renderAdjustmentCalendar();
+            });
+        }
+
+        const adjTypeEl = document.getElementById('adjType');
+        if (adjTypeEl) {
+            adjTypeEl.addEventListener('change', function () {
+                scheduleAdjustmentAutoValidation();
+            });
+        }
+
+        const adjTimeEl = document.getElementById('adjTime');
+        if (adjTimeEl) {
+            adjTimeEl.addEventListener('change', function () {
+                scheduleAdjustmentAutoValidation();
+            });
+            adjTimeEl.addEventListener('input', function () {
+                scheduleAdjustmentAutoValidation();
             });
         }
 

@@ -48,8 +48,60 @@ def shift_label(shift_type):
     return ' '.join(p.upper() if p.lower() in {'am', 'pm'} else p.capitalize() for p in parts)
 
 
+SWAP_HOLIDAY_RESTORE_PREFIX = '__swap_holiday_restore__:'
+
+
+def append_swap_holiday_restore_metadata(notes, holiday_date, time_off_type, holiday_notes):
+    """Append hidden swap metadata used to restore a removed holiday on swap delete."""
+    payload = json.dumps({
+        'date': holiday_date.strftime('%Y-%m-%d') if holiday_date else None,
+        'time_off_type': time_off_type or 'holiday',
+        'notes': holiday_notes or '',
+    }, separators=(',', ':'))
+    metadata_line = f"{SWAP_HOLIDAY_RESTORE_PREFIX}{payload}"
+    if not notes:
+        return metadata_line
+    return f"{notes}\n{metadata_line}"
+
+
+def extract_swap_holiday_restore_metadata(notes):
+    """Return a list of hidden holiday-restore metadata objects from swap notes."""
+    if not notes:
+        return []
+
+    metadata = []
+    for line in str(notes).splitlines():
+        if not line.startswith(SWAP_HOLIDAY_RESTORE_PREFIX):
+            continue
+        raw_payload = line[len(SWAP_HOLIDAY_RESTORE_PREFIX):]
+        try:
+            parsed = json.loads(raw_payload)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            metadata.append(parsed)
+    return metadata
+
+
+def strip_swap_internal_metadata(notes):
+    """Return swap notes with hidden internal metadata lines removed."""
+    if not notes:
+        return notes
+
+    visible_lines = [
+        line for line in str(notes).splitlines()
+        if not line.startswith(SWAP_HOLIDAY_RESTORE_PREFIX)
+    ]
+    cleaned = '\n'.join(visible_lines).strip()
+    return cleaned or None
+
+
 def group_consecutive_holidays(holidays_list):
-    """Group consecutive holiday dates into ranges for display."""
+    """Group holiday dates into ranges for display.
+
+    Dates are considered part of the same block when they are either directly
+    consecutive, or separated only by days where the driver has no working shift.
+    """
     if not holidays_list:
         return []
 
@@ -64,6 +116,8 @@ def group_consecutive_holidays(holidays_list):
             h.holiday_date,
         ),
     )
+    timings_dict = {t.shift_type: t for t in ShiftTiming.query.all()}
+
     groups = []
     current_group = [sorted_holidays[0]]
 
@@ -73,9 +127,21 @@ def group_consecutive_holidays(holidays_list):
         same_driver = holiday.driver_id == last.driver_id
         same_type = (holiday.time_off_type or "holiday") == (last.time_off_type or "holiday")
         same_notes = (holiday.notes or "") == (last.notes or "")
-        is_consecutive = (holiday.holiday_date - last.holiday_date).days == 1
+        day_gap = (holiday.holiday_date - last.holiday_date).days
 
-        if same_driver and same_type and same_notes and is_consecutive:
+        bridges_only_non_working = False
+        if day_gap > 1 and same_driver:
+            bridges_only_non_working = True
+            check_date = last.holiday_date + timedelta(days=1)
+            while check_date < holiday.holiday_date:
+                if driver_has_working_shift_on_date(last.driver, check_date, timings_dict):
+                    bridges_only_non_working = False
+                    break
+                check_date += timedelta(days=1)
+
+        is_group_continuation = day_gap == 1 or bridges_only_non_working
+
+        if same_driver and same_type and same_notes and is_group_continuation:
             current_group.append(holiday)
         else:
             groups.append(current_group)
@@ -242,6 +308,23 @@ def is_driver_on_holiday(driver_id, target_date):
     )
 
 
+def is_date_within_time_off_block(driver, target_date):
+    """Return True when ``target_date`` falls anywhere inside one of the driver's
+    grouped time-off blocks, including non-working gap days bridged by the block.
+    """
+    holidays = (
+        DriverHoliday.query
+        .filter(DriverHoliday.driver_id == driver.id)
+        .order_by(DriverHoliday.holiday_date.asc())
+        .all()
+    )
+    if not holidays:
+        return False
+
+    holiday_groups = group_consecutive_holidays(holidays)
+    return any(group[0].holiday_date <= target_date <= group[-1].holiday_date for group in holiday_groups)
+
+
 def get_drivers_for_date(target_date):
     """Get all drivers working on a specific date with their shift assignments and timing info"""
     all_timings = ShiftTiming.query.all()
@@ -320,7 +403,7 @@ def get_drivers_for_date(target_date):
     return drivers_working
 
 
-def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_swaps=True, include_extra=False):
+def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_swaps=True, include_extra=False, ignore_holiday=False):
     if timings_dict is None:
         all_timings = ShiftTiming.query.all()
         timings_dict = {timing.shift_type: timing for timing in all_timings}
@@ -426,7 +509,7 @@ def get_driver_shifts_for_date(driver, target_date, timings_dict=None, include_s
     def is_shift_allowed_for_date(shift_type):
         return _is_shift_type_allowed_on_date(shift_type, timings_dict, target_date, school_term_day_cache)
 
-    if is_driver_on_holiday(driver.id, target_date):
+    if not ignore_holiday and is_driver_on_holiday(driver.id, target_date):
         return finalize_entries([])
 
     if include_swaps:
@@ -789,24 +872,143 @@ def validate_adjustment_time(driver, target_date, adjustment_type, adjusted_time
         exclude_adjustment_id=exclude_adjustment_id,
     )
 
-    lower_bound = window_start
-    upper_bound = window_end
+    def to_minutes(time_value):
+        return (time_value.hour * 60) + time_value.minute
 
-    if adjustment_type == 'late_start' and earliest_early_finish and earliest_early_finish < upper_bound:
-        upper_bound = earliest_early_finish
-    if adjustment_type == 'early_finish' and latest_late_start and latest_late_start > lower_bound:
-        lower_bound = latest_late_start
+    def format_minutes(minutes_value):
+        normalized = minutes_value % (24 * 60)
+        return f"{normalized // 60:02d}:{normalized % 60:02d}"
+
+    window_start_min = to_minutes(window_start)
+    window_end_min = to_minutes(window_end)
+    crosses_midnight = window_end_min <= window_start_min
+    if crosses_midnight:
+        window_end_min += 24 * 60
+
+    def normalize_for_window(time_value):
+        minutes_value = to_minutes(time_value)
+        if crosses_midnight and minutes_value < window_start_min:
+            minutes_value += 24 * 60
+        return minutes_value
+
+    adjusted_minutes = normalize_for_window(adjusted_time)
+    latest_late_start_min = normalize_for_window(latest_late_start) if latest_late_start else None
+    earliest_early_finish_min = normalize_for_window(earliest_early_finish) if earliest_early_finish else None
+
+    # Base shift references (always anchor late_start to start and early_finish to end)
+    shift_start_bound = window_start_min
+    shift_end_bound = window_end_min
+
+    # Dynamic bounds constrained by opposite existing adjustment
+    lower_bound = shift_start_bound
+    upper_bound = shift_end_bound
+
+    if adjustment_type == 'late_start' and earliest_early_finish_min is not None and earliest_early_finish_min < upper_bound:
+        upper_bound = earliest_early_finish_min
+    if adjustment_type == 'early_finish' and latest_late_start_min is not None and latest_late_start_min > lower_bound:
+        lower_bound = latest_late_start_min
 
     if upper_bound <= lower_bound:
         return "Existing adjustments leave no valid time window on this day."
 
-    if adjusted_time <= lower_bound:
-        label = "Late start" if adjustment_type == 'late_start' else "Early finish"
-        return f"{label} must be later than {lower_bound.strftime('%H:%M')}."
+    if adjustment_type == 'late_start':
+        if adjusted_minutes <= shift_start_bound:
+            return f"Late start must be later than {format_minutes(shift_start_bound)}."
+        if adjusted_minutes >= upper_bound:
+            if earliest_early_finish_min is not None:
+                return f"Late start must be earlier than {format_minutes(earliest_early_finish_min)} because an early finish already exists."
+            return f"Late start must be within the shift window and earlier than {format_minutes(shift_end_bound)}."
+    else:  # early_finish
+        if adjusted_minutes >= shift_end_bound:
+            return f"Early finish must be earlier than {format_minutes(shift_end_bound)}."
+        if adjusted_minutes <= lower_bound:
+            if latest_late_start_min is not None:
+                return f"Early finish must be later than {format_minutes(latest_late_start_min)} because a late start already exists."
+            return f"Early finish must be within the shift window and later than {format_minutes(shift_start_bound)}."
 
-    if adjusted_time >= upper_bound:
-        label = "Late start" if adjustment_type == 'late_start' else "Early finish"
-        return f"{label} must be earlier than {upper_bound.strftime('%H:%M')}."
+    # Ensure final adjusted shift duration remains at least 2 hours.
+    effective_start = latest_late_start_min if latest_late_start_min is not None else shift_start_bound
+    effective_end = earliest_early_finish_min if earliest_early_finish_min is not None else shift_end_bound
+    if adjustment_type == 'late_start':
+        effective_start = adjusted_minutes
+    else:
+        effective_end = adjusted_minutes
+
+    if (effective_end - effective_start) < 120:
+        return "Late starts and early finishes must leave at least 2 hours of shift time."
+
+    return None
+
+
+def check_adjustment_deletion_rest_violation(driver, adjustment):
+    """Return an error string if deleting ``adjustment`` would produce a rest-period
+    violation (< MIN_REST_HOURS) against an adjacent overnight shift, or None if safe.
+
+    For a late_start: checks whether the previous day's overnight shift ends close
+    enough to the restored start that the gap falls below MIN_REST_HOURS.
+    For an early_finish: checks whether the next day's shift starts close enough to
+    the restored end that the gap falls below MIN_REST_HOURS.
+    """
+    timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
+
+    target_date = adjustment.adjustment_date
+    adj_type = adjustment.adjustment_type
+
+    window_start, window_end = get_driver_adjustment_time_window(driver, target_date, timings_dict)
+    if window_start is None or window_end is None:
+        return None
+
+    remaining_late_start, remaining_early_finish = get_adjustment_conflict_bounds(
+        driver.id, target_date, exclude_adjustment_id=adjustment.id
+    )
+
+    if adj_type == 'late_start':
+        new_start_time = remaining_late_start if remaining_late_start is not None else window_start
+        new_start_dt = datetime.combine(target_date, new_start_time)
+
+        prev_date = target_date - timedelta(days=1)
+        prev_shifts = get_driver_shifts_for_date(driver, prev_date, timings_dict)
+        for shift in prev_shifts:
+            if (shift.get('shift_type') == 'day_off'
+                    or shift.get('start_time') is None
+                    or shift.get('end_time') is None):
+                continue
+            if shift['end_time'] < shift['start_time']:
+                # Overnight: the shift ends on target_date
+                prev_end_dt = datetime.combine(target_date, shift['end_time'])
+                if prev_end_dt < new_start_dt:
+                    rest_h = (new_start_dt - prev_end_dt).total_seconds() / 3600
+                    if rest_h < MIN_REST_HOURS:
+                        return (
+                            f"Cannot delete this late start — the previous day's overnight shift "
+                            f"ends at {shift['end_time'].strftime('%H:%M')}, leaving only "
+                            f"{rest_h:.1f}h rest before the {new_start_time.strftime('%H:%M')} start "
+                            f"(minimum {MIN_REST_HOURS}h required)."
+                        )
+
+    elif adj_type == 'early_finish':
+        new_end_time = remaining_early_finish if remaining_early_finish is not None else window_end
+        is_overnight = window_end < window_start
+        if is_overnight:
+            new_end_dt = datetime.combine(target_date + timedelta(days=1), new_end_time)
+        else:
+            new_end_dt = datetime.combine(target_date, new_end_time)
+
+        next_date = target_date + timedelta(days=1)
+        next_shifts = get_driver_shifts_for_date(driver, next_date, timings_dict)
+        for shift in next_shifts:
+            if shift.get('shift_type') == 'day_off' or shift.get('start_time') is None:
+                continue
+            next_start_dt = datetime.combine(next_date, shift['start_time'])
+            if next_start_dt > new_end_dt:
+                rest_h = (next_start_dt - new_end_dt).total_seconds() / 3600
+                if rest_h < MIN_REST_HOURS:
+                    return (
+                        f"Cannot delete this early finish — the next day's shift starts at "
+                        f"{shift['start_time'].strftime('%H:%M')}, leaving only "
+                        f"{rest_h:.1f}h rest after the {new_end_time.strftime('%H:%M')} finish "
+                        f"(minimum {MIN_REST_HOURS}h required)."
+                    )
 
     return None
 
@@ -1529,19 +1731,31 @@ def validate_swap(driver, give_up_date, work_date, work_shift_types):
                 )
                 return errors
 
-    if is_driver_on_holiday(driver.id, work_date):
-        errors.append(f"{driver.formatted_name()} is marked as time off on {work_date.strftime('%d/%m/%Y')}.")
-
-    if is_driver_on_holiday(driver.id, give_up_date):
-        errors.append(f"{driver.formatted_name()} is already marked as time off on {give_up_date.strftime('%d/%m/%Y')}.")
-
-    base_give_up_entries = get_driver_shifts_for_date(driver, give_up_date, timings_dict, include_swaps=False)
+    base_give_up_entries = get_driver_shifts_for_date(
+        driver,
+        give_up_date,
+        timings_dict,
+        include_swaps=False,
+        ignore_holiday=True,
+    )
     base_give_up_shift_exists = any(entry.get('shift_type') != 'day_off' for entry in base_give_up_entries)
     effective_give_up_entries = get_driver_shifts_for_date(driver, give_up_date, timings_dict, include_swaps=True)
     effective_give_up_shift_exists = any(entry.get('shift_type') != 'day_off' for entry in effective_give_up_entries)
     give_up_shift_exists = base_give_up_shift_exists or effective_give_up_shift_exists
-    base_work_entries = get_driver_shifts_for_date(driver, work_date, timings_dict, include_swaps=False)
+    base_work_entries = get_driver_shifts_for_date(
+        driver,
+        work_date,
+        timings_dict,
+        include_swaps=False,
+        ignore_holiday=True,
+    )
     existing_base_work_shift = any(entry.get('shift_type') != 'day_off' for entry in base_work_entries)
+
+    if is_date_within_time_off_block(driver, work_date):
+        errors.append(f"{driver.formatted_name()} is marked as time off on {work_date.strftime('%d/%m/%Y')}.")
+
+    if is_driver_on_holiday(driver.id, give_up_date) and not base_give_up_shift_exists:
+        errors.append(f"{driver.formatted_name()} is already marked as time off on {give_up_date.strftime('%d/%m/%Y')}.")
 
     if not give_up_shift_exists:
         errors.append(f"{driver.formatted_name()} has no working shift on {give_up_date.strftime('%d/%m/%Y')}.")

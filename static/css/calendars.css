@@ -75,6 +75,15 @@
     background: #f1f3f5;
 }
 
+/* Guard against double-disabled styling: when whole calendar is disabled,
+   keep cells visually consistent even if cal-disabled is present. */
+.holiday-calendar.cal-disabled-state td.cal-day.cal-disabled,
+.holiday-calendar.cal-disabled-state td.cal-day.cal-disabled:hover {
+    background: #f1f3f5 !important;
+    border-color: #dee2e6 !important;
+    opacity: 1;
+}
+
 .holiday-calendar td.cal-day.cal-disabled {
     background: #f1f3f5 !important;
     border-color: #dee2e6 !important;

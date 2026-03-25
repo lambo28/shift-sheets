@@ -9,7 +9,7 @@ from utils import (
     parse_optional_int, parse_time_string, parse_month_start,
     validation_error_response,
     redirect_to_driver_custom_timings_panel,
-    get_driver_shifts_for_date, shift_label,
+    get_driver_shifts_for_date, shift_label, group_consecutive_holidays,
 )
 
 
@@ -273,6 +273,17 @@ def register(app):
         ).all()
         holiday_dates = {h.holiday_date.strftime("%Y-%m-%d"): h for h in holidays_in_month}
 
+        all_holidays_for_driver = (
+            DriverHoliday.query
+            .filter(DriverHoliday.driver_id == driver_id)
+            .order_by(DriverHoliday.holiday_date.asc())
+            .all()
+        )
+        holiday_block_ranges = [
+            (group[0].holiday_date, group[-1].holiday_date)
+            for group in group_consecutive_holidays(all_holidays_for_driver)
+        ]
+
         adjustments_in_month = ShiftAdjustment.query.filter(
             ShiftAdjustment.driver_id == driver_id,
             ShiftAdjustment.adjustment_date >= month_start,
@@ -330,11 +341,19 @@ def register(app):
             date_str = current_date.strftime("%Y-%m-%d")
             holiday_record = holiday_dates.get(date_str)
             is_holiday = holiday_record is not None
+            is_within_time_off_block = any(start_date <= current_date <= end_date for start_date, end_date in holiday_block_ranges)
             day_adjustments = adjustment_dates.get(date_str, [])
 
-            # If on holiday, show no shifts (holiday overrides)
+            # Holiday overrides the effective day display, but the base schedule
+            # is still useful for swap/time-off selection rules.
             day_entries = [] if is_holiday else get_driver_shifts_for_date(driver, current_date, timings_dict, include_extra=True)
-            base_day_entries = [] if is_holiday else get_driver_shifts_for_date(driver, current_date, timings_dict, include_swaps=False)
+            base_day_entries = get_driver_shifts_for_date(
+                driver,
+                current_date,
+                timings_dict,
+                include_swaps=False,
+                ignore_holiday=True,
+            )
             has_base_working_shift = any(entry.get("shift_type") != "day_off" for entry in base_day_entries)
 
             days.append({
@@ -342,6 +361,7 @@ def register(app):
                 "day": current_date.day,
                 "is_today": current_date == today,
                 "is_holiday": is_holiday,
+                "is_within_time_off_block": is_within_time_off_block,
                 "time_off_type": holiday_record.time_off_type if holiday_record else None,
                 "has_swap_give_up": date_str in swap_give_up_dates,
                 "has_swap_work": date_str in swap_work_dates,

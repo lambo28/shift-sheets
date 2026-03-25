@@ -410,8 +410,20 @@ class TestHolidayModel:
 
 class TestHolidayRoutes:
 
+    def _make_driver_with_working_window(self, db, driver_number, name, start_date=date(2026, 8, 1)):
+        driver = make_driver(db, driver_number=driver_number, name=name)
+        make_shift_timing(db, 'morning', '06:00', '14:00')
+        pattern = make_pattern(
+            db,
+            f'Holiday Working Pattern {driver_number}',
+            7,
+            ['morning', 'morning', 'morning', 'morning', 'morning', 'morning', 'morning']
+        )
+        make_assignment(db, driver, pattern, start_date, start_day_of_cycle=1)
+        return driver
+
     def test_add_holiday_success(self, client, db):
-        driver = make_driver(db, driver_number='10', name='Alice Smith')
+        driver = self._make_driver_with_working_window(db, driver_number='10', name='Alice Smith')
         resp = client.post('/scheduling/holiday/add', data={
             'driver_id': driver.id,
             'start_date': '2026-08-01',
@@ -466,7 +478,7 @@ class TestHolidayRoutes:
         assert b'05/09/2026' in resp.data
 
     def test_add_holiday_date_range(self, client, db):
-        driver = make_driver(db, driver_number='10', name='Alice Smith')
+        driver = self._make_driver_with_working_window(db, driver_number='10', name='Alice Smith')
         resp = client.post('/scheduling/holiday/add', data={
             'driver_id': driver.id,
             'start_date': '2026-08-01',
@@ -484,7 +496,7 @@ class TestHolidayRoutes:
             assert h.notes == 'Summer holiday'
 
     def test_add_holiday_single_day_via_range(self, client, db):
-        driver = make_driver(db, driver_number='11', name='Jane Doe')
+        driver = self._make_driver_with_working_window(db, driver_number='11', name='Jane Doe')
         resp = client.post('/scheduling/holiday/add', data={
             'driver_id': driver.id,
             'start_date': '2026-08-10',
@@ -495,7 +507,7 @@ class TestHolidayRoutes:
         assert DriverHoliday.query.filter_by(driver_id=driver.id).count() == 1
 
     def test_add_holiday_range_skips_existing(self, client, db):
-        driver = make_driver(db, driver_number='12', name='Bob Wilson')
+        driver = self._make_driver_with_working_window(db, driver_number='12', name='Bob Wilson')
         # Pre-create one holiday
         existing = DriverHoliday(driver_id=driver.id, holiday_date=date(2026, 8, 3))
         db.session.add(existing)
@@ -513,7 +525,7 @@ class TestHolidayRoutes:
         assert DriverHoliday.query.filter_by(driver_id=driver.id).count() == 5
 
     def test_add_holiday_overwrites_overlapping_time_off_types(self, client, db):
-        driver = make_driver(db, driver_number='13', name='Overlap Driver')
+        driver = self._make_driver_with_working_window(db, driver_number='13', name='Overlap Driver')
 
         # Existing holiday 5th-15th
         current = date(2026, 8, 5)
@@ -545,7 +557,7 @@ class TestHolidayRoutes:
             assert rec.time_off_type == 'vor'
 
     def test_update_holiday_overwrites_existing_overlap(self, client, db):
-        driver = make_driver(db, driver_number='14', name='Update Overlap Driver')
+        driver = self._make_driver_with_working_window(db, driver_number='14', name='Update Overlap Driver')
 
         # Existing holiday block 5th-11th
         for day in range(5, 12):
@@ -581,6 +593,47 @@ class TestHolidayRoutes:
             rec = DriverHoliday.query.filter_by(driver_id=driver.id, holiday_date=date(2026, 8, day)).first()
             assert rec is not None
             assert rec.time_off_type == 'vor'
+
+    def test_add_holiday_removes_overlapping_swaps_and_uses_base_working_days(self, client, db):
+        make_shift_timing(db, 'morning', '06:00', '14:00')
+        driver = make_driver(db, driver_number='15', name='Swap Holiday Driver')
+        pattern = make_pattern(
+            db,
+            'Swap Holiday Base Pattern',
+            7,
+            ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off']
+        )
+        make_assignment(db, driver, pattern, date(2026, 8, 3), start_day_of_cycle=1)
+
+        # Swap a base working day (03 Aug) onto a base day-off (04 Aug).
+        db.session.add(ShiftSwap(
+            driver_a_id=driver.id,
+            driver_b_id=driver.id,
+            date_a=date(2026, 8, 3),
+            date_b=date(2026, 8, 4),
+            work_shift_type='morning',
+        ))
+        db.session.commit()
+        assert ShiftSwap.query.count() == 1
+
+        resp = client.post('/scheduling/holiday/add', data={
+            'driver_id': driver.id,
+            'start_date': '2026-08-03',
+            'end_date': '2026-08-04',
+            'notes': 'Holiday with swap overlap',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+        # Swap should be removed automatically when holiday range overlaps it.
+        assert ShiftSwap.query.count() == 0
+
+        # Holidays should follow base pattern (non-swapped):
+        # 03 Aug is base working -> holiday record exists
+        # 04 Aug is base day_off -> no holiday record
+        rec_03 = DriverHoliday.query.filter_by(driver_id=driver.id, holiday_date=date(2026, 8, 3)).first()
+        rec_04 = DriverHoliday.query.filter_by(driver_id=driver.id, holiday_date=date(2026, 8, 4)).first()
+        assert rec_03 is not None
+        assert rec_04 is None
 
     def test_group_consecutive_holidays_keeps_drivers_and_notes_separate(self, db):
         driver_a = make_driver(db, driver_number='10', name='Alice Smith')
@@ -964,7 +1017,7 @@ class TestAdjustmentRoutes:
             'driver_id': driver.id,
             'adjustment_date': '2026-07-10',
             'adjustment_type': 'late_start',
-            'adjusted_time': '17:59',
+            'adjusted_time': '16:00',
         }, follow_redirects=True)
         assert ok.status_code == 200
         assert ShiftAdjustment.query.count() == 1
@@ -1518,6 +1571,7 @@ class TestSwapRoutes:
             'give_up_date': give_up_date.strftime('%Y-%m-%d'),
             'work_date': work_date.strftime('%Y-%m-%d'),
             'work_shift_type': 'morning',
+            'approved_by': 'Manager Name',
             'notes': 'Test swap',
         }, follow_redirects=True)
         assert resp.status_code == 200
@@ -1526,7 +1580,7 @@ class TestSwapRoutes:
         assert swap.driver_a_id == driver_id
         assert swap.driver_b_id == driver_id
         assert swap.work_shift_type == 'morning'
-        assert swap.notes == 'Test swap'
+        assert swap.notes == 'Approved by: Manager Name\nTest swap'
 
     def test_delete_swap(self, client, db):
         driver = make_driver(db, '1', 'Alice Smith')
@@ -1583,6 +1637,77 @@ class TestSwapRoutes:
         assert ShiftSwap.query.count() == 0
         assert ShiftAdjustment.query.count() == 0
 
+    def test_delete_swap_reconciles_time_off_for_restored_working_and_off_days(self, client, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'morning', '06:00', '14:00')
+            ref = date(2026, 6, 1)
+            pattern = make_pattern(
+                db,
+                'Swap TimeOff Reconcile Pattern',
+                7,
+                ['morning', 'day_off', 'morning', 'day_off', 'day_off', 'day_off', 'day_off']
+            )
+            driver = make_driver(db, '1', 'Alice Smith')
+            make_assignment(db, driver, pattern, ref, start_day_of_cycle=1)
+
+            swap = ShiftSwap(
+                driver_a_id=driver.id,
+                driver_b_id=driver.id,
+                date_a=date(2026, 6, 1),  # originally working; becomes OFF while swap exists
+                date_b=date(2026, 6, 2),  # originally OFF; becomes working while swap exists
+                work_shift_type='morning',
+            )
+            db.session.add(swap)
+            db.session.flush()
+
+            # Existing holiday block surrounding date_a with date_a missing
+            # and an explicit holiday on date_b that should be removed when
+            # date_b reverts to OFF after swap deletion.
+            db.session.add_all([
+                DriverHoliday(
+                    driver_id=driver.id,
+                    holiday_date=date(2026, 5, 31),
+                    time_off_type='holiday',
+                    notes='Summer leave',
+                ),
+                DriverHoliday(
+                    driver_id=driver.id,
+                    holiday_date=date(2026, 6, 2),
+                    time_off_type='holiday',
+                    notes='Summer leave',
+                ),
+                DriverHoliday(
+                    driver_id=driver.id,
+                    holiday_date=date(2026, 6, 3),
+                    time_off_type='holiday',
+                    notes='Summer leave',
+                ),
+            ])
+            db.session.commit()
+            swap_id = swap.id
+            driver_id = driver.id
+
+        resp = client.post(f'/scheduling/swap/{swap_id}/delete', follow_redirects=True)
+        assert resp.status_code == 200
+        assert ShiftSwap.query.count() == 0
+
+        # date_b should be removed from time off because it is OFF again
+        removed = DriverHoliday.query.filter_by(
+            driver_id=driver_id,
+            holiday_date=date(2026, 6, 2),
+        ).first()
+        assert removed is None
+
+        # date_a should be restored to time off because it becomes working again
+        # and sits inside the existing holiday block context.
+        restored = DriverHoliday.query.filter_by(
+            driver_id=driver_id,
+            holiday_date=date(2026, 6, 1),
+        ).first()
+        assert restored is not None
+        assert restored.time_off_type == 'holiday'
+        assert restored.notes == 'Summer leave'
+
     def test_add_swap_removes_adjustment_when_work_date_becomes_split_shift_day(self, client, db):
         with flask_app.app_context():
             make_shift_timing(db, 'morning', '06:00', '14:00')
@@ -1616,12 +1741,98 @@ class TestSwapRoutes:
             'give_up_date': '2026-06-03',
             'work_date': '2026-06-02',
             'work_shift_type': 'afternoon',
+            'approved_by': 'Manager Name',
             'notes': 'Create split day',
         }, follow_redirects=True)
 
         assert resp.status_code == 200
         assert ShiftSwap.query.count() == 2
         assert ShiftAdjustment.query.filter_by(adjustment_date=date(2026, 6, 2)).count() == 0
+
+    def test_swap_can_use_holiday_covered_working_day_as_give_up_and_restore_on_delete(self, client, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'morning', '06:00', '14:00')
+            ref = date(2026, 6, 1)
+            pattern = make_pattern(
+                db,
+                'Holiday GiveUp Swap Pattern',
+                7,
+                ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off']
+            )
+            driver = make_driver(db, '44', 'Holiday Swap Driver')
+            make_assignment(db, driver, pattern, ref, start_day_of_cycle=1)
+
+            # Mark the base working day as holiday, leaving a later day off as
+            # the work date for the swap.
+            db.session.add(DriverHoliday(
+                driver_id=driver.id,
+                holiday_date=date(2026, 6, 1),
+                time_off_type='holiday',
+                notes='Annual leave',
+            ))
+            db.session.commit()
+            driver_id = driver.id
+
+        # Holiday-covered working day should be accepted as give-up date.
+        resp = client.post('/scheduling/swap/add', data={
+            'driver_id': driver_id,
+            'give_up_date': '2026-06-01',
+            'work_date': '2026-06-02',
+            'work_shift_type': 'morning',
+            'approved_by': 'Manager Name',
+            'notes': 'Swap after holiday',
+        }, follow_redirects=True)
+
+        assert resp.status_code == 200
+        assert ShiftSwap.query.count() == 1
+        # Holiday should be removed once the swap is recorded.
+        assert DriverHoliday.query.filter_by(driver_id=driver_id, holiday_date=date(2026, 6, 1)).count() == 0
+
+        swap = ShiftSwap.query.first()
+        swap_id = swap.id
+
+        delete_resp = client.post(f'/scheduling/swap/{swap_id}/delete', follow_redirects=True)
+        assert delete_resp.status_code == 200
+        assert ShiftSwap.query.count() == 0
+
+        restored = DriverHoliday.query.filter_by(driver_id=driver_id, holiday_date=date(2026, 6, 1)).first()
+        assert restored is not None
+        assert restored.time_off_type == 'holiday'
+        assert restored.notes == 'Annual leave'
+
+    def test_swap_rejects_work_date_inside_time_off_block_gap_day(self, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'morning', '06:00', '14:00')
+            ref = date(2026, 6, 1)
+            pattern = make_pattern(
+                db,
+                'Time Off Block Gap Pattern',
+                7,
+                ['morning', 'day_off', 'morning', 'day_off', 'day_off', 'day_off', 'day_off']
+            )
+            driver = make_driver(db, '45', 'Block Gap Driver')
+            make_assignment(db, driver, pattern, ref, start_day_of_cycle=1)
+
+            # Create a grouped time-off block spanning 01 Jun to 03 Jun, where
+            # 02 Jun is the natural day-off gap in the middle of the block.
+            db.session.add_all([
+                DriverHoliday(
+                    driver_id=driver.id,
+                    holiday_date=date(2026, 6, 1),
+                    time_off_type='holiday',
+                    notes='Time off block',
+                ),
+                DriverHoliday(
+                    driver_id=driver.id,
+                    holiday_date=date(2026, 6, 3),
+                    time_off_type='holiday',
+                    notes='Time off block',
+                ),
+            ])
+            db.session.commit()
+
+            errors = validate_swap(driver, date(2026, 6, 8), date(2026, 6, 2), 'morning')
+            assert any('marked as time off' in e.lower() for e in errors)
 
     def test_scheduling_page_lists_swaps(self, client, db):
         driver = make_driver(db, '1', 'Alice Smith')

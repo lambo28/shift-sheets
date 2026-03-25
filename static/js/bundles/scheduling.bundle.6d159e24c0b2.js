@@ -590,6 +590,15 @@ function escapeHtml(str) {
         return day || null;
     }
 
+    function getMinimumSelectableDateStr() {
+        const now = new Date();
+        const minDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (now.getHours() < 6) {
+            minDate.setDate(minDate.getDate() - 1);
+        }
+        return formatDateISO(minDate);
+    }
+
     /**
      * Render the calendar for the current calViewDate month.
      */
@@ -623,6 +632,16 @@ function escapeHtml(str) {
 
         const today = new Date();
         const todayStr = formatDateISO(today);
+        const minSelectableDateStr = getMinimumSelectableDateStr();
+
+        if (calStartDate && calStartDate < minSelectableDateStr) {
+            calStartDate = null;
+            calEndDate = null;
+            updateDateDisplay();
+            updateFormInputs();
+            const btn = document.getElementById('saveHolidayBtn');
+            if (btn) btn.disabled = true;
+        }
 
         // First day of month (0=Sun ... 6=Sat). Convert to Mon-based (0=Mon ... 6=Sun)
         const firstDay = new Date(year, month, 1);
@@ -658,12 +677,13 @@ function escapeHtml(str) {
                 const dayData = getShiftsForDate(dateStr);
                 const dayWorkingShifts = ((dayData && dayData.shifts) || []).filter(function (s) { return s.shift_type !== 'day_off'; });
                 const isDayWorking = dayWorkingShifts.length > 0;
+                const isSwapWorkDay = Boolean(dayData && dayData.has_swap_work);
 
-                if (selectedDriverId && !isDayWorking) classes += ' cal-disabled';
+                if (selectedDriverId && (!isDayWorking || isSwapWorkDay || dateStr < minSelectableDateStr)) classes += ' cal-disabled';
 
                 // Only highlight in-range days that are working days when a driver is selected
                 const showInRange = isInRange && calStartDate && calEndDate && calStartDate !== calEndDate;
-                if (showInRange && (!selectedDriverId || isDayWorking)) classes += ' cal-in-range';
+                if (showInRange && (!selectedDriverId || (isDayWorking && !isSwapWorkDay))) classes += ' cal-in-range';
 
                 const visuals = buildUnifiedCalendarCellContent(dayData);
                 const inlineRowHtml = `${visuals.contentHtml}${visuals.extraShiftIconHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
@@ -893,6 +913,8 @@ function escapeHtml(str) {
     let adjSelectedDriverId = null;
     let adjDriverShiftData = null;
     let adjSelectedDateAllowsAdjustment = false;
+    let adjServerValidationPassed = false;
+    let adjValidationTimer = null;
 
     async function fetchAdjustmentDriverShifts(driverId, monthStr) {
         if (!driverId) {
@@ -926,6 +948,15 @@ function escapeHtml(str) {
         return `${yr}-${mo}-${da}`;
     }
 
+    function getMinimumSelectableDateStr() {
+        const now = new Date();
+        const minDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (now.getHours() < 6) {
+            minDate.setDate(minDate.getDate() - 1);
+        }
+        return formatDateISO(minDate);
+    }
+
     function updateAdjustmentDateDisplay() {
         const display = document.getElementById('adjDateDisplay');
         if (!display) return;
@@ -946,7 +977,82 @@ function escapeHtml(str) {
         if (input) input.value = adjSelectedDate || '';
 
         const saveBtn = document.getElementById('saveAdjustmentBtn');
-        if (saveBtn) saveBtn.disabled = !adjSelectedDate || !adjSelectedDateAllowsAdjustment;
+        const typeValue = (document.getElementById('adjType')?.value || '').trim();
+        const timeValue = (document.getElementById('adjTime')?.value || '').trim();
+        const requiredComplete = Boolean(adjSelectedDate && typeValue && timeValue);
+        if (saveBtn) saveBtn.disabled = !requiredComplete || !adjSelectedDateAllowsAdjustment || !adjServerValidationPassed;
+    }
+
+    function clearAdjustmentValidationResult() {
+        const resultEl = document.getElementById('adjValidationResult');
+        if (!resultEl) return;
+        resultEl.style.display = 'none';
+        resultEl.innerHTML = '';
+    }
+
+    function setAdjustmentValidationResult(level, message) {
+        const resultEl = document.getElementById('adjValidationResult');
+        if (!resultEl) return;
+        resultEl.innerHTML = `<div class="alert alert-${level} mb-0">${message}</div>`;
+        resultEl.style.display = '';
+    }
+
+    function resetAdjustmentValidationState() {
+        adjServerValidationPassed = false;
+        clearAdjustmentValidationResult();
+        updateAdjustmentFormInput();
+    }
+
+    async function runAdjustmentAutoValidation() {
+        const typeValue = (document.getElementById('adjType')?.value || '').trim();
+        const timeValue = (document.getElementById('adjTime')?.value || '').trim();
+
+        if (!adjSelectedDriverId || !adjSelectedDate || !typeValue || !timeValue || !adjSelectedDateAllowsAdjustment) {
+            resetAdjustmentValidationState();
+            return;
+        }
+
+        try {
+            const response = await fetch('/scheduling/adjustment/validate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: JSON.stringify({
+                    driver_id: adjSelectedDriverId,
+                    adjustment_date: adjSelectedDate,
+                    adjustment_type: typeValue,
+                    adjusted_time: timeValue
+                })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                adjServerValidationPassed = true;
+                setAdjustmentValidationResult('success', '<i class="fas fa-check-circle me-1"></i>Adjustment is valid. Click <strong>Save Adjustment</strong> to save.');
+            } else {
+                adjServerValidationPassed = false;
+                const errors = data.errors || [data.error || 'Validation failed.'];
+                setAdjustmentValidationResult('danger', `<i class="fas fa-times-circle me-1"></i><strong>Validation failed:</strong> ${errors.join(' ')}`);
+            }
+        } catch (err) {
+            adjServerValidationPassed = false;
+            setAdjustmentValidationResult('danger', '<i class="fas fa-times-circle me-1"></i>Could not reach the server. Please try again.');
+        }
+
+        updateAdjustmentFormInput();
+    }
+
+    function scheduleAdjustmentAutoValidation() {
+        resetAdjustmentValidationState();
+        if (adjValidationTimer) {
+            clearTimeout(adjValidationTimer);
+        }
+        adjValidationTimer = setTimeout(function () {
+            runAdjustmentAutoValidation();
+        }, 180);
     }
 
     function updateAdjustmentShiftStatus() {
@@ -956,6 +1062,7 @@ function escapeHtml(str) {
         if (!adjSelectedDriverId || !adjSelectedDate) {
             adjSelectedDateAllowsAdjustment = false;
             statusEl.innerHTML = '';
+            scheduleAdjustmentAutoValidation();
             return;
         }
 
@@ -969,13 +1076,14 @@ function escapeHtml(str) {
             adjSelectedDateAllowsAdjustment = false;
             const labels = workingShifts.map(shift => shift.label).join(', ');
             statusEl.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Split shift day selected (${labels}). Late starts and early finishes are not used on split shift days.</span>`;
+            scheduleAdjustmentAutoValidation();
             return;
         }
 
         if (workingShifts.length > 0) {
             adjSelectedDateAllowsAdjustment = true;
-            const labels = workingShifts.map(shift => shift.label).join(', ');
-            statusEl.innerHTML = `<span class="text-success"><i class="fas fa-check-circle me-1"></i>Shift on selected day: ${labels}</span>`;
+            statusEl.innerHTML = '';
+            scheduleAdjustmentAutoValidation();
             return;
         }
 
@@ -990,10 +1098,13 @@ function escapeHtml(str) {
             };
             const reason = typeMap[dayData.time_off_type] || 'Time Off';
             statusEl.innerHTML = `<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is marked as having time off (${reason}).</span>`;
+            scheduleAdjustmentAutoValidation();
             return;
         }
 
         statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is marked as Day Off on selected day.</span>';
+
+        scheduleAdjustmentAutoValidation();
     }
 
     async function renderAdjustmentCalendar() {
@@ -1025,6 +1136,15 @@ function escapeHtml(str) {
         }
 
         const todayStr = formatDateISO(new Date());
+        const minSelectableDateStr = getMinimumSelectableDateStr();
+
+        if (adjSelectedDate && adjSelectedDate < minSelectableDateStr) {
+            adjSelectedDate = null;
+            updateAdjustmentDateDisplay();
+            updateAdjustmentShiftStatus();
+            updateAdjustmentFormInput();
+        }
+
         const firstDay = new Date(year, month, 1);
         let startOffset = firstDay.getDay() - 1;
         if (startOffset < 0) startOffset = 6;
@@ -1057,7 +1177,7 @@ function escapeHtml(str) {
                 const dayShifts = (dayData && dayData.shifts) || [];
                 const dayWorkingShifts = dayShifts.filter(function (s) { return s.shift_type !== 'day_off'; });
                 const dayNonExtraShifts = dayWorkingShifts.filter(function (s) { return !s.is_extra; });
-                if (!dayWorkingShifts.length || dayNonExtraShifts.length >= 2) {
+                if (dateStr < minSelectableDateStr || !dayWorkingShifts.length || dayNonExtraShifts.length >= 2) {
                     classes += ' cal-disabled';
                 }
             }
@@ -1143,6 +1263,7 @@ function escapeHtml(str) {
                 adjSelectedDriverId = null;
                 adjDriverShiftData = null;
                 adjSelectedDate = null;
+                resetAdjustmentValidationState();
                 updateAdjustmentDateDisplay();
                 updateAdjustmentShiftStatus();
                 updateAdjustmentFormInput();
@@ -1154,10 +1275,28 @@ function escapeHtml(str) {
             driverSelect.addEventListener('change', function () {
                 adjSelectedDriverId = this.value ? parseInt(this.value, 10) : null;
                 adjSelectedDate = null;
+                resetAdjustmentValidationState();
                 updateAdjustmentDateDisplay();
                 updateAdjustmentShiftStatus();
                 updateAdjustmentFormInput();
                 renderAdjustmentCalendar();
+            });
+        }
+
+        const adjTypeEl = document.getElementById('adjType');
+        if (adjTypeEl) {
+            adjTypeEl.addEventListener('change', function () {
+                scheduleAdjustmentAutoValidation();
+            });
+        }
+
+        const adjTimeEl = document.getElementById('adjTime');
+        if (adjTimeEl) {
+            adjTimeEl.addEventListener('change', function () {
+                scheduleAdjustmentAutoValidation();
+            });
+            adjTimeEl.addEventListener('input', function () {
+                scheduleAdjustmentAutoValidation();
             });
         }
 
@@ -1192,6 +1331,7 @@ async function validateSwapForm() {
     const giveUpDate = document.getElementById('swapGiveUpDate').value;
     const workDate = document.getElementById('swapWorkDate').value;
     const workShiftType = document.getElementById('swapWorkShiftType').value;
+    const approvedBy = (document.getElementById('swapApprovedBy')?.value || '').trim();
 
     const resultDiv = document.getElementById('swapValidationResult');
     const confirmBtn = document.getElementById('confirmSwapBtn');
@@ -1200,8 +1340,8 @@ async function validateSwapForm() {
     resultDiv.style.display = 'none';
     confirmBtn.disabled = true;
 
-    if (!driverId || !giveUpDate || !workDate || !workShiftType) {
-        resultDiv.innerHTML = '<div class="alert alert-warning mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Please fill in all fields before validating.</div>';
+    if (!driverId || !giveUpDate || !workDate || !workShiftType || !approvedBy) {
+        resultDiv.innerHTML = '<div class="alert alert-warning mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Please fill in all required fields.</div>';
         resultDiv.style.display = '';
         return false;
     }
@@ -1267,6 +1407,34 @@ async function validateSwapForm() {
         return `${year}-${month}-${day}`;
     }
 
+    function getMinimumSelectableDateStr() {
+        const now = new Date();
+        const minDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (now.getHours() < 6) {
+            minDate.setDate(minDate.getDate() - 1);
+        }
+        return swapFormatDateISO(minDate);
+    }
+
+    function enforceSwapCutoffSelection() {
+        const minSelectableDateStr = getMinimumSelectableDateStr();
+        let didChange = false;
+
+        if (swapGiveUpDate && swapGiveUpDate < minSelectableDateStr) {
+            swapGiveUpDate = null;
+            didChange = true;
+        }
+        if (swapWorkDate && swapWorkDate < minSelectableDateStr) {
+            swapWorkDate = null;
+            didChange = true;
+        }
+
+        if (didChange) {
+            updateSwapSelectionDisplay();
+            syncSwapHiddenFields();
+        }
+    }
+
     async function fetchSwapDriverShifts(driverId, monthStr) {
         if (!driverId) {
             swapDriverShiftData = null;
@@ -1291,14 +1459,17 @@ async function validateSwapForm() {
     function isSwapDayWorkingDay(dateStr) {
         const dayData = getSwapDayData(dateStr);
         if (!dayData) return false;
-        if (dayData.is_holiday) return false;
-        return dayData.shifts && dayData.shifts.some(shift => shift.shift_type !== 'day_off');
+        if (dayData.is_holiday) return !!dayData.has_base_working_shift;
+        return (
+            (dayData.shifts && dayData.shifts.some(shift => shift.shift_type !== 'day_off'))
+            || !!dayData.has_base_working_shift
+        );
     }
 
     function isSwapDayOffDay(dateStr) {
         const dayData = getSwapDayData(dateStr);
         if (!dayData) return false;
-        if (dayData.is_holiday) return false;
+        if (dayData.is_holiday || dayData.is_within_time_off_block) return false;
         const hasWorkingShift = dayData.shifts && dayData.shifts.some(shift => shift.shift_type !== 'day_off');
         return !hasWorkingShift || !!dayData.has_swap_work;
     }
@@ -1344,6 +1515,7 @@ async function validateSwapForm() {
     }
 
     function renderCalendarGrid(tbody, year, month, selectedDate, phase, todayStr) {
+        const minSelectableDateStr = getMinimumSelectableDateStr();
         const firstDay = new Date(year, month, 1);
         let startOffset = firstDay.getDay() - 1;
         if (startOffset < 0) startOffset = 6;
@@ -1369,12 +1541,14 @@ async function validateSwapForm() {
             const hasWorkingShift = !!(dayData?.shifts && dayData.shifts.some(shift => shift.shift_type !== 'day_off'));
             const hasBaseWorkingShift = !!dayData?.has_base_working_shift;
             const isHoliday = !!dayData?.is_holiday;
+            const isWithinTimeOffBlock = !!dayData?.is_within_time_off_block;
             const isSwapUsed = !!(dayData?.has_swap_give_up || dayData?.has_swap_work);
             const hasSwapWork = !!dayData?.has_swap_work;
             // Only treat as a valid off day if the driver actually has a scheduled entry for this day
             // (shifts can be day_off type). An empty shifts array means no schedule at all → not selectable.
             const hasScheduledEntries = !!(dayData && Array.isArray(dayData.shifts) && dayData.shifts.length > 0);
             const isOffDay = !isHoliday && !hasWorkingShift && hasScheduledEntries;
+            const isBeforeMinimumDate = dateStr < minSelectableDateStr;
 
             let classes = 'cal-day';
             let isClickable = Boolean(swapSelectedDriverId);
@@ -1387,9 +1561,15 @@ async function validateSwapForm() {
             if (swapSelectedDriverId) {
                 if (phase === 'giveup') {
                     isWorkingDayForPhase = hasWorkingShift || hasBaseWorkingShift;
-                    isClickable = !isHoliday && (isMirroredSelection || (isWorkingDayForPhase && !isSwapUsed));
+                    isClickable = !isBeforeMinimumDate && (
+                        (isMirroredSelection && isWorkingDayForPhase)
+                        || (isWorkingDayForPhase && !isSwapUsed)
+                    );
                 } else if (phase === 'work') {
-                    isClickable = !isHoliday && (isMirroredSelection || (isOffDay && !isSwapUsed));
+                    isClickable = !isBeforeMinimumDate && !isHoliday && !isWithinTimeOffBlock && (
+                        (isMirroredSelection && !isWithinTimeOffBlock)
+                        || (isOffDay && !isSwapUsed)
+                    );
                 }
             }
 
@@ -1402,7 +1582,7 @@ async function validateSwapForm() {
             if (phase === 'giveup' && dateStr === swapGiveUpDate) classes += ' cal-swap-giveup';
             if (phase === 'work' && dateStr === swapWorkDate) classes += ' cal-swap-work';
 
-            html += `<td class="${classes}" data-date="${dateStr}" data-working-day="${isWorkingDayForPhase ? '1' : '0'}" data-off-day="${isOffDay ? '1' : '0'}" data-swap-used="${isSwapUsed ? '1' : '0'}" data-has-swap-work="${hasSwapWork ? '1' : '0'}">
+            html += `<td class="${classes}" data-date="${dateStr}" data-working-day="${isWorkingDayForPhase ? '1' : '0'}" data-off-day="${isOffDay ? '1' : '0'}" data-swap-used="${isSwapUsed ? '1' : '0'}" data-has-swap-work="${hasSwapWork ? '1' : '0'}" data-within-time-off-block="${isWithinTimeOffBlock ? '1' : '0'}">
                 <div class="cal-day-header">
                     <div class="fw-bold small">${dayCounter}</div>
                 </div>
@@ -1425,6 +1605,7 @@ async function validateSwapForm() {
                     isOffDay: td.getAttribute('data-off-day') === '1',
                     isSwapUsed: td.getAttribute('data-swap-used') === '1',
                     hasSwapWork: td.getAttribute('data-has-swap-work') === '1',
+                    isWithinTimeOffBlock: td.getAttribute('data-within-time-off-block') === '1',
                 };
                 if (phase === 'giveup') {
                     selectGiveUpDate(dateStr, dayMeta);
@@ -1461,6 +1642,7 @@ async function validateSwapForm() {
         const monthLabel = document.getElementById('swapGiveUpCalMonthLabel');
         if (!tbody || !monthLabel) return;
 
+        enforceSwapCutoffSelection();
         setSwapCalendarsDisabledState(!swapSelectedDriverId);
 
         disposeTooltipsIn(tbody);
@@ -1485,6 +1667,7 @@ async function validateSwapForm() {
         const monthLabel = document.getElementById('swapWorkCalMonthLabel');
         if (!tbody || !monthLabel) return;
 
+        enforceSwapCutoffSelection();
         setSwapCalendarsDisabledState(!swapSelectedDriverId);
 
         disposeTooltipsIn(tbody);
@@ -1510,7 +1693,7 @@ async function validateSwapForm() {
         } else {
             const isMirroredSelection = !!swapWorkDate && dateStr === swapWorkDate;
             const validWorking = dayMeta
-                ? (isMirroredSelection || (dayMeta.isWorkingDay && !dayMeta.isSwapUsed))
+                ? ((isMirroredSelection && dayMeta.isWorkingDay) || (dayMeta.isWorkingDay && !dayMeta.isSwapUsed))
                 : (isMirroredSelection || isSwapDayWorkingDay(dateStr));
             if (!validWorking) {
                 alert('You can only select a worked day that the driver has a shift on.');
@@ -1532,13 +1715,13 @@ async function validateSwapForm() {
             const isMirroredSelection = !!swapGiveUpDate && dateStr === swapGiveUpDate;
             const swapUsed = dayMeta ? dayMeta.isSwapUsed : false;
             const validOff = dayMeta
-                ? (isMirroredSelection || (dayMeta.isOffDay && !dayMeta.isSwapUsed))
+                ? ((isMirroredSelection && !dayMeta.isWithinTimeOffBlock) || (dayMeta.isOffDay && !dayMeta.isSwapUsed))
                 : (isMirroredSelection || isSwapDayOffDay(dateStr));
             if (!validOff) {
                 if (swapUsed) {
                     alert('This date is already swapped. Pick a non-swapped off day, or select the same date as the give-up side.');
                 } else {
-                    alert('You can only select an off day that is not a holiday.');
+                    alert('You can only select an off day that is not inside a time off block.');
                 }
                 return;
             }
@@ -1596,10 +1779,47 @@ async function validateSwapForm() {
         const clearBtn = document.getElementById('clearSwapSelection');
         if (clearBtn) {
             clearBtn.addEventListener('click', function () {
+                const driverSelectEl = document.getElementById('swapDriver');
+                const notesEl = document.getElementById('swapNotes');
+                const approvedByEl = document.getElementById('swapApprovedBy');
+                const validationResult = document.getElementById('swapValidationResult');
+                const confirmBtn = document.getElementById('confirmSwapBtn');
+
+                if (driverSelectEl) {
+                    driverSelectEl.value = '';
+                }
+                if (notesEl) {
+                    notesEl.value = '';
+                }
+                if (approvedByEl) {
+                    approvedByEl.value = '';
+                }
+
+                swapSelectedDriverId = null;
                 swapGiveUpDate = null;
                 swapWorkDate = null;
+
+                if (firstShiftOptionEl) {
+                    const firstShiftType = firstShiftOptionEl.getAttribute('data-shift-type');
+                    selectedPrimarySwapShift = swapShiftMeta[firstShiftType] || null;
+                } else {
+                    selectedPrimarySwapShift = null;
+                }
+
+                renderSwapSecondaryShiftOptions();
+                syncSwapShiftTypeHidden();
+                renderSwapShiftTypeDisplay();
+
                 updateSwapSelectionDisplay();
                 syncSwapHiddenFields();
+
+                if (validationResult) {
+                    validationResult.style.display = 'none';
+                }
+                if (confirmBtn) {
+                    confirmBtn.disabled = true;
+                }
+
                 renderGiveUpCalendar();
                 renderWorkCalendar();
             });
@@ -2068,19 +2288,14 @@ async function validateSwapForm() {
             adjTypeSelect.addEventListener('change', updateAdjTimeLabel);
         }
 
-        // Swap validate button
-        const validateBtn = document.getElementById('validateSwapBtn');
-        if (validateBtn) {
-            validateBtn.addEventListener('click', function () {
-                validateSwapForm();
-            });
-        }
-
-        // Re-invalidate when swap fields change (so user must re-validate)
-        ['swapDriver', 'swapGiveUpDate', 'swapWorkDate', 'swapWorkShiftType'].forEach(function (id) {
+        // Swap auto-validation when required fields are complete
+        ['swapDriver', 'swapGiveUpDate', 'swapWorkDate', 'swapWorkShiftType', 'swapApprovedBy'].forEach(function (id) {
             const el = document.getElementById(id);
-            if (el) {
-                el.addEventListener('change', resetSwapValidation);
+            if (!el) return;
+
+            el.addEventListener('change', scheduleSwapAutoValidation);
+            if (id === 'swapApprovedBy') {
+                el.addEventListener('input', scheduleSwapAutoValidation);
             }
         });
 
@@ -2244,6 +2459,33 @@ async function validateSwapForm() {
         const confirmBtn = document.getElementById('confirmSwapBtn');
         if (resultDiv) resultDiv.style.display = 'none';
         if (confirmBtn) confirmBtn.disabled = true;
+    }
+
+    let swapAutoValidationTimer = null;
+
+    function areSwapRequiredFieldsComplete() {
+        const driverId = (document.getElementById('swapDriver')?.value || '').trim();
+        const giveUpDate = (document.getElementById('swapGiveUpDate')?.value || '').trim();
+        const workDate = (document.getElementById('swapWorkDate')?.value || '').trim();
+        const workShiftType = (document.getElementById('swapWorkShiftType')?.value || '').trim();
+        const approvedBy = (document.getElementById('swapApprovedBy')?.value || '').trim();
+        return Boolean(driverId && giveUpDate && workDate && workShiftType && approvedBy);
+    }
+
+    function scheduleSwapAutoValidation() {
+        resetSwapValidation();
+
+        if (swapAutoValidationTimer) {
+            clearTimeout(swapAutoValidationTimer);
+        }
+
+        if (!areSwapRequiredFieldsComplete()) {
+            return;
+        }
+
+        swapAutoValidationTimer = setTimeout(function () {
+            validateSwapForm();
+        }, 180);
     }
 
     // -----------------------------------------------------------------------

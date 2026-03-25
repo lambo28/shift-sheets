@@ -119,19 +119,14 @@
             adjTypeSelect.addEventListener('change', updateAdjTimeLabel);
         }
 
-        // Swap validate button
-        const validateBtn = document.getElementById('validateSwapBtn');
-        if (validateBtn) {
-            validateBtn.addEventListener('click', function () {
-                validateSwapForm();
-            });
-        }
-
-        // Re-invalidate when swap fields change (so user must re-validate)
-        ['swapDriver', 'swapGiveUpDate', 'swapWorkDate', 'swapWorkShiftType'].forEach(function (id) {
+        // Swap auto-validation when required fields are complete
+        ['swapDriver', 'swapGiveUpDate', 'swapWorkDate', 'swapWorkShiftType', 'swapApprovedBy'].forEach(function (id) {
             const el = document.getElementById(id);
-            if (el) {
-                el.addEventListener('change', resetSwapValidation);
+            if (!el) return;
+
+            el.addEventListener('change', scheduleSwapAutoValidation);
+            if (id === 'swapApprovedBy') {
+                el.addEventListener('input', scheduleSwapAutoValidation);
             }
         });
 
@@ -295,6 +290,33 @@
         const confirmBtn = document.getElementById('confirmSwapBtn');
         if (resultDiv) resultDiv.style.display = 'none';
         if (confirmBtn) confirmBtn.disabled = true;
+    }
+
+    let swapAutoValidationTimer = null;
+
+    function areSwapRequiredFieldsComplete() {
+        const driverId = (document.getElementById('swapDriver')?.value || '').trim();
+        const giveUpDate = (document.getElementById('swapGiveUpDate')?.value || '').trim();
+        const workDate = (document.getElementById('swapWorkDate')?.value || '').trim();
+        const workShiftType = (document.getElementById('swapWorkShiftType')?.value || '').trim();
+        const approvedBy = (document.getElementById('swapApprovedBy')?.value || '').trim();
+        return Boolean(driverId && giveUpDate && workDate && workShiftType && approvedBy);
+    }
+
+    function scheduleSwapAutoValidation() {
+        resetSwapValidation();
+
+        if (swapAutoValidationTimer) {
+            clearTimeout(swapAutoValidationTimer);
+        }
+
+        if (!areSwapRequiredFieldsComplete()) {
+            return;
+        }
+
+        swapAutoValidationTimer = setTimeout(function () {
+            validateSwapForm();
+        }, 180);
     }
 
     // -----------------------------------------------------------------------

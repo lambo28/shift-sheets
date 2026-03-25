@@ -12,11 +12,13 @@ from utils import (
     validation_errors_response,
     parse_date_string, parse_time_string, parse_positive_int,
     require_driver, require_date,
-    validate_adjustment_time, validate_swap,
+    validate_adjustment_time, validate_swap, check_adjustment_deletion_rest_violation,
     group_consecutive_holidays,
     get_driver_shifts_for_date,
     is_driver_on_holiday, is_split_shift_day, driver_has_working_shift_on_date,
     shift_label,
+    append_swap_holiday_restore_metadata, extract_swap_holiday_restore_metadata,
+    strip_swap_internal_metadata,
     school_term_finished_at, school_term_delete_allowed_at,
     school_closure_finished_at, school_closure_delete_allowed_at,
 )
@@ -255,7 +257,7 @@ def register(app):
                     "driver_a_id": swap.driver_a_id,
                     "give_up_date": swap.give_up_date,
                     "work_date": swap.date_b,
-                    "notes": swap.notes,
+                    "notes": strip_swap_internal_metadata(swap.notes),
                     "give_up_shift_entries": list(swap.give_up_shift_entries or []),
                     "work_shift_entries": [],
                     "swap_ids": [],
@@ -263,8 +265,9 @@ def register(app):
                 merged_swaps_map[merge_key] = merged
 
             merged["swap_ids"].append(swap.id)
-            if not merged.get("notes") and swap.notes:
-                merged["notes"] = swap.notes
+            visible_notes = strip_swap_internal_metadata(swap.notes)
+            if not merged.get("notes") and visible_notes:
+                merged["notes"] = visible_notes
 
             merged["work_shift_entries"].append({
                 "shift_type": swap.work_shift_type,
@@ -545,37 +548,62 @@ def register(app):
         if end_date < start_date:
             return _scheduling_redirect("End date must be on or after start date.")
 
+        # If a swap touches the selected holiday window, remove it first so
+        # holiday day eligibility is based on the base (non-swapped) pattern.
+        removed_swaps = ShiftSwap.query.filter(
+            ShiftSwap.driver_a_id == driver_id,
+            ShiftSwap.driver_b_id == driver_id,
+            ShiftSwap.work_shift_type.isnot(None),
+            db.or_(
+                db.and_(ShiftSwap.date_a >= start_date, ShiftSwap.date_a <= end_date),
+                db.and_(ShiftSwap.date_b >= start_date, ShiftSwap.date_b <= end_date),
+            ),
+        ).delete(synchronize_session='fetch')
+
         replaced_count = DriverHoliday.query.filter(
             DriverHoliday.driver_id == driver_id,
             DriverHoliday.holiday_date >= start_date,
             DriverHoliday.holiday_date <= end_date,
         ).delete(synchronize_session='fetch')
 
+        timings_dict = {t.shift_type: t for t in ShiftTiming.query.all()}
         current_date = start_date
         days_added = 0
         while current_date <= end_date:
-            holiday = DriverHoliday(
-                driver_id=driver_id,
-                holiday_date=current_date,
-                time_off_type=time_off_type,
-                notes=notes or None,
+            base_day_entries = get_driver_shifts_for_date(
+                driver,
+                current_date,
+                timings_dict=timings_dict,
+                include_swaps=False,
             )
-            db.session.add(holiday)
-            days_added += 1
+            has_base_working_shift = any(entry.get('shift_type') != 'day_off' for entry in base_day_entries)
+            if has_base_working_shift:
+                holiday = DriverHoliday(
+                    driver_id=driver_id,
+                    holiday_date=current_date,
+                    time_off_type=time_off_type,
+                    notes=notes or None,
+                )
+                db.session.add(holiday)
+                days_added += 1
             current_date += timedelta(days=1)
 
         db.session.commit()
 
-        if days_added == 1:
+        if days_added == 0:
+            success_msg = f"No working days found in the selected range for {driver.formatted_name()} — nothing added."
+        elif days_added == 1:
             success_msg = f"Time off on {start_date.strftime('%d/%m/%Y')} added for {driver.formatted_name()}."
         else:
             success_msg = (
-                f"{days_added} time off days added for {driver.formatted_name()} "
+                f"{days_added} working day(s) marked as time off for {driver.formatted_name()} "
                 f"({start_date.strftime('%d/%m/%Y')} to {end_date.strftime('%d/%m/%Y')})."
             )
 
         if replaced_count:
             success_msg += f" Replaced {replaced_count} overlapping day(s) to keep time off types non-overlapping."
+        if removed_swaps:
+            success_msg += f" Removed {removed_swaps} swap(s) that overlapped the selected holiday range."
 
         flash(success_msg, "success")
         return redirect(url_for("scheduling"))
@@ -593,28 +621,49 @@ def register(app):
 
     @app.route("/scheduling/holiday/<int:holiday_id>/delete-group", methods=["POST"])
     def delete_holiday_group(holiday_id):
-        """Delete all time off in a group (consecutive dates) identified by first record."""
+        """Delete all time off in a grouped block identified by first record."""
         first_holiday = db.get_or_404(DriverHoliday, holiday_id)
         driver_id = first_holiday.driver_id
         time_off_type = first_holiday.time_off_type or "holiday"
         notes = first_holiday.notes or ""
         start_date = first_holiday.holiday_date
 
-        # Find the group - collect all consecutive time off
+        timings_dict = {t.shift_type: t for t in ShiftTiming.query.all()}
+
+        # Find grouped block - include dates bridged only by non-working days
         holidays_to_delete = [first_holiday]
-        next_date = start_date + timedelta(days=1)
-        while True:
-            next_holiday = DriverHoliday.query.filter_by(driver_id=driver_id, holiday_date=next_date).first()
-            if not next_holiday:
-                break
+        candidates = DriverHoliday.query.filter(
+            DriverHoliday.driver_id == driver_id,
+            DriverHoliday.holiday_date > start_date,
+        ).order_by(DriverHoliday.holiday_date.asc()).all()
 
-            next_type = next_holiday.time_off_type or "holiday"
-            next_notes = next_holiday.notes or ""
-            if next_type != time_off_type or next_notes != notes:
-                break
+        for candidate in candidates:
+            candidate_type = candidate.time_off_type or "holiday"
+            candidate_notes = candidate.notes or ""
+            if candidate_type != time_off_type or candidate_notes != notes:
+                continue
 
-            holidays_to_delete.append(next_holiday)
-            next_date += timedelta(days=1)
+            last_holiday = holidays_to_delete[-1]
+            day_gap = (candidate.holiday_date - last_holiday.holiday_date).days
+            if day_gap <= 0:
+                continue
+
+            if day_gap == 1:
+                holidays_to_delete.append(candidate)
+                continue
+
+            bridges_only_non_working = True
+            check_date = last_holiday.holiday_date + timedelta(days=1)
+            while check_date < candidate.holiday_date:
+                if driver_has_working_shift_on_date(first_holiday.driver, check_date, timings_dict):
+                    bridges_only_non_working = False
+                    break
+                check_date += timedelta(days=1)
+
+            if bridges_only_non_working:
+                holidays_to_delete.append(candidate)
+            else:
+                break
 
         end_date = holidays_to_delete[-1].holiday_date
         driver_name = first_holiday.driver.formatted_name()
@@ -703,6 +752,18 @@ def register(app):
                 DriverHoliday.holiday_date <= old_end,
             ).delete(synchronize_session='fetch')
 
+            # Remove swaps touching the target range so holiday eligibility uses
+            # base (non-swapped) working days.
+            removed_swaps = ShiftSwap.query.filter(
+                ShiftSwap.driver_a_id == driver_id,
+                ShiftSwap.driver_b_id == driver_id,
+                ShiftSwap.work_shift_type.isnot(None),
+                db.or_(
+                    db.and_(ShiftSwap.date_a >= new_start, ShiftSwap.date_a <= new_end),
+                    db.and_(ShiftSwap.date_b >= new_start, ShiftSwap.date_b <= new_end),
+                ),
+            ).delete(synchronize_session='fetch')
+
             # Enforce non-overlap by clearing any remaining records in target range
             replaced_count = DriverHoliday.query.filter(
                 DriverHoliday.driver_id == driver_id,
@@ -710,22 +771,33 @@ def register(app):
                 DriverHoliday.holiday_date <= new_end,
             ).delete(synchronize_session='fetch')
 
-            # Write updated block
+            # Write updated block (working days only)
+            timings_dict = {t.shift_type: t for t in ShiftTiming.query.all()}
             current_date = new_start
             while current_date <= new_end:
-                holiday = DriverHoliday(
-                    driver_id=driver_id,
-                    holiday_date=current_date,
-                    time_off_type=time_off_type,
-                    notes=notes or None,
+                base_day_entries = get_driver_shifts_for_date(
+                    driver,
+                    current_date,
+                    timings_dict=timings_dict,
+                    include_swaps=False,
                 )
-                db.session.add(holiday)
+                has_base_working_shift = any(entry.get('shift_type') != 'day_off' for entry in base_day_entries)
+                if has_base_working_shift:
+                    holiday = DriverHoliday(
+                        driver_id=driver_id,
+                        holiday_date=current_date,
+                        time_off_type=time_off_type,
+                        notes=notes or None,
+                    )
+                    db.session.add(holiday)
                 current_date += timedelta(days=1)
 
             db.session.commit()
             success_msg = f"Time off updated for {driver.formatted_name()}."
             if replaced_count:
                 success_msg += f" Replaced {replaced_count} overlapping day(s) to keep time off types non-overlapping."
+            if removed_swaps:
+                success_msg += f" Removed {removed_swaps} swap(s) that overlapped the selected holiday range."
             flash(success_msg, "success")
             return jsonify({"success": True, "message": f"Time off updated for {driver.formatted_name()}"})
         except Exception:
@@ -743,6 +815,45 @@ def register(app):
             "name": driver.name,
             "formatted_driver_number": driver.formatted_driver_number()
         })
+
+    @app.route("/scheduling/adjustment/validate", methods=["POST"])
+    def validate_adjustment_ajax():
+        """AJAX endpoint to validate an adjustment before save."""
+        data = request.get_json(silent=True) or request.form
+
+        driver, err = require_driver(data.get("driver_id"))
+        if err:
+            return err
+
+        date_str = (data.get("adjustment_date") or "").strip()
+        adjustment_type = (data.get("adjustment_type") or "").strip()
+        time_str = (data.get("adjusted_time") or "").strip()
+
+        adj_date, err = require_date(date_str, "adjustment date")
+        if err:
+            return err
+
+        if adjustment_type not in ("late_start", "early_finish"):
+            return json_error("Adjustment type must be 'late_start' or 'early_finish'.")
+
+        adjusted_time = parse_time_string(time_str)
+        if adjusted_time is None:
+            return json_error("Invalid time format. Use HH:MM.")
+
+        validation_error = validate_adjustment_time(driver, adj_date, adjustment_type, adjusted_time)
+        if validation_error:
+            return jsonify({"success": False, "errors": [validation_error]})
+
+        existing_same_type = ShiftAdjustment.query.filter_by(
+            driver_id=driver.id,
+            adjustment_date=adj_date,
+            adjustment_type=adjustment_type,
+        ).first()
+        if existing_same_type:
+            label = "Late Start" if adjustment_type == "late_start" else "Early Finish"
+            return jsonify({"success": False, "errors": [f"Only one {label} adjustment is allowed per driver per day."]})
+
+        return jsonify({"success": True, "errors": []})
 
     @app.route("/scheduling/adjustment/add", methods=["POST"])
     def add_adjustment():
@@ -844,6 +955,10 @@ def register(app):
     def delete_adjustment(adjustment_id):
         """Delete a shift adjustment."""
         adjustment = db.get_or_404(ShiftAdjustment, adjustment_id)
+        rest_error = check_adjustment_deletion_rest_violation(adjustment.driver, adjustment)
+        if rest_error:
+            flash(rest_error, "error")
+            return redirect(url_for("scheduling"))
         db.session.delete(adjustment)
         db.session.commit()
         flash("Adjustment removed.", "success")
@@ -945,7 +1060,18 @@ def register(app):
         work_date_str = request.form.get("work_date", "").strip()
         raw_wst = request.form.get("work_shift_type", "").strip()
         work_shift_types = [t.strip() for t in raw_wst.split(',') if t.strip()]
+        approved_by = request.form.get("approved_by", "").strip()
         notes = request.form.get("notes", "").strip()
+
+        if not approved_by:
+            return validation_errors_response(
+                ["Approved by is required."],
+                redirect_factory=lambda: redirect(url_for("scheduling")),
+            )
+
+        swap_notes = f"Approved by: {approved_by}"
+        if notes:
+            swap_notes = f"{swap_notes}\n{notes}"
 
         give_up_date = parse_date_string(give_up_date_str)
         work_date = parse_date_string(work_date_str)
@@ -958,6 +1084,24 @@ def register(app):
                 errors,
                 redirect_factory=lambda: redirect(url_for("scheduling")),
             )
+
+        removed_holiday_dates = []
+
+        # Allow a holiday-covered working day to be used as the give-up date.
+        # Saving the swap converts that date from holiday back to a plain day off.
+        holiday_on_give_up = DriverHoliday.query.filter(
+            DriverHoliday.driver_id == driver_id,
+            DriverHoliday.holiday_date == give_up_date,
+        ).first()
+        if holiday_on_give_up:
+            swap_notes = append_swap_holiday_restore_metadata(
+                swap_notes,
+                holiday_on_give_up.holiday_date,
+                holiday_on_give_up.time_off_type,
+                holiday_on_give_up.notes,
+            )
+            db.session.delete(holiday_on_give_up)
+            removed_holiday_dates.append(give_up_date)
 
         # Delete adjustments on give-up date only when it truly becomes day off
         if give_up_date != work_date:
@@ -980,18 +1124,37 @@ def register(app):
                 date_a=give_up_date,
                 date_b=work_date,
                 work_shift_type=wst,
-                notes=notes or None,
+                notes=swap_notes,
             )
             db.session.add(swap)
 
         db.session.flush()
 
         removed_split_adjustments = 0
+        removed_invalid_adjustment_details = []
         if is_split_shift_day(driver, work_date, include_swaps=True):
             removed_split_adjustments = ShiftAdjustment.query.filter(
                 ShiftAdjustment.driver_id == driver_id,
                 ShiftAdjustment.adjustment_date == work_date,
             ).delete(synchronize_session=False)
+        else:
+            # Re-validate existing adjustments against the new swapped shift window
+            adjustments_on_work_date = ShiftAdjustment.query.filter(
+                ShiftAdjustment.driver_id == driver_id,
+                ShiftAdjustment.adjustment_date == work_date,
+            ).order_by(ShiftAdjustment.id.asc()).all()
+
+            for adj in adjustments_on_work_date:
+                err = validate_adjustment_time(
+                    driver, work_date, adj.adjustment_type,
+                    adj.adjusted_time, exclude_adjustment_id=adj.id,
+                )
+                if err:
+                    label = "Late start" if adj.adjustment_type == "late_start" else "Early finish"
+                    removed_invalid_adjustment_details.append(
+                        f"{label} {adj.adjusted_time.strftime('%H:%M')}"
+                    )
+                    db.session.delete(adj)
 
         db.session.commit()
 
@@ -1009,6 +1172,15 @@ def register(app):
                 f" Removed {removed_split_adjustments} adjustment(s) on {work_date.strftime('%d/%m/%Y')} "
                 "because split shift days do not use late/early adjustments."
             )
+        if removed_invalid_adjustment_details:
+            success_message += (
+                f" Removed {len(removed_invalid_adjustment_details)} adjustment(s) on "
+                f"{work_date.strftime('%d/%m/%Y')} as they are no longer valid for the swapped shift "
+                f"({', '.join(removed_invalid_adjustment_details)})."
+            )
+        if removed_holiday_dates:
+            removed_holiday_text = ", ".join(d.strftime('%d/%m/%Y') for d in removed_holiday_dates)
+            success_message += f" Converted holiday date(s) to normal day off for the give-up side of the swap: {removed_holiday_text}."
 
         flash(success_message, "success")
         return redirect(url_for("scheduling"))
@@ -1034,6 +1206,12 @@ def register(app):
 
         removed_adjustments = 0
         removed_adjustment_details = []
+        removed_time_off_dates = []
+        restored_time_off_dates = []
+        timings_dict = {t.shift_type: t for t in ShiftTiming.query.all()}
+        restore_holiday_meta = []
+        for sibling in sibling_swaps:
+            restore_holiday_meta.extend(extract_swap_holiday_restore_metadata(sibling.notes))
         if not driver_has_working_shift_on_date(driver, work_date):
             adjustments_to_remove = ShiftAdjustment.query.filter(
                 ShiftAdjustment.driver_id == driver.id,
@@ -1046,15 +1224,150 @@ def register(app):
                 db.session.delete(adjustment)
 
             removed_adjustments = len(adjustments_to_remove)
+        else:
+            # The day is still a working day, but removing the swap can change the
+            # shift window (e.g. swapped 16:00-02:00 back to base 06:00-16:00).
+            # Remove any adjustments that are no longer valid for the restored window.
+            adjustments_on_work_date = ShiftAdjustment.query.filter(
+                ShiftAdjustment.driver_id == driver.id,
+                ShiftAdjustment.adjustment_date == work_date,
+            ).order_by(ShiftAdjustment.adjustment_type.asc(), ShiftAdjustment.adjusted_time.asc()).all()
+
+            for adjustment in adjustments_on_work_date:
+                validation_error = validate_adjustment_time(
+                    driver,
+                    work_date,
+                    adjustment.adjustment_type,
+                    adjustment.adjusted_time,
+                    exclude_adjustment_id=adjustment.id,
+                )
+                if validation_error:
+                    label = "Late Start" if adjustment.adjustment_type == "late_start" else "Early Finish"
+                    removed_adjustment_details.append(f"{label} {adjustment.adjusted_time.strftime('%H:%M')}")
+                    db.session.delete(adjustment)
+
+            removed_adjustments = len(removed_adjustment_details)
+
+        # Keep time-off records aligned with effective working state after swap removal.
+        # 1) Remove time-off rows from dates that are now non-working.
+        # 2) If a date becomes working again and sits inside an existing time-off block,
+        #    restore that date as time off so the block remains intact.
+        for target_date in {swap.date_a, swap.date_b}:
+            has_working_shift = driver_has_working_shift_on_date(driver, target_date, timings_dict)
+            existing_time_off = DriverHoliday.query.filter(
+                DriverHoliday.driver_id == driver.id,
+                DriverHoliday.holiday_date == target_date,
+            ).first()
+
+            if not has_working_shift:
+                if existing_time_off:
+                    db.session.delete(existing_time_off)
+                    removed_time_off_dates.append(target_date)
+                continue
+
+            if existing_time_off:
+                continue
+
+            matching_restore_meta = next(
+                (
+                    meta for meta in restore_holiday_meta
+                    if meta.get('date') == target_date.strftime('%Y-%m-%d')
+                ),
+                None,
+            )
+            if matching_restore_meta:
+                db.session.add(
+                    DriverHoliday(
+                        driver_id=driver.id,
+                        holiday_date=target_date,
+                        time_off_type=matching_restore_meta.get('time_off_type') or 'holiday',
+                        notes=matching_restore_meta.get('notes') or None,
+                    )
+                )
+                restored_time_off_dates.append(target_date)
+                continue
+
+            prev_time_off = DriverHoliday.query.filter(
+                DriverHoliday.driver_id == driver.id,
+                DriverHoliday.holiday_date < target_date,
+            ).order_by(DriverHoliday.holiday_date.desc()).first()
+            next_time_off = DriverHoliday.query.filter(
+                DriverHoliday.driver_id == driver.id,
+                DriverHoliday.holiday_date > target_date,
+            ).order_by(DriverHoliday.holiday_date.asc()).first()
+
+            if not prev_time_off or not next_time_off:
+                continue
+
+            prev_type = prev_time_off.time_off_type or "holiday"
+            next_type = next_time_off.time_off_type or "holiday"
+            prev_notes = prev_time_off.notes or ""
+            next_notes = next_time_off.notes or ""
+            if prev_type != next_type or prev_notes != next_notes:
+                continue
+
+            if not (prev_time_off.holiday_date < target_date < next_time_off.holiday_date):
+                continue
+
+            in_same_block = True
+            check_date = prev_time_off.holiday_date + timedelta(days=1)
+            while check_date < next_time_off.holiday_date:
+                if check_date == target_date:
+                    check_date += timedelta(days=1)
+                    continue
+
+                day_time_off = DriverHoliday.query.filter(
+                    DriverHoliday.driver_id == driver.id,
+                    DriverHoliday.holiday_date == check_date,
+                ).first()
+                if day_time_off:
+                    day_type = day_time_off.time_off_type or "holiday"
+                    day_notes = day_time_off.notes or ""
+                    if day_type != prev_type or day_notes != prev_notes:
+                        in_same_block = False
+                        break
+                elif driver_has_working_shift_on_date(driver, check_date, timings_dict):
+                    in_same_block = False
+                    break
+
+                check_date += timedelta(days=1)
+
+            if not in_same_block:
+                continue
+
+            db.session.add(
+                DriverHoliday(
+                    driver_id=driver.id,
+                    holiday_date=target_date,
+                    time_off_type=prev_time_off.time_off_type,
+                    notes=prev_time_off.notes,
+                )
+            )
+            restored_time_off_dates.append(target_date)
 
         db.session.commit()
 
+        messages = []
         if removed_adjustments:
             detail_text = ", ".join(removed_adjustment_details)
-            flash(
-                f"Swap removed. Also removed {removed_adjustments} adjustment(s) on {work_date.strftime('%d/%m/%Y')} because that day is now off: {detail_text}.",
-                "success",
+            messages.append(
+                f"Removed {removed_adjustments} adjustment(s) on {work_date.strftime('%d/%m/%Y')} because they are no longer valid for that day: {detail_text}."
             )
+
+        if removed_time_off_dates:
+            removed_dates_text = ", ".join(d.strftime('%d/%m/%Y') for d in sorted(removed_time_off_dates))
+            messages.append(
+                f"Removed time off from non-working date(s): {removed_dates_text}."
+            )
+
+        if restored_time_off_dates:
+            restored_dates_text = ", ".join(d.strftime('%d/%m/%Y') for d in sorted(restored_time_off_dates))
+            messages.append(
+                f"Restored time off on date(s) back inside an existing time-off block: {restored_dates_text}."
+            )
+
+        if messages:
+            flash(f"Swap removed. {' '.join(messages)}", "success")
             return redirect(url_for("scheduling"))
 
         removed_swaps = len(sibling_swaps) if sibling_swaps else 1

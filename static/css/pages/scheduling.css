@@ -17,7 +17,16 @@
 }
 
 #swapValidationResult .alert {
-    font-size: 0.875rem;
+    font-size: 0.78rem;
+    padding: 0.32rem 0.5rem;
+    line-height: 1.2;
+}
+
+#adjValidationResult .alert {
+    font-size: 0.78rem;
+    padding: 0.32rem 0.5rem;
+    line-height: 1.2;
+    margin-bottom: 0;
 }
 
 .badge-sm {
