@@ -407,7 +407,22 @@ function buildUnifiedCalendarCellContent(dayData) {
     const shiftBadges = [];
     const bottomTimeTokens = [];
 
-    shifts.forEach((shift) => {
+    const hasSwapGiveUp = !!safeDayData?.has_swap_give_up;
+    const hasSwapWork = !!safeDayData?.has_swap_work;
+    const swapGiveUpCount = safeDayData?.swap_give_up_count || 0;
+    const swapWorkCount = safeDayData?.swap_work_count || 0;
+    const swapTooltipParts = [];
+    if (hasSwapGiveUp) {
+        swapTooltipParts.push(swapGiveUpCount > 1 ? `Swap give-up day (${swapGiveUpCount})` : 'Swap give-up day');
+    }
+    if (hasSwapWork) {
+        swapTooltipParts.push(swapWorkCount > 1 ? `Swap work day (${swapWorkCount})` : 'Swap work day');
+    }
+    const swapMarkerHtml = swapTooltipParts.length
+        ? `<i class="fas fa-exchange-alt cal-box-swap-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(swapTooltipParts.join(' • '))}"></i>`
+        : '';
+
+    shifts.forEach((shift, idx) => {
         const isExtraShift = !!shift.is_extra;
         const startMinutes = calToMinutes(shift.start_time);
         const endMinutes = calToMinutes(shift.end_time);
@@ -432,11 +447,17 @@ function buildUnifiedCalendarCellContent(dayData) {
             return;
         }
 
-        const shiftIconHtml = (shift.shift_type === 'day_off' || shift.label === 'OFF')
-            ? ''
-            : `<i class="${shift.icon || 'fas fa-clock'} text-white"></i>`;
+        const isDayOff = shift.shift_type === 'day_off' || shift.label === 'OFF';
+        const shiftIconHtml = isDayOff
+            ? '<i class="fas fa-user-clock"></i>'
+            : `<i class="${shift.icon || 'fas fa-clock'}"></i>`;
 
-        shiftBadges.push(`<span class="badge ${shift.badge_color || 'bg-primary'} cal-shift-box"><span class="cal-shift-label">${shiftIconHtml}${shift.label}</span></span>`);
+        const swapInside = (idx === 0) ? swapMarkerHtml : '';
+        const hasSwapMarkerClass = swapInside ? ' cal-has-swap-marker' : '';
+        const shiftTitle = isDayOff ? 'Day off' : (shift.label || 'Shift');
+        shiftBadges.push(
+            `<span class="badge ${shift.badge_color || 'bg-primary'} cal-shift-box cal-icon-box${hasSwapMarkerClass}" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(shiftTitle)}"><span class="cal-shift-label">${shiftIconHtml}${swapInside}</span></span>`
+        );
     });
 
     let timeOffHtml = '';
@@ -445,15 +466,12 @@ function buildUnifiedCalendarCellContent(dayData) {
         const label = CAL_TIME_OFF_LABELS[type] || 'Time Off';
         const icon = CAL_TIME_OFF_ICONS[type] || 'fa-user-clock';
         const badgeClass = CAL_TIME_OFF_BADGES[type] || 'bg-info text-dark';
-        timeOffHtml = `<span class="badge ${badgeClass} cal-shift-box cal-timeoff" data-bs-toggle="tooltip" data-bs-placement="top" title="Driver marked as ${escapeHtml(label)}"><span class="cal-shift-label"><i class="fas ${icon}"></i>OFF</span></span>`;
+        const timeOffHasSwapClass = swapMarkerHtml ? ' cal-has-swap-marker' : '';
+        timeOffHtml = `<span class="badge ${badgeClass} cal-shift-box cal-timeoff cal-icon-box${timeOffHasSwapClass}" data-bs-toggle="tooltip" data-bs-placement="top" title="Driver marked as ${escapeHtml(label)}"><span class="cal-shift-label"><i class="fas ${icon} scheduling-type-white-icon"></i>${swapMarkerHtml}</span></span>`;
     }
 
     const lateStart = adjustments.find((adj) => adj.adjustment_type === 'late_start');
     const earlyFinish = adjustments.find((adj) => adj.adjustment_type === 'early_finish');
-    const hasSwapGiveUp = !!safeDayData?.has_swap_give_up;
-    const hasSwapWork = !!safeDayData?.has_swap_work;
-    const swapGiveUpCount = safeDayData?.swap_give_up_count || 0;
-    const swapWorkCount = safeDayData?.swap_work_count || 0;
 
     // Check for extra shifts
     const extraShifts = shifts.filter((s) => s.is_extra);
@@ -462,37 +480,39 @@ function buildUnifiedCalendarCellContent(dayData) {
         : null;
 
     const lateStartIconHtml = lateStart
-        ? `<span class="cal-adjustment-icon badge-late-start-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${lateStart.label} at ${lateStart.time}${lateStart.notes ? ` — ${lateStart.notes}` : ''}`)}"><i class="fas fa-hourglass-start"></i></span>`
+        ? `<span class="cal-adjustment-icon cal-icon-box badge-late-start-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${lateStart.label} at ${lateStart.time}${lateStart.notes ? ` — ${lateStart.notes}` : ''}`)}"><i class="fas fa-hourglass-start"></i></span>`
         : '';
 
     const earlyFinishIconHtml = earlyFinish
-        ? `<span class="cal-adjustment-icon badge-early-finish-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${earlyFinish.label} at ${earlyFinish.time}${earlyFinish.notes ? ` — ${earlyFinish.notes}` : ''}`)}"><i class="fas fa-hourglass-end"></i></span>`
+        ? `<span class="cal-adjustment-icon cal-icon-box badge-early-finish-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${earlyFinish.label} at ${earlyFinish.time}${earlyFinish.notes ? ` — ${earlyFinish.notes}` : ''}`)}"><i class="fas fa-hourglass-end"></i></span>`
         : '';
 
     const extraShiftIconHtml = extraShiftTooltip
-        ? `<span class="cal-adjustment-icon badge-extra-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(extraShiftTooltip)}"><i class="fas fa-plus"></i></span>`
+        ? `<span class="cal-adjustment-icon cal-icon-box badge-extra-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(extraShiftTooltip)}"><i class="fas fa-plus"></i></span>`
         : '';
 
     const swapGiveUpIconHtml = hasSwapGiveUp
-        ? `<span class="cal-adjustment-icon badge-swap-giveup-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`Swap give-up day (${swapGiveUpCount})`)}"><i class="fas fa-right-from-bracket"></i></span>`
+        ? `<span class="cal-adjustment-icon badge-swap-giveup-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(swapGiveUpCount > 1 ? `Swap give-up day (${swapGiveUpCount})` : 'Swap give-up day')}"><i class="fas fa-right-from-bracket"></i></span>`
         : '';
 
     const swapWorkIconHtml = hasSwapWork
-        ? `<span class="cal-adjustment-icon badge-swap-work-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`Swap work day (${swapWorkCount})`)}"><i class="fas fa-right-to-bracket"></i></span>`
-        : '';
-
-    const swapTooltipParts = [];
-    if (hasSwapGiveUp) swapTooltipParts.push(`Swap give-up day (${swapGiveUpCount})`);
-    if (hasSwapWork) swapTooltipParts.push(`Swap work day (${swapWorkCount})`);
-
-    const swapInlineMarkerHtml = swapTooltipParts.length
-        ? `<i class="fas fa-exchange-alt ms-1" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(swapTooltipParts.join(' • '))}"></i>`
+        ? `<span class="cal-adjustment-icon badge-swap-work-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(swapWorkCount > 1 ? `Swap work day (${swapWorkCount})` : 'Swap work day')}"><i class="fas fa-right-to-bracket"></i></span>`
         : '';
 
     const baseContentHtml = `${shiftBadges.join('')}${timeOffHtml}`;
-    const contentHtml = (baseContentHtml || swapInlineMarkerHtml)
-        ? `${baseContentHtml}${swapInlineMarkerHtml}`
+    const contentHtml = baseContentHtml
+        ? `${baseContentHtml}`
         : '<small class="text-muted">No shift</small>';
+
+    const iconCount =
+        (shiftBadges.length + (timeOffHtml ? 1 : 0))
+        + (lateStart ? 1 : 0)
+        + (earlyFinish ? 1 : 0)
+        + (extraShiftTooltip ? 1 : 0);
+
+    let inlineSizeClass = '';
+    if (iconCount >= 5) inlineSizeClass = 'cal-icons-5plus';
+    else if (iconCount >= 4) inlineSizeClass = 'cal-icons-4';
 
     return {
         contentHtml,
@@ -502,6 +522,7 @@ function buildUnifiedCalendarCellContent(dayData) {
         extraShiftIconHtml,
         swapGiveUpIconHtml,
         swapWorkIconHtml,
+        inlineSizeClass,
     };
 }
 
@@ -692,7 +713,7 @@ function escapeHtml(str) {
                     <div class="cal-day-header">
                         <div class="fw-bold small">${dayCounter}</div>
                     </div>
-                    <div class="cal-day-inline">${inlineRowHtml}</div>
+                    <div class="cal-day-inline ${visuals.inlineSizeClass || ''}">${inlineRowHtml}</div>
                 </td>`;
                 dayCounter++;
             }
@@ -1189,7 +1210,7 @@ function escapeHtml(str) {
                 <div class="cal-day-header">
                     <div class="fw-bold small">${dayCounter}</div>
                 </div>
-                <div class="cal-day-inline">${inlineRowHtml}</div>
+                <div class="cal-day-inline ${visuals.inlineSizeClass || ''}">${inlineRowHtml}</div>
             </td>`;
             dayCounter++;
         }
@@ -1586,7 +1607,7 @@ async function validateSwapForm() {
                 <div class="cal-day-header">
                     <div class="fw-bold small">${dayCounter}</div>
                 </div>
-                <div class="cal-day-inline">${inlineRowHtml}</div>
+                <div class="cal-day-inline ${visuals.inlineSizeClass || ''}">${inlineRowHtml}</div>
             </td>`;
 
             dayCounter++;
@@ -1902,11 +1923,11 @@ async function validateSwapForm() {
 
             const badges = [];
             if (selectedPrimarySwapShift) {
-                badges.push('<span class="badge ' + selectedPrimarySwapShift.color + ' p-2 me-1"><i class="' + selectedPrimarySwapShift.icon + '"></i></span>' + selectedPrimarySwapShift.label);
+                badges.push('<span class="badge ' + selectedPrimarySwapShift.color + ' schedule-dropdown-icon-badge me-1"><i class="' + selectedPrimarySwapShift.icon + ' scheduling-type-white-icon"></i></span>' + selectedPrimarySwapShift.label);
             }
 
             if (!badges.length) {
-                displaySpan.innerHTML = '<span class="badge bg-light text-dark border p-2 me-1"><i class="fas fa-minus"></i></span>— Select shift type —';
+                displaySpan.innerHTML = '<span class="badge bg-light text-dark border schedule-dropdown-icon-badge me-1"><i class="fas fa-minus text-secondary"></i></span>— Select shift type —';
                 return;
             }
             displaySpan.innerHTML = badges.join(' ');
@@ -1922,17 +1943,17 @@ async function validateSwapForm() {
             const renderSecondaryDisplay = function () {
                 const secondaryValue = String(secondarySelect.value || '').trim();
                 if (!secondaryValue || !swapShiftMeta[secondaryValue]) {
-                    secondaryDisplay.innerHTML = '<span class="badge bg-light text-dark border p-2 me-1"><i class="fas fa-minus"></i></span>None';
+                    secondaryDisplay.innerHTML = '<span class="badge bg-light text-dark border schedule-dropdown-icon-badge me-1"><i class="fas fa-minus text-secondary"></i></span>None';
                     return;
                 }
                 const meta = swapShiftMeta[secondaryValue];
-                secondaryDisplay.innerHTML = '<span class="badge ' + meta.color + ' p-2 me-1"><i class="' + meta.icon + '"></i></span>' + meta.label;
+                secondaryDisplay.innerHTML = '<span class="badge ' + meta.color + ' schedule-dropdown-icon-badge me-1"><i class="' + meta.icon + ' scheduling-type-white-icon"></i></span>' + meta.label;
             };
 
             const renderSecondaryMenu = function (siblings) {
-                let menuHtml = '<li><a class="dropdown-item swap-second-shift-option" href="#" data-value=""><span class="badge bg-light text-dark border p-2 me-2"><i class="fas fa-minus"></i></span>None</a></li>';
+                let menuHtml = '<li><a class="dropdown-item swap-second-shift-option" href="#" data-value=""><span class="badge bg-light text-dark border schedule-dropdown-icon-badge me-2"><i class="fas fa-minus text-secondary"></i></span>None</a></li>';
                 siblings.forEach(function (meta) {
-                    menuHtml += '<li><a class="dropdown-item swap-second-shift-option" href="#" data-value="' + meta.shiftType + '"><span class="badge ' + meta.color + ' p-2 me-2"><i class="' + meta.icon + '"></i></span>' + meta.label + '</a></li>';
+                    menuHtml += '<li><a class="dropdown-item swap-second-shift-option" href="#" data-value="' + meta.shiftType + '"><span class="badge ' + meta.color + ' schedule-dropdown-icon-badge me-2"><i class="' + meta.icon + ' scheduling-type-white-icon"></i></span>' + meta.label + '</a></li>';
                 });
                 secondaryMenu.innerHTML = menuHtml;
 
@@ -1983,10 +2004,10 @@ async function validateSwapForm() {
                 const secondaryValue = String(secondarySelect.value || '').trim();
                 if (secondaryDisplay) {
                     if (!secondaryValue || !swapShiftMeta[secondaryValue]) {
-                        secondaryDisplay.innerHTML = '<span class="badge bg-light text-dark border p-2 me-1"><i class="fas fa-minus"></i></span>None';
+                        secondaryDisplay.innerHTML = '<span class="badge bg-light text-dark border schedule-dropdown-icon-badge me-1"><i class="fas fa-minus text-secondary"></i></span>None';
                     } else {
                         const secondaryMeta = swapShiftMeta[secondaryValue];
-                        secondaryDisplay.innerHTML = '<span class="badge ' + secondaryMeta.color + ' p-2 me-1"><i class="' + secondaryMeta.icon + '"></i></span>' + secondaryMeta.label;
+                        secondaryDisplay.innerHTML = '<span class="badge ' + secondaryMeta.color + ' schedule-dropdown-icon-badge me-1"><i class="' + secondaryMeta.icon + ' scheduling-type-white-icon"></i></span>' + secondaryMeta.label;
                     }
                 }
                 syncSwapShiftTypeHidden();
@@ -2195,7 +2216,7 @@ async function validateSwapForm() {
             const badgeClass = opt.dataset.badge || 'bg-secondary';
             return `<li>
                 <a class="dropdown-item scheduling-type-option" href="#" data-value="${value}" data-label="${label}" data-icon="${icon}" data-badge="${badgeClass}">
-                    <span class="badge ${badgeClass} p-2 me-2"><i class="${icon}"></i></span>
+                    <span class="badge ${badgeClass} schedule-dropdown-icon-badge me-2"><i class="${icon} scheduling-type-white-icon"></i></span>
                     ${label}
                 </a>
             </li>`;
@@ -2218,14 +2239,14 @@ async function validateSwapForm() {
             }
 
             if (!selected) {
-                displayEl.innerHTML = `<span class="badge bg-light text-dark border p-2 me-1"><i class="fas fa-minus"></i></span>${placeholder}`;
+                displayEl.innerHTML = `<span class="badge bg-light text-dark border schedule-dropdown-icon-badge me-1"><i class="fas fa-minus text-secondary"></i></span>${placeholder}`;
                 return;
             }
 
             const icon = selected.dataset.icon || 'fas fa-circle';
             const badgeClass = selected.dataset.badge || 'bg-secondary';
             const label = selected.textContent || selected.value;
-            displayEl.innerHTML = `<span class="badge ${badgeClass} p-2 me-1"><i class="${icon}"></i></span>${label}`;
+            displayEl.innerHTML = `<span class="badge ${badgeClass} schedule-dropdown-icon-badge me-1"><i class="${icon} scheduling-type-white-icon"></i></span>${label}`;
         }
 
         menuEl.querySelectorAll('.scheduling-type-option').forEach(function (link) {
@@ -2279,6 +2300,7 @@ async function validateSwapForm() {
 
         initStyledTypeDropdown('timeOffType', 'timeOffTypeMenu', 'timeOffTypeDisplay', '— Select type —', { autoSelectFirst: true });
         initStyledTypeDropdown('adjType', 'adjTypeMenu', 'adjTypeDisplay', '— Select type —', { autoSelectFirst: true });
+        initStyledTypeDropdown('closureType', 'closureTypeMenu', 'closureTypeDisplay', '— Select type —', { autoSelectFirst: true });
         initStyledTypeDropdown('editTimeOffType', 'editTimeOffTypeMenu', 'editTimeOffTypeDisplay', '— Select type —', { autoSelectFirst: true });
         initStyledTypeDropdown('editAdjType', 'editAdjTypeMenu', 'editAdjTypeDisplay', '— Select type —', { autoSelectFirst: true });
 
@@ -2310,6 +2332,8 @@ async function validateSwapForm() {
         restoreActiveTab();
 
         initSchoolCalendarWeekendValidation();
+        initSchoolTermRangeCalendar();
+        initSchoolClosureSingleCalendar();
 
         // Activate tab from URL hash
         const hash = window.location.hash;
@@ -2349,36 +2373,19 @@ async function validateSwapForm() {
         const termEndInput = document.getElementById('termEndDate');
         const closureDateInput = document.getElementById('closureDate');
 
-        if (termStartInput) {
-            termStartInput.addEventListener('change', function () {
-                setWeekendValidity(termStartInput, 'Start date cannot be Saturday or Sunday.');
-                termStartInput.reportValidity();
-            });
-        }
-
-        if (termEndInput) {
-            termEndInput.addEventListener('change', function () {
-                setWeekendValidity(termEndInput, 'End date cannot be Saturday or Sunday.');
-                termEndInput.reportValidity();
-            });
-        }
-
-        if (closureDateInput) {
-            closureDateInput.addEventListener('change', function () {
-                setWeekendValidity(closureDateInput, 'Closure date cannot be Saturday or Sunday.');
-                closureDateInput.reportValidity();
-            });
-        }
-
         if (termForm) {
             termForm.addEventListener('submit', function (e) {
-                setWeekendValidity(termStartInput, 'Start date cannot be Saturday or Sunday.');
-                setWeekendValidity(termEndInput, 'End date cannot be Saturday or Sunday.');
+                const startValue = termStartInput ? String(termStartInput.value || '').trim() : '';
+                const endValue = termEndInput ? String(termEndInput.value || '').trim() : '';
 
-                if ((termStartInput && !termStartInput.checkValidity()) || (termEndInput && !termEndInput.checkValidity())) {
+                if (!startValue || !endValue) {
                     e.preventDefault();
-                    termStartInput && termStartInput.reportValidity();
-                    termEndInput && termEndInput.reportValidity();
+                    showPageAlert('Please select a start and end date from the School Term calendar.', 'danger');
+                    return;
+                }
+
+                if (isWeekendDate(startValue) || isWeekendDate(endValue)) {
+                    e.preventDefault();
                     showPageAlert('Weekend dates are not allowed in School Calendar entries.', 'danger');
                 }
             });
@@ -2386,15 +2393,332 @@ async function validateSwapForm() {
 
         if (closureForm) {
             closureForm.addEventListener('submit', function (e) {
-                setWeekendValidity(closureDateInput, 'Closure date cannot be Saturday or Sunday.');
-
-                if (closureDateInput && !closureDateInput.checkValidity()) {
+                const closureValue = closureDateInput ? String(closureDateInput.value || '').trim() : '';
+                if (!closureValue) {
                     e.preventDefault();
-                    closureDateInput.reportValidity();
+                    showPageAlert('Please select a school closed day from the calendar.', 'danger');
+                    return;
+                }
+
+                if (isWeekendDate(closureValue)) {
+                    e.preventDefault();
                     showPageAlert('Weekend dates are not allowed in School Calendar entries.', 'danger');
                 }
             });
         }
+    }
+
+    function initSchoolClosureSingleCalendar() {
+        const tbody = document.getElementById('closureCalBody');
+        const monthLabel = document.getElementById('closureCalMonthLabel');
+        const prevBtn = document.getElementById('closureCalPrev');
+        const nextBtn = document.getElementById('closureCalNext');
+        const clearBtn = document.getElementById('clearClosureSelection');
+        const closureInput = document.getElementById('closureDate');
+        const display = document.getElementById('closureDateDisplay');
+        const saveBtn = document.getElementById('saveClosureBtn');
+
+        if (!tbody || !monthLabel || !closureInput) return;
+
+        const viewDate = new Date();
+        viewDate.setDate(1);
+
+        let selectedDate = closureInput.value || null;
+
+        function toISO(dateObj) {
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function isWeekendISO(dateStr) {
+            if (!dateStr) return false;
+            const parsed = new Date(`${dateStr}T00:00:00`);
+            if (Number.isNaN(parsed.getTime())) return false;
+            const day = parsed.getDay();
+            return day === 0 || day === 6;
+        }
+
+        function syncInput() {
+            closureInput.value = selectedDate || '';
+            if (saveBtn) saveBtn.disabled = !selectedDate;
+        }
+
+        function updateDisplay() {
+            if (!display) return;
+            if (!selectedDate) {
+                display.textContent = 'Click a date on the calendar.';
+                return;
+            }
+            const selectedObj = new Date(`${selectedDate}T00:00:00`);
+            const selectedFormatted = selectedObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+            display.innerHTML = `<strong>Selected:</strong> ${selectedFormatted}`;
+        }
+
+        function selectDate(dateStr) {
+            if (isWeekendISO(dateStr)) return;
+            selectedDate = dateStr;
+            syncInput();
+            updateDisplay();
+            render();
+        }
+
+        function render() {
+            const year = viewDate.getFullYear();
+            const month = viewDate.getMonth();
+            monthLabel.textContent = viewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+            const firstDay = new Date(year, month, 1);
+            let startOffset = firstDay.getDay() - 1;
+            if (startOffset < 0) startOffset = 6;
+
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+
+            let html = '<tr>';
+            let dayCounter = 1;
+
+            for (let i = 0; i < totalCells; i++) {
+                if (i % 7 === 0 && i > 0) html += '</tr><tr>';
+
+                if (i < startOffset || dayCounter > daysInMonth) {
+                    html += '<td class="cal-empty"></td>';
+                    continue;
+                }
+
+                const dateStr = toISO(new Date(year, month, dayCounter));
+                const weekend = isWeekendISO(dateStr);
+                const isSelected = dateStr === selectedDate;
+
+                let classes = 'cal-day';
+                if (weekend) classes += ' cal-disabled';
+                if (isSelected) classes += ' cal-selected';
+
+                html += `<td class="${classes}" data-date="${dateStr}">
+                    <div class="cal-day-header">
+                        <div class="fw-bold small">${dayCounter}</div>
+                    </div>
+                </td>`;
+                dayCounter++;
+            }
+
+            html += '</tr>';
+            tbody.innerHTML = html;
+
+            tbody.querySelectorAll('td.cal-day').forEach(function (cell) {
+                cell.addEventListener('click', function () {
+                    if (cell.classList.contains('cal-disabled')) return;
+                    const pickedDate = cell.getAttribute('data-date');
+                    if (!pickedDate) return;
+                    selectDate(pickedDate);
+                });
+            });
+        }
+
+        if (prevBtn) {
+            prevBtn.addEventListener('click', function () {
+                viewDate.setMonth(viewDate.getMonth() - 1);
+                render();
+            });
+        }
+
+        if (nextBtn) {
+            nextBtn.addEventListener('click', function () {
+                viewDate.setMonth(viewDate.getMonth() + 1);
+                render();
+            });
+        }
+
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function () {
+                selectedDate = null;
+                syncInput();
+                updateDisplay();
+                render();
+            });
+        }
+
+        syncInput();
+        updateDisplay();
+        render();
+    }
+
+    function initSchoolTermRangeCalendar() {
+        const tbody = document.getElementById('termCalBody');
+        const monthLabel = document.getElementById('termCalMonthLabel');
+        const prevBtn = document.getElementById('termCalPrev');
+        const nextBtn = document.getElementById('termCalNext');
+        const clearBtn = document.getElementById('clearTermSelection');
+        const startInput = document.getElementById('termStartDate');
+        const endInput = document.getElementById('termEndDate');
+        const display = document.getElementById('termDateDisplay');
+        const saveBtn = document.getElementById('saveTermBtn');
+
+        if (!tbody || !monthLabel || !startInput || !endInput) return;
+
+        const viewDate = new Date();
+        viewDate.setDate(1);
+
+        let startDate = startInput.value || null;
+        let endDate = endInput.value || null;
+
+        if (startDate && !endDate) {
+            endDate = startDate;
+        }
+
+        function toISO(dateObj) {
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function isWeekendISO(dateStr) {
+            if (!dateStr) return false;
+            const parsed = new Date(`${dateStr}T00:00:00`);
+            if (Number.isNaN(parsed.getTime())) return false;
+            const day = parsed.getDay();
+            return day === 0 || day === 6;
+        }
+
+        function isInRange(dateStr) {
+            if (!startDate) return false;
+            if (!endDate) return dateStr === startDate;
+            return dateStr >= startDate && dateStr <= endDate;
+        }
+
+        function updateDisplayText() {
+            if (!display) return;
+
+            if (!startDate) {
+                display.textContent = 'Click a start date, then click an end date on the calendar.';
+                return;
+            }
+
+            const startObj = new Date(`${startDate}T00:00:00`);
+            const startFormatted = startObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+            if (!endDate || endDate === startDate) {
+                display.innerHTML = `<strong>Selected:</strong> ${startFormatted} (1 day)`;
+                return;
+            }
+
+            const endObj = new Date(`${endDate}T00:00:00`);
+            const endFormatted = endObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+            const dayCount = Math.floor((endObj - startObj) / (1000 * 60 * 60 * 24)) + 1;
+            display.innerHTML = `<strong>Range:</strong> ${startFormatted} to ${endFormatted} (${dayCount} days)`;
+        }
+
+        function syncInputs() {
+            startInput.value = startDate || '';
+            endInput.value = endDate || startDate || '';
+            if (saveBtn) saveBtn.disabled = !startDate;
+        }
+
+        function selectDate(dateStr) {
+            if (isWeekendISO(dateStr)) return;
+
+            if (!startDate || (startDate && endDate)) {
+                startDate = dateStr;
+                endDate = null;
+            } else {
+                endDate = dateStr;
+                if (endDate < startDate) {
+                    const temp = startDate;
+                    startDate = endDate;
+                    endDate = temp;
+                }
+            }
+
+            updateDisplayText();
+            syncInputs();
+            render();
+        }
+
+        function render() {
+            const year = viewDate.getFullYear();
+            const month = viewDate.getMonth();
+
+            monthLabel.textContent = viewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+            const firstDay = new Date(year, month, 1);
+            let startOffset = firstDay.getDay() - 1;
+            if (startOffset < 0) startOffset = 6;
+
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+
+            let html = '<tr>';
+            let dayCounter = 1;
+
+            for (let i = 0; i < totalCells; i++) {
+                if (i % 7 === 0 && i > 0) html += '</tr><tr>';
+
+                if (i < startOffset || dayCounter > daysInMonth) {
+                    html += '<td class="cal-empty"></td>';
+                    continue;
+                }
+
+                const dateStr = toISO(new Date(year, month, dayCounter));
+                const weekend = isWeekendISO(dateStr);
+                const selectedStart = dateStr === startDate;
+                const selectedEnd = dateStr === endDate;
+                const inRange = isInRange(dateStr);
+
+                let classes = 'cal-day';
+                if (weekend) classes += ' cal-disabled';
+                if (selectedStart || selectedEnd) classes += ' cal-selected';
+                if (inRange && startDate && endDate && startDate !== endDate) classes += ' cal-in-range';
+
+                html += `<td class="${classes}" data-date="${dateStr}">
+                    <div class="cal-day-header">
+                        <div class="fw-bold small">${dayCounter}</div>
+                    </div>
+                </td>`;
+                dayCounter++;
+            }
+
+            html += '</tr>';
+            tbody.innerHTML = html;
+
+            tbody.querySelectorAll('td.cal-day').forEach(function (cell) {
+                cell.addEventListener('click', function () {
+                    if (cell.classList.contains('cal-disabled')) return;
+                    const pickedDate = cell.getAttribute('data-date');
+                    if (!pickedDate) return;
+                    selectDate(pickedDate);
+                });
+            });
+        }
+
+        if (prevBtn) {
+            prevBtn.addEventListener('click', function () {
+                viewDate.setMonth(viewDate.getMonth() - 1);
+                render();
+            });
+        }
+
+        if (nextBtn) {
+            nextBtn.addEventListener('click', function () {
+                viewDate.setMonth(viewDate.getMonth() + 1);
+                render();
+            });
+        }
+
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function () {
+                startDate = null;
+                endDate = null;
+                updateDisplayText();
+                syncInputs();
+                render();
+            });
+        }
+
+        updateDisplayText();
+        syncInputs();
+        render();
     }
 
     function initDriverBlockToggleButtons() {

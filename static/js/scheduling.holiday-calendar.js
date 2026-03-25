@@ -163,7 +163,7 @@
                     <div class="cal-day-header">
                         <div class="fw-bold small">${dayCounter}</div>
                     </div>
-                    <div class="cal-day-inline">${inlineRowHtml}</div>
+                    <div class="cal-day-inline ${visuals.inlineSizeClass || ''}">${inlineRowHtml}</div>
                 </td>`;
                 dayCounter++;
             }

@@ -16,6 +16,72 @@
     color: #fff;
 }
 
+.schedule-record-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-height: 1.85rem;
+    padding: 0.38rem 0.62rem;
+    border-radius: 0.5rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1;
+    color: #fff !important;
+    vertical-align: middle;
+}
+
+.schedule-record-badge i {
+    color: #fff !important;
+}
+
+.scheduling-type-white-icon {
+    color: #fff !important;
+}
+
+.schedule-driver-number-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.85rem;
+    line-height: 1;
+    vertical-align: middle;
+}
+
+.schedule-dropdown-icon-badge {
+    width: 2rem;
+    height: 2rem;
+    min-width: 2rem;
+    min-height: 2rem;
+    padding: 0 !important;
+    border-radius: 0.375rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#holidayNotes,
+#adjNotes,
+#swapNotes,
+#closureNotes,
+#editHolidayNotes,
+#editAdjNotes,
+#editClosureNotes {
+    background-color: #fff !important;
+    background-image: none !important;
+}
+
+#holidayNotes:-webkit-autofill,
+#adjNotes:-webkit-autofill,
+#swapNotes:-webkit-autofill,
+#closureNotes:-webkit-autofill,
+#editHolidayNotes:-webkit-autofill,
+#editAdjNotes:-webkit-autofill,
+#editClosureNotes:-webkit-autofill {
+    -webkit-box-shadow: 0 0 0 30px #fff inset !important;
+    -webkit-text-fill-color: #212529 !important;
+}
+
 #swapValidationResult .alert {
     font-size: 0.78rem;
     padding: 0.32rem 0.5rem;
@@ -40,11 +106,32 @@
     vertical-align: middle;
 }
 
+.adjustments-main-records-table thead th {
+    border-top: 2px solid #212529 !important;
+}
+
 .adj-stack {
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
     line-height: 1.15;
+}
+
+.adj-stack > div,
+.adj-stack > .badge,
+.adj-actions > .btn-group {
+    min-height: 31px;
+    display: flex;
+    align-items: center;
+}
+
+.adj-stack > .badge {
+    align-self: flex-start;
+}
+
+.adj-stack-merged-dash {
+    min-height: calc(31px * 2 + 0.2rem);
+    justify-content: center;
 }
 
 .adj-actions {
@@ -76,4 +163,17 @@
 .school-calendar-list-box {
     max-height: 320px;
     overflow-y: auto;
+}
+
+.school-calendar-list-box table thead th,
+#finishedSchoolTermsModal table thead th,
+#finishedSchoolClosuresModal table thead th {
+    border-top: 2px solid #212529 !important;
+    vertical-align: middle;
+}
+
+.school-calendar-list-box table tbody td,
+#finishedSchoolTermsModal table tbody td,
+#finishedSchoolClosuresModal table tbody td {
+    vertical-align: middle;
 }

@@ -271,7 +271,7 @@ async function validateSwapForm() {
                 <div class="cal-day-header">
                     <div class="fw-bold small">${dayCounter}</div>
                 </div>
-                <div class="cal-day-inline">${inlineRowHtml}</div>
+                <div class="cal-day-inline ${visuals.inlineSizeClass || ''}">${inlineRowHtml}</div>
             </td>`;
 
             dayCounter++;
@@ -587,11 +587,11 @@ async function validateSwapForm() {
 
             const badges = [];
             if (selectedPrimarySwapShift) {
-                badges.push('<span class="badge ' + selectedPrimarySwapShift.color + ' p-2 me-1"><i class="' + selectedPrimarySwapShift.icon + '"></i></span>' + selectedPrimarySwapShift.label);
+                badges.push('<span class="badge ' + selectedPrimarySwapShift.color + ' schedule-dropdown-icon-badge me-1"><i class="' + selectedPrimarySwapShift.icon + ' scheduling-type-white-icon"></i></span>' + selectedPrimarySwapShift.label);
             }
 
             if (!badges.length) {
-                displaySpan.innerHTML = '<span class="badge bg-light text-dark border p-2 me-1"><i class="fas fa-minus"></i></span>— Select shift type —';
+                displaySpan.innerHTML = '<span class="badge bg-light text-dark border schedule-dropdown-icon-badge me-1"><i class="fas fa-minus text-secondary"></i></span>— Select shift type —';
                 return;
             }
             displaySpan.innerHTML = badges.join(' ');
@@ -607,17 +607,17 @@ async function validateSwapForm() {
             const renderSecondaryDisplay = function () {
                 const secondaryValue = String(secondarySelect.value || '').trim();
                 if (!secondaryValue || !swapShiftMeta[secondaryValue]) {
-                    secondaryDisplay.innerHTML = '<span class="badge bg-light text-dark border p-2 me-1"><i class="fas fa-minus"></i></span>None';
+                    secondaryDisplay.innerHTML = '<span class="badge bg-light text-dark border schedule-dropdown-icon-badge me-1"><i class="fas fa-minus text-secondary"></i></span>None';
                     return;
                 }
                 const meta = swapShiftMeta[secondaryValue];
-                secondaryDisplay.innerHTML = '<span class="badge ' + meta.color + ' p-2 me-1"><i class="' + meta.icon + '"></i></span>' + meta.label;
+                secondaryDisplay.innerHTML = '<span class="badge ' + meta.color + ' schedule-dropdown-icon-badge me-1"><i class="' + meta.icon + ' scheduling-type-white-icon"></i></span>' + meta.label;
             };
 
             const renderSecondaryMenu = function (siblings) {
-                let menuHtml = '<li><a class="dropdown-item swap-second-shift-option" href="#" data-value=""><span class="badge bg-light text-dark border p-2 me-2"><i class="fas fa-minus"></i></span>None</a></li>';
+                let menuHtml = '<li><a class="dropdown-item swap-second-shift-option" href="#" data-value=""><span class="badge bg-light text-dark border schedule-dropdown-icon-badge me-2"><i class="fas fa-minus text-secondary"></i></span>None</a></li>';
                 siblings.forEach(function (meta) {
-                    menuHtml += '<li><a class="dropdown-item swap-second-shift-option" href="#" data-value="' + meta.shiftType + '"><span class="badge ' + meta.color + ' p-2 me-2"><i class="' + meta.icon + '"></i></span>' + meta.label + '</a></li>';
+                    menuHtml += '<li><a class="dropdown-item swap-second-shift-option" href="#" data-value="' + meta.shiftType + '"><span class="badge ' + meta.color + ' schedule-dropdown-icon-badge me-2"><i class="' + meta.icon + ' scheduling-type-white-icon"></i></span>' + meta.label + '</a></li>';
                 });
                 secondaryMenu.innerHTML = menuHtml;
 
@@ -668,10 +668,10 @@ async function validateSwapForm() {
                 const secondaryValue = String(secondarySelect.value || '').trim();
                 if (secondaryDisplay) {
                     if (!secondaryValue || !swapShiftMeta[secondaryValue]) {
-                        secondaryDisplay.innerHTML = '<span class="badge bg-light text-dark border p-2 me-1"><i class="fas fa-minus"></i></span>None';
+                        secondaryDisplay.innerHTML = '<span class="badge bg-light text-dark border schedule-dropdown-icon-badge me-1"><i class="fas fa-minus text-secondary"></i></span>None';
                     } else {
                         const secondaryMeta = swapShiftMeta[secondaryValue];
-                        secondaryDisplay.innerHTML = '<span class="badge ' + secondaryMeta.color + ' p-2 me-1"><i class="' + secondaryMeta.icon + '"></i></span>' + secondaryMeta.label;
+                        secondaryDisplay.innerHTML = '<span class="badge ' + secondaryMeta.color + ' schedule-dropdown-icon-badge me-1"><i class="' + secondaryMeta.icon + ' scheduling-type-white-icon"></i></span>' + secondaryMeta.label;
                     }
                 }
                 syncSwapShiftTypeHidden();

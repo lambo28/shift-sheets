@@ -635,6 +635,29 @@ class TestHolidayRoutes:
         assert rec_03 is not None
         assert rec_04 is None
 
+    def test_add_holiday_removes_adjustments_on_new_time_off_dates(self, client, db):
+        driver = self._make_driver_with_working_window(db, driver_number='16', name='Adjustment Holiday Driver')
+        db.session.add(ShiftAdjustment(
+            driver_id=driver.id,
+            adjustment_date=date(2026, 8, 2),
+            adjustment_type='late_start',
+            adjusted_time=time(7, 30),
+            notes='Temp late start',
+        ))
+        db.session.commit()
+        assert ShiftAdjustment.query.filter_by(driver_id=driver.id, adjustment_date=date(2026, 8, 2)).count() == 1
+
+        resp = client.post('/scheduling/holiday/add', data={
+            'driver_id': driver.id,
+            'start_date': '2026-08-02',
+            'end_date': '2026-08-02',
+            'notes': 'Now off',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+        assert DriverHoliday.query.filter_by(driver_id=driver.id, holiday_date=date(2026, 8, 2)).count() == 1
+        assert ShiftAdjustment.query.filter_by(driver_id=driver.id, adjustment_date=date(2026, 8, 2)).count() == 0
+
     def test_group_consecutive_holidays_keeps_drivers_and_notes_separate(self, db):
         driver_a = make_driver(db, driver_number='10', name='Alice Smith')
         driver_b = make_driver(db, driver_number='11', name='Bob Jones')

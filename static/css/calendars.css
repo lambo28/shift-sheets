@@ -169,9 +169,13 @@
     gap: 0.28rem;
 }
 
-.holiday-calendar .cal-timeoff,
-.holiday-calendar .cal-timeoff i {
+.holiday-calendar .cal-timeoff {
     color: #000 !important;
+}
+
+.holiday-calendar .cal-timeoff i,
+.holiday-calendar .cal-timeoff .scheduling-type-white-icon {
+    color: #fff !important;
 }
 
 .holiday-calendar .cal-timeoff {
@@ -279,7 +283,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 2px;
+    gap: 1px;
     flex-wrap: nowrap;
     min-height: 18px;
     overflow: hidden;
@@ -290,16 +294,73 @@
 }
 
 .holiday-calendar.compact .cal-shift-box {
-    font-size: 0.62rem;
-    padding: 0.18rem 0.3rem;
-    min-width: 38px;
-    border-radius: 0.35rem;
+    width: 16px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0;
+    border-radius: 0.3rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .holiday-calendar.compact .cal-adjustment-icon {
-    width: 15px;
-    height: 15px;
+    width: 16px;
+    min-width: 16px;
+    height: 16px;
+    border-radius: 0.3rem;
     font-size: 0.56rem;
+}
+
+.holiday-calendar.compact .cal-icon-box i {
+    font-size: 0.55rem;
+    line-height: 1;
+}
+
+.holiday-calendar.compact .cal-icon-box.cal-has-swap-marker {
+    width: 24px;
+    min-width: 24px;
+}
+
+.holiday-calendar.compact .cal-day-inline.cal-icons-4 .cal-icon-box {
+    width: 14px;
+    min-width: 14px;
+    height: 14px;
+}
+
+.holiday-calendar.compact .cal-day-inline.cal-icons-4 .cal-icon-box.cal-has-swap-marker {
+    width: 21px;
+    min-width: 21px;
+}
+
+.holiday-calendar.compact .cal-day-inline.cal-icons-4 .cal-icon-box i {
+    font-size: 0.5rem;
+}
+
+.holiday-calendar.compact .cal-day-inline.cal-icons-5plus .cal-icon-box {
+    width: 13px;
+    min-width: 13px;
+    height: 13px;
+}
+
+.holiday-calendar.compact .cal-day-inline.cal-icons-5plus .cal-icon-box.cal-has-swap-marker {
+    width: 19px;
+    min-width: 19px;
+}
+
+.holiday-calendar.compact .cal-day-inline.cal-icons-5plus .cal-icon-box i {
+    font-size: 0.45rem;
+}
+
+.holiday-calendar .cal-shift-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+}
+
+.holiday-calendar .cal-box-swap-icon {
+    opacity: 0.9;
 }
 
 .holiday-calendar.compact .cal-shift-time-changed {
@@ -330,8 +391,8 @@
 
 .holiday-calendar.compact .badge-extra-icon {
     width: 16px;
-    height: 14px;
-    font-size: 0.58rem;
+    height: 16px;
+    font-size: 0.56rem;
 }
 
 @media (max-width: 1200px) {

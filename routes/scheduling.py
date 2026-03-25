@@ -25,6 +25,13 @@ from utils import (
 
 
 def register(app):
+    def _format_swap_notes_for_display(notes):
+        visible_notes = strip_swap_internal_metadata(notes)
+        if not visible_notes:
+            return None
+        parts = [part.strip() for part in str(visible_notes).splitlines() if part.strip()]
+        return ' | '.join(parts) if parts else None
+
     def _scheduling_redirect(message, category="error"):
         return validation_error_response(
             message,
@@ -257,7 +264,7 @@ def register(app):
                     "driver_a_id": swap.driver_a_id,
                     "give_up_date": swap.give_up_date,
                     "work_date": swap.date_b,
-                    "notes": strip_swap_internal_metadata(swap.notes),
+                    "notes": _format_swap_notes_for_display(swap.notes),
                     "give_up_shift_entries": list(swap.give_up_shift_entries or []),
                     "work_shift_entries": [],
                     "swap_ids": [],
@@ -265,7 +272,7 @@ def register(app):
                 merged_swaps_map[merge_key] = merged
 
             merged["swap_ids"].append(swap.id)
-            visible_notes = strip_swap_internal_metadata(swap.notes)
+            visible_notes = _format_swap_notes_for_display(swap.notes)
             if not merged.get("notes") and visible_notes:
                 merged["notes"] = visible_notes
 
@@ -569,6 +576,7 @@ def register(app):
         timings_dict = {t.shift_type: t for t in ShiftTiming.query.all()}
         current_date = start_date
         days_added = 0
+        added_holiday_dates = []
         while current_date <= end_date:
             base_day_entries = get_driver_shifts_for_date(
                 driver,
@@ -586,7 +594,15 @@ def register(app):
                 )
                 db.session.add(holiday)
                 days_added += 1
+                added_holiday_dates.append(current_date)
             current_date += timedelta(days=1)
+
+        removed_adjustments = 0
+        if added_holiday_dates:
+            removed_adjustments = ShiftAdjustment.query.filter(
+                ShiftAdjustment.driver_id == driver_id,
+                ShiftAdjustment.adjustment_date.in_(added_holiday_dates),
+            ).delete(synchronize_session='fetch')
 
         db.session.commit()
 
@@ -604,6 +620,8 @@ def register(app):
             success_msg += f" Replaced {replaced_count} overlapping day(s) to keep time off types non-overlapping."
         if removed_swaps:
             success_msg += f" Removed {removed_swaps} swap(s) that overlapped the selected holiday range."
+        if removed_adjustments:
+            success_msg += f" Removed {removed_adjustments} adjustment(s) on new time-off date(s)."
 
         flash(success_msg, "success")
         return redirect(url_for("scheduling"))
@@ -774,6 +792,7 @@ def register(app):
             # Write updated block (working days only)
             timings_dict = {t.shift_type: t for t in ShiftTiming.query.all()}
             current_date = new_start
+            added_holiday_dates = []
             while current_date <= new_end:
                 base_day_entries = get_driver_shifts_for_date(
                     driver,
@@ -790,7 +809,15 @@ def register(app):
                         notes=notes or None,
                     )
                     db.session.add(holiday)
+                    added_holiday_dates.append(current_date)
                 current_date += timedelta(days=1)
+
+            removed_adjustments = 0
+            if added_holiday_dates:
+                removed_adjustments = ShiftAdjustment.query.filter(
+                    ShiftAdjustment.driver_id == driver_id,
+                    ShiftAdjustment.adjustment_date.in_(added_holiday_dates),
+                ).delete(synchronize_session='fetch')
 
             db.session.commit()
             success_msg = f"Time off updated for {driver.formatted_name()}."
@@ -798,6 +825,8 @@ def register(app):
                 success_msg += f" Replaced {replaced_count} overlapping day(s) to keep time off types non-overlapping."
             if removed_swaps:
                 success_msg += f" Removed {removed_swaps} swap(s) that overlapped the selected holiday range."
+            if removed_adjustments:
+                success_msg += f" Removed {removed_adjustments} adjustment(s) on new time-off date(s)."
             flash(success_msg, "success")
             return jsonify({"success": True, "message": f"Time off updated for {driver.formatted_name()}"})
         except Exception:

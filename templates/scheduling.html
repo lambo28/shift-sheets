@@ -59,10 +59,6 @@
                     </div>
                     <div class="card-body">
                         <form method="POST" action="{{ url_for('add_holiday') }}" id="addHolidayForm">
-                            <div class="alert alert-info py-2 mb-3" role="note">
-                                <i class="fas fa-info-circle me-1"></i>
-                                Time Off overrides shift swaps, early/late adjustments, assigned patterns, and custom timings on selected dates.
-                            </div>
                             <div class="row g-3">
                                 <!-- Left Column: Form Fields -->
                                 <div class="col-md-6">
@@ -95,7 +91,7 @@
                                     </div>
                                     <div class="mb-3">
                                         <label for="holidayNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
-                                        <input type="text" class="form-control" id="holidayNotes" name="notes" maxlength="200" placeholder="Optional">
+                                        <input type="text" class="form-control" id="holidayNotes" name="notes" maxlength="200">
                                     </div>
                                     <div class="mb-3">
                                         <label class="form-label">Date Range</label>
@@ -169,7 +165,7 @@
                     <div class="card-body p-0">
                         {% if time_off_by_driver %}
                             <div class="table-responsive">
-                                <table class="table table-hover table-sm mb-0 adjustments-records-table">
+                                <table class="table table-hover table-sm mb-0 adjustments-records-table adjustments-main-records-table">
                                     <caption class="visually-hidden">Current and upcoming time off records grouped by driver</caption>
                                     <thead class="table-light">
                                         <tr>
@@ -194,21 +190,20 @@
                                             {% set last_holiday = latest_group[-1] %}
                                         <tr>
                                             <td>
-                                                <span class="badge bg-primary me-1">{{ driver.formatted_driver_number() }}</span>
+                                                <span class="badge bg-primary me-1 schedule-driver-number-badge">{{ driver.formatted_driver_number() }}</span>
                                                 {{ driver.formatted_name() }}
                                             </td>
                                             <td>
-                                                <i class="fas fa-umbrella-beach text-warning me-1"></i>
                                                 {% if latest_group|length == 1 %}
                                                     {{ first_holiday.holiday_date.strftime('%d/%m/%Y') }}
                                                 {% else %}
-                                                    <strong>{{ first_holiday.holiday_date.strftime('%d/%m/%Y') }} – {{ last_holiday.holiday_date.strftime('%d/%m/%Y') }}</strong>
-                                                    <br><small class="text-muted">({{ latest_group|length }} days)</small>
+                                                    <strong>{{ first_holiday.holiday_date.strftime('%d/%m/%Y') }} – {{ last_holiday.holiday_date.strftime('%d/%m/%Y') }}</strong> <small class="text-muted">({{ latest_group|length }} days)</small>
                                                 {% endif %}
                                             </td>
                                             <td>
-                                                <i class="fas fa-{{ type_icon_map.get(first_holiday.time_off_type, 'question-circle') }} text-{{ type_color_map.get(first_holiday.time_off_type, 'info') }} me-1"></i>
-                                                <span class="badge bg-{{ type_color_map.get(first_holiday.time_off_type, 'info') }}">{{ type_map.get(first_holiday.time_off_type, first_holiday.time_off_type|capitalize) }}</span>
+                                                <span class="badge schedule-record-badge bg-{{ type_color_map.get(first_holiday.time_off_type, 'info') }}">
+                                                    <i class="fas fa-{{ type_icon_map.get(first_holiday.time_off_type, 'question-circle') }} me-1 scheduling-type-white-icon"></i>{{ type_map.get(first_holiday.time_off_type, first_holiday.time_off_type|capitalize) }}
+                                                </span>
                                             </td>
                                             <td>
                                                 {% if first_holiday.notes %}
@@ -259,17 +254,16 @@
                                             <tr class="collapse driverBlocks{{ driver.id }}">
                                                 <td></td>
                                                 <td>
-                                                    <i class="fas fa-umbrella-beach text-warning me-1"></i>
                                                     {% if group|length == 1 %}
                                                         {{ first_holiday.holiday_date.strftime('%d/%m/%Y') }}
                                                     {% else %}
-                                                        <strong>{{ first_holiday.holiday_date.strftime('%d/%m/%Y') }} – {{ last_holiday.holiday_date.strftime('%d/%m/%Y') }}</strong>
-                                                        <br><small class="text-muted">({{ group|length }} days)</small>
+                                                        <strong>{{ first_holiday.holiday_date.strftime('%d/%m/%Y') }} – {{ last_holiday.holiday_date.strftime('%d/%m/%Y') }}</strong> <small class="text-muted">({{ group|length }} days)</small>
                                                     {% endif %}
                                                 </td>
                                                 <td>
-                                                    <i class="fas fa-{{ type_icon_map.get(first_holiday.time_off_type, 'question-circle') }} text-{{ type_color_map.get(first_holiday.time_off_type, 'info') }} me-1"></i>
-                                                    <span class="badge bg-{{ type_color_map.get(first_holiday.time_off_type, 'info') }}">{{ type_map.get(first_holiday.time_off_type, first_holiday.time_off_type|capitalize) }}</span>
+                                                    <span class="badge schedule-record-badge bg-{{ type_color_map.get(first_holiday.time_off_type, 'info') }}">
+                                                        <i class="fas fa-{{ type_icon_map.get(first_holiday.time_off_type, 'question-circle') }} me-1 scheduling-type-white-icon"></i>{{ type_map.get(first_holiday.time_off_type, first_holiday.time_off_type|capitalize) }}
+                                                    </span>
                                                 </td>
                                                 <td>
                                                     {% if first_holiday.notes %}
@@ -337,14 +331,16 @@
                                                                     {% if group|length == 1 %}
                                                                         {{ first_holiday.holiday_date.strftime('%d/%m/%Y') }}
                                                                     {% else %}
-                                                                        <strong>{{ first_holiday.holiday_date.strftime('%d/%m/%Y') }} – {{ last_holiday.holiday_date.strftime('%d/%m/%Y') }}</strong>
-                                                                        <br><small class="text-muted">({{ group|length }} days)</small>
+                                                                        <strong>{{ first_holiday.holiday_date.strftime('%d/%m/%Y') }} – {{ last_holiday.holiday_date.strftime('%d/%m/%Y') }}</strong> <small class="text-muted">({{ group|length }} days)</small>
                                                                     {% endif %}
                                                                 </td>
                                                                 <td>
                                                                     {% set type_map = {'holiday': 'Holiday', 'sickness': 'Sickness', 'vor': 'VOR', 'other': 'Other'} %}
+                                                                    {% set type_icon_map = {'holiday': 'umbrella-beach', 'sickness': 'notes-medical', 'vor': 'wrench', 'other': 'question-circle'} %}
                                                                     {% set type_color_map = {'holiday': 'warning', 'sickness': 'danger', 'vor': 'secondary', 'other': 'info'} %}
-                                                                    <span class="badge bg-{{ type_color_map.get(first_holiday.time_off_type, 'info') }}">{{ type_map.get(first_holiday.time_off_type, first_holiday.time_off_type|capitalize) }}</span>
+                                                                    <span class="badge schedule-record-badge bg-{{ type_color_map.get(first_holiday.time_off_type, 'info') }}">
+                                                                        <i class="fas fa-{{ type_icon_map.get(first_holiday.time_off_type, 'question-circle') }} me-1 scheduling-type-white-icon"></i>{{ type_map.get(first_holiday.time_off_type, first_holiday.time_off_type|capitalize) }}
+                                                                    </span>
                                                                 </td>
                                                                 <td>
                                                                     {% if first_holiday.notes %}
@@ -412,10 +408,6 @@
                     </div>
                     <div class="card-body">
                         <form method="POST" action="{{ url_for('add_adjustment') }}" id="addAdjustmentForm">
-                            <div class="alert alert-info py-2 mb-3" role="note">
-                                <i class="fas fa-info-circle me-1"></i>
-                                Time Adjustments apply to a selected regular working day only — not extra shifts. You can set one Late Start and one Early Finish per day, and both must stay within that day's valid shift time window.
-                            </div>
                             <div class="row g-3">
                                 <div class="col-md-6">
                                     <div class="mb-3">
@@ -526,7 +518,7 @@
                     <div class="card-body p-0">
                         {% if adjustments_by_driver %}
                             <div class="table-responsive">
-                                <table class="table table-hover table-sm mb-0">
+                                <table class="table table-hover table-sm mb-0 adjustments-records-table adjustments-main-records-table">
                                     <thead class="table-light">
                                         <tr>
                                             <th>Driver</th>
@@ -545,17 +537,17 @@
                                         {% set latest_record = records[0] %}
                                         <tr id="adj-row-{{ driver.id }}-{{ latest_record.date.strftime('%Y%m%d') }}">
                                             <td>
-                                                <span class="badge bg-primary me-1">{{ driver.formatted_driver_number() }}</span>
+                                                <span class="badge bg-primary me-1 schedule-driver-number-badge">{{ driver.formatted_driver_number() }}</span>
                                                 {{ driver.formatted_name() }}
                                             </td>
                                             <td>{{ latest_record.date.strftime('%d/%m/%Y') }}</td>
                                             <td>
                                                 <div class="adj-stack">
                                                     {% if latest_record.late_start %}
-                                                        <span class="badge badge-late-start"><i class="fas fa-hourglass-start me-1"></i>Late Start</span>
+                                                        <span class="badge badge-late-start schedule-record-badge"><i class="fas fa-hourglass-start me-1"></i>Late Start</span>
                                                     {% endif %}
                                                     {% if latest_record.early_finish %}
-                                                        <span class="badge badge-early-finish"><i class="fas fa-hourglass-end me-1"></i>Early Finish</span>
+                                                        <span class="badge badge-early-finish schedule-record-badge"><i class="fas fa-hourglass-end me-1"></i>Early Finish</span>
                                                     {% endif %}
                                                 </div>
                                             </td>
@@ -570,11 +562,23 @@
                                                 </div>
                                             </td>
                                             <td>
-                                                {% if latest_record.notes %}
-                                                    <span class="text-muted">{{ latest_record.notes }}</span>
-                                                {% else %}
-                                                    <span class="text-muted">—</span>
-                                                {% endif %}
+                                                {% set latest_late_note = latest_record.late_start.notes if latest_record.late_start and latest_record.late_start.notes else None %}
+                                                {% set latest_early_note = latest_record.early_finish.notes if latest_record.early_finish and latest_record.early_finish.notes else None %}
+                                                <div class="adj-stack{% if latest_record.late_start and latest_record.early_finish and not latest_late_note and not latest_early_note %} adj-stack-merged-dash{% endif %}">
+                                                    {% if latest_record.late_start and latest_record.early_finish and not latest_late_note and not latest_early_note %}
+                                                        <div><span class="text-muted">—</span></div>
+                                                    {% else %}
+                                                        {% if latest_record.late_start %}
+                                                            <div>{% if latest_late_note %}<span class="text-muted">{{ latest_late_note }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</div>
+                                                        {% endif %}
+                                                        {% if latest_record.early_finish %}
+                                                            <div>{% if latest_early_note %}<span class="text-muted">{{ latest_early_note }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</div>
+                                                        {% endif %}
+                                                        {% if not latest_record.late_start and not latest_record.early_finish %}
+                                                            <div><span class="text-muted">—</span></div>
+                                                        {% endif %}
+                                                    {% endif %}
+                                                </div>
                                             </td>
                                             <td class="text-end">
                                                 <div class="adj-actions">
@@ -656,10 +660,10 @@
                                                 <td>
                                                     <div class="adj-stack">
                                                         {% if rec.late_start %}
-                                                            <span class="badge badge-late-start"><i class="fas fa-hourglass-start me-1"></i>Late Start</span>
+                                                            <span class="badge badge-late-start schedule-record-badge"><i class="fas fa-hourglass-start me-1"></i>Late Start</span>
                                                         {% endif %}
                                                         {% if rec.early_finish %}
-                                                            <span class="badge badge-early-finish"><i class="fas fa-hourglass-end me-1"></i>Early Finish</span>
+                                                            <span class="badge badge-early-finish schedule-record-badge"><i class="fas fa-hourglass-end me-1"></i>Early Finish</span>
                                                         {% endif %}
                                                     </div>
                                                 </td>
@@ -674,11 +678,23 @@
                                                     </div>
                                                 </td>
                                                 <td>
-                                                    {% if rec.notes %}
-                                                        <span class="text-muted">{{ rec.notes }}</span>
-                                                    {% else %}
-                                                        <span class="text-muted">—</span>
-                                                    {% endif %}
+                                                    {% set rec_late_note = rec.late_start.notes if rec.late_start and rec.late_start.notes else None %}
+                                                    {% set rec_early_note = rec.early_finish.notes if rec.early_finish and rec.early_finish.notes else None %}
+                                                    <div class="adj-stack{% if rec.late_start and rec.early_finish and not rec_late_note and not rec_early_note %} adj-stack-merged-dash{% endif %}">
+                                                        {% if rec.late_start and rec.early_finish and not rec_late_note and not rec_early_note %}
+                                                            <div><span class="text-muted">—</span></div>
+                                                        {% else %}
+                                                            {% if rec.late_start %}
+                                                                <div>{% if rec_late_note %}<span class="text-muted">{{ rec_late_note }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</div>
+                                                            {% endif %}
+                                                            {% if rec.early_finish %}
+                                                                <div>{% if rec_early_note %}<span class="text-muted">{{ rec_early_note }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</div>
+                                                            {% endif %}
+                                                            {% if not rec.late_start and not rec.early_finish %}
+                                                                <div><span class="text-muted">—</span></div>
+                                                            {% endif %}
+                                                        {% endif %}
+                                                        </div>
                                                 </td>
                                                 <td class="text-end">
                                                     <div class="adj-actions">
@@ -771,10 +787,10 @@
                                                                 <td>
                                                                     <div class="adj-stack">
                                                                         {% if rec.late_start %}
-                                                                            <span class="badge badge-late-start"><i class="fas fa-hourglass-start me-1"></i>Late Start</span>
+                                                                            <span class="badge badge-late-start schedule-record-badge"><i class="fas fa-hourglass-start me-1"></i>Late Start</span>
                                                                         {% endif %}
                                                                         {% if rec.early_finish %}
-                                                                            <span class="badge badge-early-finish"><i class="fas fa-hourglass-end me-1"></i>Early Finish</span>
+                                                                            <span class="badge badge-early-finish schedule-record-badge"><i class="fas fa-hourglass-end me-1"></i>Early Finish</span>
                                                                         {% endif %}
                                                                     </div>
                                                                 </td>
@@ -789,11 +805,23 @@
                                                                     </div>
                                                                 </td>
                                                                 <td>
-                                                                    {% if rec.notes %}
-                                                                        <span class="text-muted">{{ rec.notes }}</span>
-                                                                    {% else %}
-                                                                        <span class="text-muted">—</span>
-                                                                    {% endif %}
+                                                                    {% set finished_late_note = rec.late_start.notes if rec.late_start and rec.late_start.notes else None %}
+                                                                    {% set finished_early_note = rec.early_finish.notes if rec.early_finish and rec.early_finish.notes else None %}
+                                                                    <div class="adj-stack{% if rec.late_start and rec.early_finish and not finished_late_note and not finished_early_note %} adj-stack-merged-dash{% endif %}">
+                                                                        {% if rec.late_start and rec.early_finish and not finished_late_note and not finished_early_note %}
+                                                                            <div><span class="text-muted">—</span></div>
+                                                                        {% else %}
+                                                                            {% if rec.late_start %}
+                                                                                <div>{% if finished_late_note %}<span class="text-muted">{{ finished_late_note }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</div>
+                                                                            {% endif %}
+                                                                            {% if rec.early_finish %}
+                                                                                <div>{% if finished_early_note %}<span class="text-muted">{{ finished_early_note }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</div>
+                                                                            {% endif %}
+                                                                            {% if not rec.late_start and not rec.early_finish %}
+                                                                                <div><span class="text-muted">—</span></div>
+                                                                            {% endif %}
+                                                                        {% endif %}
+                                                                        </div>
                                                                 </td>
                                                                 <td class="text-end">
                                                                     <div class="adj-actions">
@@ -874,10 +902,6 @@
                     </div>
                     <div class="card-body">
                         <form method="POST" action="{{ url_for('add_swap') }}" id="addSwapForm">
-                            <div class="alert alert-info py-2 mb-3" role="note">
-                                <i class="fas fa-info-circle me-1"></i>
-                                Swap rules: pick one worked day to give up and one off day to work, choose a valid shift type, and keep at least <strong>8 hours</strong> rest; reusing a swap date is allowed once only if the shift type is different.
-                            </div>
                             <div class="row g-3 mb-3">
                                 <div class="col-md-6">
                                     <div class="mb-3">
@@ -908,8 +932,8 @@
                                                        data-color="{{ shift_type.badge_color }}"
                                                        data-icon="{{ shift_type.icon }}"
                                                        data-label="{{ shift_type.display_label or shift_label(shift_type.shift_type) }}">
-                                                        <span class="badge {{ shift_type.badge_color }} p-2 me-2">
-                                                            <i class="{{ shift_type.icon }}"></i>
+                                                        <span class="badge {{ shift_type.badge_color }} schedule-dropdown-icon-badge me-2">
+                                                            <i class="{{ shift_type.icon }} scheduling-type-white-icon"></i>
                                                         </span>
                                                         {{ shift_type.display_label or shift_label(shift_type.shift_type) }}
                                                     </a>
@@ -933,13 +957,6 @@
                                     </div>
 
                                     <div class="mb-3">
-                                        <label class="form-label">Dates</label>
-                                        <div class="form-text" id="swapDateSelectionDisplay">Select a driver, then click a worked day (left) and an off day (right) on the calendars.</div>
-                                        <input type="date" class="form-control" id="swapGiveUpDate" name="give_up_date" required hidden>
-                                        <input type="date" class="form-control" id="swapWorkDate" name="work_date" required hidden>
-                                    </div>
-
-                                    <div class="mb-3">
                                         <label for="swapApprovedBy" class="form-label">Approved by</label>
                                         <input type="text" class="form-control" id="swapApprovedBy" name="approved_by" maxlength="120" required placeholder="Manager / Director name">
                                     </div>
@@ -947,6 +964,13 @@
                                     <div class="mb-3">
                                         <label for="swapNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
                                         <input type="text" class="form-control" id="swapNotes" name="notes" maxlength="200">
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label class="form-label">Dates</label>
+                                        <div class="form-text" id="swapDateSelectionDisplay">Select a driver, then click a worked day (left) and an off day (right) on the calendars.</div>
+                                        <input type="date" class="form-control" id="swapGiveUpDate" name="give_up_date" required hidden>
+                                        <input type="date" class="form-control" id="swapWorkDate" name="work_date" required hidden>
                                     </div>
 
                                     <div id="swapValidationResult" class="mb-2" style="display:none;"></div>
@@ -961,7 +985,7 @@
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <div class="d-flex justify-content-between align-items-center mb-2">
-                                            <label class="form-label mb-0">Day to Give Up <small class="text-muted">(worked day)</small></label>
+                                            <label class="form-label mb-0">Day to Give Up <small class="text-muted">(single date)</small></label>
                                             <button type="button" class="btn btn-sm btn-outline-secondary" id="clearSwapSelection">
                                                 <i class="fas fa-times"></i> Clear Selection
                                             </button>
@@ -992,7 +1016,9 @@
                                     </div>
 
                                     <div>
-                                        <label class="form-label mb-2">Day to Work <small class="text-muted">(scheduled off day)</small></label>
+                                        <div class="d-flex justify-content-between align-items-center mb-2">
+                                            <label class="form-label mb-0">Day to Work <small class="text-muted">(single date)</small></label>
+                                        </div>
                                         <div class="holiday-calendar compact border rounded p-2 bg-white">
                                             <div class="cal-header">
                                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="swapWorkCalPrev">
@@ -1068,14 +1094,14 @@
                                             {% set swap = swaps[0] %}
                                         <tr>
                                             <td>
-                                                <span class="badge bg-primary me-1">{{ driver.formatted_driver_number() }}</span>
+                                                <span class="badge bg-primary me-1 schedule-driver-number-badge">{{ driver.formatted_driver_number() }}</span>
                                                 {{ driver.formatted_name() }}
                                             </td>
                                             <td>
                                                 <div class="d-flex flex-wrap align-items-center gap-1">
                                                     <span>{{ swap.give_up_date.strftime('%d/%m/%Y') }}</span>
                                                     {% for entry in swap.give_up_shift_entries %}
-                                                        <span class="badge {{ entry.badge_color or 'bg-primary' }}">
+                                                        <span class="badge schedule-record-badge {{ entry.badge_color or 'bg-primary' }}">
                                                             <i class="{{ entry.icon or 'fas fa-clock' }} me-1"></i>{{ entry.label or (entry.shift_type|shift_label) }}
                                                         </span>
                                                     {% endfor %}
@@ -1085,7 +1111,7 @@
                                                 <div class="d-flex flex-wrap align-items-center gap-1">
                                                     <span>{{ swap.work_date.strftime('%d/%m/%Y') }}</span>
                                                     {% for work_entry in swap.work_shift_entries %}
-                                                        <span class="badge {{ work_entry.badge_color or 'bg-info text-dark' }}">
+                                                        <span class="badge schedule-record-badge {{ work_entry.badge_color or 'bg-info' }}">
                                                             <i class="{{ work_entry.icon or 'fas fa-clock' }} me-1"></i>{{ work_entry.label or (work_entry.shift_type|shift_label) }}
                                                         </span>
                                                     {% endfor %}
@@ -1131,7 +1157,7 @@
                                                     <div class="d-flex flex-wrap align-items-center gap-1">
                                                         <span>{{ swap.give_up_date.strftime('%d/%m/%Y') }}</span>
                                                         {% for entry in swap.give_up_shift_entries %}
-                                                            <span class="badge {{ entry.badge_color or 'bg-primary' }}">
+                                                            <span class="badge schedule-record-badge {{ entry.badge_color or 'bg-primary' }}">
                                                                 <i class="{{ entry.icon or 'fas fa-clock' }} me-1"></i>{{ entry.label or (entry.shift_type|shift_label) }}
                                                             </span>
                                                         {% endfor %}
@@ -1141,7 +1167,7 @@
                                                     <div class="d-flex flex-wrap align-items-center gap-1">
                                                         <span>{{ swap.work_date.strftime('%d/%m/%Y') }}</span>
                                                         {% for work_entry in swap.work_shift_entries %}
-                                                            <span class="badge {{ work_entry.badge_color or 'bg-info text-dark' }}">
+                                                            <span class="badge schedule-record-badge {{ work_entry.badge_color or 'bg-info' }}">
                                                                 <i class="{{ work_entry.icon or 'fas fa-clock' }} me-1"></i>{{ work_entry.label or (work_entry.shift_type|shift_label) }}
                                                             </span>
                                                         {% endfor %}
@@ -1200,7 +1226,7 @@
                                                                     <div class="d-flex flex-wrap align-items-center gap-1">
                                                                         <span>{{ swap.give_up_date.strftime('%d/%m/%Y') }}</span>
                                                                         {% for entry in swap.give_up_shift_entries %}
-                                                                            <span class="badge {{ entry.badge_color or 'bg-primary' }}">
+                                                                            <span class="badge schedule-record-badge {{ entry.badge_color or 'bg-primary' }}">
                                                                                 <i class="{{ entry.icon or 'fas fa-clock' }} me-1"></i>{{ entry.label or (entry.shift_type|shift_label) }}
                                                                             </span>
                                                                         {% endfor %}
@@ -1210,7 +1236,7 @@
                                                                     <div class="d-flex flex-wrap align-items-center gap-1">
                                                                         <span>{{ swap.work_date.strftime('%d/%m/%Y') }}</span>
                                                                         {% for work_entry in swap.work_shift_entries %}
-                                                                            <span class="badge {{ work_entry.badge_color or 'bg-info text-dark' }}">
+                                                                            <span class="badge schedule-record-badge {{ work_entry.badge_color or 'bg-info' }}">
                                                                                 <i class="{{ work_entry.icon or 'fas fa-clock' }} me-1"></i>{{ work_entry.label or (work_entry.shift_type|shift_label) }}
                                                                             </span>
                                                                         {% endfor %}
@@ -1260,12 +1286,6 @@
     <!-- ===================== SCHOOL CALENDAR PANEL ===================== -->
     <div class="tab-pane fade" id="schoolCalendarPanel" role="tabpanel" aria-labelledby="school-calendar-tab">
         <div class="row g-4">
-            <div class="col-12">
-                <div class="alert alert-info py-2 mb-0" role="note">
-                    <i class="fas fa-info-circle me-1"></i>
-                    Weekend dates are not allowed in School Calendar entries.
-                </div>
-            </div>
             <div class="col-lg-6">
                 <div class="card h-100">
                     <div class="card-header">
@@ -1273,27 +1293,106 @@
                     </div>
                     <div class="card-body">
                         <form method="POST" action="{{ url_for('add_school_term') }}">
-                            <div class="alert alert-info py-2 mb-3" role="note">
-                                <i class="fas fa-info-circle me-1"></i>
-                                Select a date range to define a school term period.
-                            </div>
                             <div class="mb-3">
                                 <label for="termName" class="form-label">Term Name</label>
                                 <input type="text" class="form-control" id="termName" name="name" placeholder="e.g. Spring Term 2026" required>
                             </div>
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label for="termStartDate" class="form-label">Start Date</label>
-                                    <input type="date" class="form-control" id="termStartDate" name="start_date" required>
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label class="form-label mb-0">Date Range <small class="text-muted">(click start, then end date)</small></label>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="clearTermSelection">
+                                    <i class="fas fa-times"></i> Clear Selection
+                                </button>
+                            </div>
+                            <div class="mb-2">
+                                <div class="form-text" id="termDateDisplay">Click a start date, then click an end date on the calendar.</div>
+                            </div>
+                            <div class="holiday-calendar compact border rounded p-2 bg-white">
+                                <div class="cal-header">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="termCalPrev">
+                                        <i class="fas fa-chevron-left"></i>
+                                    </button>
+                                    <strong id="termCalMonthLabel"></strong>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="termCalNext">
+                                        <i class="fas fa-chevron-right"></i>
+                                    </button>
                                 </div>
-                                <div class="col-md-6">
-                                    <label for="termEndDate" class="form-label">End Date</label>
-                                    <input type="date" class="form-control" id="termEndDate" name="end_date" required>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Mo</th><th>Tu</th><th>We</th><th>Th</th><th>Fr</th><th>Sa</th><th>Su</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="termCalBody"></tbody>
+                                </table>
+                            </div>
+                            <input type="hidden" id="termStartDate" name="start_date">
+                            <input type="hidden" id="termEndDate" name="end_date">
+                            <div class="mt-3">
+                                <button type="submit" class="btn btn-primary w-100" id="saveTermBtn" disabled>
+                                    <i class="fas fa-save"></i> Save Term
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-ban"></i> Add School Closed Day</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="{{ url_for('add_school_closure') }}">
+                            <div class="mb-3">
+                                <label for="closureType" class="form-label">Type</label>
+                                <select class="form-select d-none" id="closureType" name="closure_type" required>
+                                    <option value="bank_holiday" data-icon="fas fa-landmark" data-badge="bg-warning text-dark">Bank Holiday</option>
+                                    <option value="training_day" data-icon="fas fa-chalkboard-teacher" data-badge="bg-primary">Training Day</option>
+                                </select>
+                                <div class="dropdown">
+                                    <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" id="closureTypeBtn" data-bs-toggle="dropdown" aria-expanded="false" style="text-align: left !important;">
+                                        <span id="closureTypeDisplay">— Select type —</span>
+                                    </button>
+                                    <ul class="dropdown-menu w-100" id="closureTypeMenu" aria-labelledby="closureTypeBtn" style="width: 100% !important;"></ul>
                                 </div>
                             </div>
+                            <div class="mb-3">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <label class="form-label mb-0">Date <small class="text-muted">(single date)</small></label>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="clearClosureSelection">
+                                        <i class="fas fa-times"></i> Clear Selection
+                                    </button>
+                                </div>
+                                <div class="form-text mb-2" id="closureDateDisplay">Click a date on the calendar.</div>
+                                <div class="holiday-calendar compact border rounded p-2 bg-white">
+                                    <div class="cal-header">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="closureCalPrev">
+                                            <i class="fas fa-chevron-left"></i>
+                                        </button>
+                                        <strong id="closureCalMonthLabel"></strong>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary" id="closureCalNext">
+                                            <i class="fas fa-chevron-right"></i>
+                                        </button>
+                                    </div>
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Mo</th><th>Tu</th><th>We</th><th>Th</th><th>Fr</th><th>Sa</th><th>Su</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="closureCalBody"></tbody>
+                                    </table>
+                                </div>
+                                <input type="hidden" id="closureDate" name="closure_date">
+                            </div>
+                            <div class="mb-3">
+                                <label for="closureNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                                <input type="text" class="form-control" id="closureNotes" name="notes" maxlength="200">
+                            </div>
                             <div class="mt-3">
-                                <button type="submit" class="btn btn-primary w-100">
-                                    <i class="fas fa-save"></i> Save Term
+                                <button type="submit" class="btn btn-primary w-100" id="saveClosureBtn" disabled>
+                                    <i class="fas fa-save"></i> Save Closed Day
                                 </button>
                             </div>
                         </form>
@@ -1369,44 +1468,6 @@
 
             <div class="col-lg-6">
                 <div class="card h-100">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="fas fa-ban"></i> Add School Closed Day</h5>
-                    </div>
-                    <div class="card-body">
-                        <form method="POST" action="{{ url_for('add_school_closure') }}">
-                            <div class="alert alert-info py-2 mb-3" role="note">
-                                <i class="fas fa-info-circle me-1"></i>
-                                Bank holidays and training days are treated as school closed, even inside term dates.
-                            </div>
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label for="closureDate" class="form-label">Date</label>
-                                    <input type="date" class="form-control" id="closureDate" name="closure_date" required>
-                                </div>
-                                <div class="col-md-6">
-                                    <label for="closureType" class="form-label">Type</label>
-                                    <select class="form-select" id="closureType" name="closure_type" required>
-                                        <option value="bank_holiday">Bank Holiday</option>
-                                        <option value="training_day">Training Day</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="mt-3">
-                                <label for="closureNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
-                                <input type="text" class="form-control" id="closureNotes" name="notes" maxlength="200">
-                            </div>
-                            <div class="mt-3">
-                                <button type="submit" class="btn btn-primary w-100">
-                                    <i class="fas fa-save"></i> Save Closed Day
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-lg-6">
-                <div class="card h-100">
                     {% set card_icon = 'fas fa-list' %}
                     {% set card_title = 'School Closed Days' %}
                     {% set card_header_actions_class = '' %}
@@ -1436,9 +1497,13 @@
                                         <td>{{ closure.closure_date.strftime('%d/%m/%Y') }}</td>
                                         <td>
                                             {% if closure.closure_type == 'bank_holiday' %}
-                                                <span class="badge bg-warning text-dark">Bank Holiday</span>
+                                                <span class="badge schedule-record-badge bg-warning">
+                                                    <i class="fas fa-landmark me-1"></i>Bank Holiday
+                                                </span>
                                             {% else %}
-                                                <span class="badge bg-secondary">Training Day</span>
+                                                <span class="badge schedule-record-badge bg-primary">
+                                                    <i class="fas fa-chalkboard-teacher me-1"></i>Training Day
+                                                </span>
                                             {% endif %}
                                         </td>
                                         <td>{% if closure.notes %}<span class="text-muted">{{ closure.notes }}</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>

@@ -120,9 +120,13 @@
                                     </td>
                                     <td>
                                         {% if closure.closure_type == 'bank_holiday' %}
-                                            <span class="badge bg-warning text-dark">Bank Holiday</span>
+                                            <span class="badge schedule-record-badge bg-warning">
+                                                <i class="fas fa-landmark me-1"></i>Bank Holiday
+                                            </span>
                                         {% else %}
-                                            <span class="badge bg-secondary">Training Day</span>
+                                            <span class="badge schedule-record-badge bg-primary">
+                                                <i class="fas fa-chalkboard-teacher me-1"></i>Training Day
+                                            </span>
                                         {% endif %}
                                     </td>
                                     <td>{% if closure.notes %}<span class="text-muted">{{ closure.notes }}</span>{% else %}<span class="text-muted">-</span>{% endif %}</td>

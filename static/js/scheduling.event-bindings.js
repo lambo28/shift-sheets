@@ -26,7 +26,7 @@
             const badgeClass = opt.dataset.badge || 'bg-secondary';
             return `<li>
                 <a class="dropdown-item scheduling-type-option" href="#" data-value="${value}" data-label="${label}" data-icon="${icon}" data-badge="${badgeClass}">
-                    <span class="badge ${badgeClass} p-2 me-2"><i class="${icon}"></i></span>
+                    <span class="badge ${badgeClass} schedule-dropdown-icon-badge me-2"><i class="${icon} scheduling-type-white-icon"></i></span>
                     ${label}
                 </a>
             </li>`;
@@ -49,14 +49,14 @@
             }
 
             if (!selected) {
-                displayEl.innerHTML = `<span class="badge bg-light text-dark border p-2 me-1"><i class="fas fa-minus"></i></span>${placeholder}`;
+                displayEl.innerHTML = `<span class="badge bg-light text-dark border schedule-dropdown-icon-badge me-1"><i class="fas fa-minus text-secondary"></i></span>${placeholder}`;
                 return;
             }
 
             const icon = selected.dataset.icon || 'fas fa-circle';
             const badgeClass = selected.dataset.badge || 'bg-secondary';
             const label = selected.textContent || selected.value;
-            displayEl.innerHTML = `<span class="badge ${badgeClass} p-2 me-1"><i class="${icon}"></i></span>${label}`;
+            displayEl.innerHTML = `<span class="badge ${badgeClass} schedule-dropdown-icon-badge me-1"><i class="${icon} scheduling-type-white-icon"></i></span>${label}`;
         }
 
         menuEl.querySelectorAll('.scheduling-type-option').forEach(function (link) {
@@ -110,6 +110,7 @@
 
         initStyledTypeDropdown('timeOffType', 'timeOffTypeMenu', 'timeOffTypeDisplay', '— Select type —', { autoSelectFirst: true });
         initStyledTypeDropdown('adjType', 'adjTypeMenu', 'adjTypeDisplay', '— Select type —', { autoSelectFirst: true });
+        initStyledTypeDropdown('closureType', 'closureTypeMenu', 'closureTypeDisplay', '— Select type —', { autoSelectFirst: true });
         initStyledTypeDropdown('editTimeOffType', 'editTimeOffTypeMenu', 'editTimeOffTypeDisplay', '— Select type —', { autoSelectFirst: true });
         initStyledTypeDropdown('editAdjType', 'editAdjTypeMenu', 'editAdjTypeDisplay', '— Select type —', { autoSelectFirst: true });
 
@@ -141,6 +142,8 @@
         restoreActiveTab();
 
         initSchoolCalendarWeekendValidation();
+        initSchoolTermRangeCalendar();
+        initSchoolClosureSingleCalendar();
 
         // Activate tab from URL hash
         const hash = window.location.hash;
@@ -180,36 +183,19 @@
         const termEndInput = document.getElementById('termEndDate');
         const closureDateInput = document.getElementById('closureDate');
 
-        if (termStartInput) {
-            termStartInput.addEventListener('change', function () {
-                setWeekendValidity(termStartInput, 'Start date cannot be Saturday or Sunday.');
-                termStartInput.reportValidity();
-            });
-        }
-
-        if (termEndInput) {
-            termEndInput.addEventListener('change', function () {
-                setWeekendValidity(termEndInput, 'End date cannot be Saturday or Sunday.');
-                termEndInput.reportValidity();
-            });
-        }
-
-        if (closureDateInput) {
-            closureDateInput.addEventListener('change', function () {
-                setWeekendValidity(closureDateInput, 'Closure date cannot be Saturday or Sunday.');
-                closureDateInput.reportValidity();
-            });
-        }
-
         if (termForm) {
             termForm.addEventListener('submit', function (e) {
-                setWeekendValidity(termStartInput, 'Start date cannot be Saturday or Sunday.');
-                setWeekendValidity(termEndInput, 'End date cannot be Saturday or Sunday.');
+                const startValue = termStartInput ? String(termStartInput.value || '').trim() : '';
+                const endValue = termEndInput ? String(termEndInput.value || '').trim() : '';
 
-                if ((termStartInput && !termStartInput.checkValidity()) || (termEndInput && !termEndInput.checkValidity())) {
+                if (!startValue || !endValue) {
                     e.preventDefault();
-                    termStartInput && termStartInput.reportValidity();
-                    termEndInput && termEndInput.reportValidity();
+                    showPageAlert('Please select a start and end date from the School Term calendar.', 'danger');
+                    return;
+                }
+
+                if (isWeekendDate(startValue) || isWeekendDate(endValue)) {
+                    e.preventDefault();
                     showPageAlert('Weekend dates are not allowed in School Calendar entries.', 'danger');
                 }
             });
@@ -217,15 +203,332 @@
 
         if (closureForm) {
             closureForm.addEventListener('submit', function (e) {
-                setWeekendValidity(closureDateInput, 'Closure date cannot be Saturday or Sunday.');
-
-                if (closureDateInput && !closureDateInput.checkValidity()) {
+                const closureValue = closureDateInput ? String(closureDateInput.value || '').trim() : '';
+                if (!closureValue) {
                     e.preventDefault();
-                    closureDateInput.reportValidity();
+                    showPageAlert('Please select a school closed day from the calendar.', 'danger');
+                    return;
+                }
+
+                if (isWeekendDate(closureValue)) {
+                    e.preventDefault();
                     showPageAlert('Weekend dates are not allowed in School Calendar entries.', 'danger');
                 }
             });
         }
+    }
+
+    function initSchoolClosureSingleCalendar() {
+        const tbody = document.getElementById('closureCalBody');
+        const monthLabel = document.getElementById('closureCalMonthLabel');
+        const prevBtn = document.getElementById('closureCalPrev');
+        const nextBtn = document.getElementById('closureCalNext');
+        const clearBtn = document.getElementById('clearClosureSelection');
+        const closureInput = document.getElementById('closureDate');
+        const display = document.getElementById('closureDateDisplay');
+        const saveBtn = document.getElementById('saveClosureBtn');
+
+        if (!tbody || !monthLabel || !closureInput) return;
+
+        const viewDate = new Date();
+        viewDate.setDate(1);
+
+        let selectedDate = closureInput.value || null;
+
+        function toISO(dateObj) {
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function isWeekendISO(dateStr) {
+            if (!dateStr) return false;
+            const parsed = new Date(`${dateStr}T00:00:00`);
+            if (Number.isNaN(parsed.getTime())) return false;
+            const day = parsed.getDay();
+            return day === 0 || day === 6;
+        }
+
+        function syncInput() {
+            closureInput.value = selectedDate || '';
+            if (saveBtn) saveBtn.disabled = !selectedDate;
+        }
+
+        function updateDisplay() {
+            if (!display) return;
+            if (!selectedDate) {
+                display.textContent = 'Click a date on the calendar.';
+                return;
+            }
+            const selectedObj = new Date(`${selectedDate}T00:00:00`);
+            const selectedFormatted = selectedObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+            display.innerHTML = `<strong>Selected:</strong> ${selectedFormatted}`;
+        }
+
+        function selectDate(dateStr) {
+            if (isWeekendISO(dateStr)) return;
+            selectedDate = dateStr;
+            syncInput();
+            updateDisplay();
+            render();
+        }
+
+        function render() {
+            const year = viewDate.getFullYear();
+            const month = viewDate.getMonth();
+            monthLabel.textContent = viewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+            const firstDay = new Date(year, month, 1);
+            let startOffset = firstDay.getDay() - 1;
+            if (startOffset < 0) startOffset = 6;
+
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+
+            let html = '<tr>';
+            let dayCounter = 1;
+
+            for (let i = 0; i < totalCells; i++) {
+                if (i % 7 === 0 && i > 0) html += '</tr><tr>';
+
+                if (i < startOffset || dayCounter > daysInMonth) {
+                    html += '<td class="cal-empty"></td>';
+                    continue;
+                }
+
+                const dateStr = toISO(new Date(year, month, dayCounter));
+                const weekend = isWeekendISO(dateStr);
+                const isSelected = dateStr === selectedDate;
+
+                let classes = 'cal-day';
+                if (weekend) classes += ' cal-disabled';
+                if (isSelected) classes += ' cal-selected';
+
+                html += `<td class="${classes}" data-date="${dateStr}">
+                    <div class="cal-day-header">
+                        <div class="fw-bold small">${dayCounter}</div>
+                    </div>
+                </td>`;
+                dayCounter++;
+            }
+
+            html += '</tr>';
+            tbody.innerHTML = html;
+
+            tbody.querySelectorAll('td.cal-day').forEach(function (cell) {
+                cell.addEventListener('click', function () {
+                    if (cell.classList.contains('cal-disabled')) return;
+                    const pickedDate = cell.getAttribute('data-date');
+                    if (!pickedDate) return;
+                    selectDate(pickedDate);
+                });
+            });
+        }
+
+        if (prevBtn) {
+            prevBtn.addEventListener('click', function () {
+                viewDate.setMonth(viewDate.getMonth() - 1);
+                render();
+            });
+        }
+
+        if (nextBtn) {
+            nextBtn.addEventListener('click', function () {
+                viewDate.setMonth(viewDate.getMonth() + 1);
+                render();
+            });
+        }
+
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function () {
+                selectedDate = null;
+                syncInput();
+                updateDisplay();
+                render();
+            });
+        }
+
+        syncInput();
+        updateDisplay();
+        render();
+    }
+
+    function initSchoolTermRangeCalendar() {
+        const tbody = document.getElementById('termCalBody');
+        const monthLabel = document.getElementById('termCalMonthLabel');
+        const prevBtn = document.getElementById('termCalPrev');
+        const nextBtn = document.getElementById('termCalNext');
+        const clearBtn = document.getElementById('clearTermSelection');
+        const startInput = document.getElementById('termStartDate');
+        const endInput = document.getElementById('termEndDate');
+        const display = document.getElementById('termDateDisplay');
+        const saveBtn = document.getElementById('saveTermBtn');
+
+        if (!tbody || !monthLabel || !startInput || !endInput) return;
+
+        const viewDate = new Date();
+        viewDate.setDate(1);
+
+        let startDate = startInput.value || null;
+        let endDate = endInput.value || null;
+
+        if (startDate && !endDate) {
+            endDate = startDate;
+        }
+
+        function toISO(dateObj) {
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const day = String(dateObj.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function isWeekendISO(dateStr) {
+            if (!dateStr) return false;
+            const parsed = new Date(`${dateStr}T00:00:00`);
+            if (Number.isNaN(parsed.getTime())) return false;
+            const day = parsed.getDay();
+            return day === 0 || day === 6;
+        }
+
+        function isInRange(dateStr) {
+            if (!startDate) return false;
+            if (!endDate) return dateStr === startDate;
+            return dateStr >= startDate && dateStr <= endDate;
+        }
+
+        function updateDisplayText() {
+            if (!display) return;
+
+            if (!startDate) {
+                display.textContent = 'Click a start date, then click an end date on the calendar.';
+                return;
+            }
+
+            const startObj = new Date(`${startDate}T00:00:00`);
+            const startFormatted = startObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+
+            if (!endDate || endDate === startDate) {
+                display.innerHTML = `<strong>Selected:</strong> ${startFormatted} (1 day)`;
+                return;
+            }
+
+            const endObj = new Date(`${endDate}T00:00:00`);
+            const endFormatted = endObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+            const dayCount = Math.floor((endObj - startObj) / (1000 * 60 * 60 * 24)) + 1;
+            display.innerHTML = `<strong>Range:</strong> ${startFormatted} to ${endFormatted} (${dayCount} days)`;
+        }
+
+        function syncInputs() {
+            startInput.value = startDate || '';
+            endInput.value = endDate || startDate || '';
+            if (saveBtn) saveBtn.disabled = !startDate;
+        }
+
+        function selectDate(dateStr) {
+            if (isWeekendISO(dateStr)) return;
+
+            if (!startDate || (startDate && endDate)) {
+                startDate = dateStr;
+                endDate = null;
+            } else {
+                endDate = dateStr;
+                if (endDate < startDate) {
+                    const temp = startDate;
+                    startDate = endDate;
+                    endDate = temp;
+                }
+            }
+
+            updateDisplayText();
+            syncInputs();
+            render();
+        }
+
+        function render() {
+            const year = viewDate.getFullYear();
+            const month = viewDate.getMonth();
+
+            monthLabel.textContent = viewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+            const firstDay = new Date(year, month, 1);
+            let startOffset = firstDay.getDay() - 1;
+            if (startOffset < 0) startOffset = 6;
+
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+
+            let html = '<tr>';
+            let dayCounter = 1;
+
+            for (let i = 0; i < totalCells; i++) {
+                if (i % 7 === 0 && i > 0) html += '</tr><tr>';
+
+                if (i < startOffset || dayCounter > daysInMonth) {
+                    html += '<td class="cal-empty"></td>';
+                    continue;
+                }
+
+                const dateStr = toISO(new Date(year, month, dayCounter));
+                const weekend = isWeekendISO(dateStr);
+                const selectedStart = dateStr === startDate;
+                const selectedEnd = dateStr === endDate;
+                const inRange = isInRange(dateStr);
+
+                let classes = 'cal-day';
+                if (weekend) classes += ' cal-disabled';
+                if (selectedStart || selectedEnd) classes += ' cal-selected';
+                if (inRange && startDate && endDate && startDate !== endDate) classes += ' cal-in-range';
+
+                html += `<td class="${classes}" data-date="${dateStr}">
+                    <div class="cal-day-header">
+                        <div class="fw-bold small">${dayCounter}</div>
+                    </div>
+                </td>`;
+                dayCounter++;
+            }
+
+            html += '</tr>';
+            tbody.innerHTML = html;
+
+            tbody.querySelectorAll('td.cal-day').forEach(function (cell) {
+                cell.addEventListener('click', function () {
+                    if (cell.classList.contains('cal-disabled')) return;
+                    const pickedDate = cell.getAttribute('data-date');
+                    if (!pickedDate) return;
+                    selectDate(pickedDate);
+                });
+            });
+        }
+
+        if (prevBtn) {
+            prevBtn.addEventListener('click', function () {
+                viewDate.setMonth(viewDate.getMonth() - 1);
+                render();
+            });
+        }
+
+        if (nextBtn) {
+            nextBtn.addEventListener('click', function () {
+                viewDate.setMonth(viewDate.getMonth() + 1);
+                render();
+            });
+        }
+
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function () {
+                startDate = null;
+                endDate = null;
+                updateDisplayText();
+                syncInputs();
+                render();
+            });
+        }
+
+        updateDisplayText();
+        syncInputs();
+        render();
     }
 
     function initDriverBlockToggleButtons() {

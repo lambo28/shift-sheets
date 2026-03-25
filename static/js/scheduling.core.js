@@ -47,7 +47,22 @@ function buildUnifiedCalendarCellContent(dayData) {
     const shiftBadges = [];
     const bottomTimeTokens = [];
 
-    shifts.forEach((shift) => {
+    const hasSwapGiveUp = !!safeDayData?.has_swap_give_up;
+    const hasSwapWork = !!safeDayData?.has_swap_work;
+    const swapGiveUpCount = safeDayData?.swap_give_up_count || 0;
+    const swapWorkCount = safeDayData?.swap_work_count || 0;
+    const swapTooltipParts = [];
+    if (hasSwapGiveUp) {
+        swapTooltipParts.push(swapGiveUpCount > 1 ? `Swap give-up day (${swapGiveUpCount})` : 'Swap give-up day');
+    }
+    if (hasSwapWork) {
+        swapTooltipParts.push(swapWorkCount > 1 ? `Swap work day (${swapWorkCount})` : 'Swap work day');
+    }
+    const swapMarkerHtml = swapTooltipParts.length
+        ? `<i class="fas fa-exchange-alt cal-box-swap-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(swapTooltipParts.join(' • '))}"></i>`
+        : '';
+
+    shifts.forEach((shift, idx) => {
         const isExtraShift = !!shift.is_extra;
         const startMinutes = calToMinutes(shift.start_time);
         const endMinutes = calToMinutes(shift.end_time);
@@ -72,11 +87,17 @@ function buildUnifiedCalendarCellContent(dayData) {
             return;
         }
 
-        const shiftIconHtml = (shift.shift_type === 'day_off' || shift.label === 'OFF')
-            ? ''
-            : `<i class="${shift.icon || 'fas fa-clock'} text-white"></i>`;
+        const isDayOff = shift.shift_type === 'day_off' || shift.label === 'OFF';
+        const shiftIconHtml = isDayOff
+            ? '<i class="fas fa-user-clock"></i>'
+            : `<i class="${shift.icon || 'fas fa-clock'}"></i>`;
 
-        shiftBadges.push(`<span class="badge ${shift.badge_color || 'bg-primary'} cal-shift-box"><span class="cal-shift-label">${shiftIconHtml}${shift.label}</span></span>`);
+        const swapInside = (idx === 0) ? swapMarkerHtml : '';
+        const hasSwapMarkerClass = swapInside ? ' cal-has-swap-marker' : '';
+        const shiftTitle = isDayOff ? 'Day off' : (shift.label || 'Shift');
+        shiftBadges.push(
+            `<span class="badge ${shift.badge_color || 'bg-primary'} cal-shift-box cal-icon-box${hasSwapMarkerClass}" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(shiftTitle)}"><span class="cal-shift-label">${shiftIconHtml}${swapInside}</span></span>`
+        );
     });
 
     let timeOffHtml = '';
@@ -85,15 +106,12 @@ function buildUnifiedCalendarCellContent(dayData) {
         const label = CAL_TIME_OFF_LABELS[type] || 'Time Off';
         const icon = CAL_TIME_OFF_ICONS[type] || 'fa-user-clock';
         const badgeClass = CAL_TIME_OFF_BADGES[type] || 'bg-info text-dark';
-        timeOffHtml = `<span class="badge ${badgeClass} cal-shift-box cal-timeoff" data-bs-toggle="tooltip" data-bs-placement="top" title="Driver marked as ${escapeHtml(label)}"><span class="cal-shift-label"><i class="fas ${icon}"></i>OFF</span></span>`;
+        const timeOffHasSwapClass = swapMarkerHtml ? ' cal-has-swap-marker' : '';
+        timeOffHtml = `<span class="badge ${badgeClass} cal-shift-box cal-timeoff cal-icon-box${timeOffHasSwapClass}" data-bs-toggle="tooltip" data-bs-placement="top" title="Driver marked as ${escapeHtml(label)}"><span class="cal-shift-label"><i class="fas ${icon} scheduling-type-white-icon"></i>${swapMarkerHtml}</span></span>`;
     }
 
     const lateStart = adjustments.find((adj) => adj.adjustment_type === 'late_start');
     const earlyFinish = adjustments.find((adj) => adj.adjustment_type === 'early_finish');
-    const hasSwapGiveUp = !!safeDayData?.has_swap_give_up;
-    const hasSwapWork = !!safeDayData?.has_swap_work;
-    const swapGiveUpCount = safeDayData?.swap_give_up_count || 0;
-    const swapWorkCount = safeDayData?.swap_work_count || 0;
 
     // Check for extra shifts
     const extraShifts = shifts.filter((s) => s.is_extra);
@@ -102,37 +120,39 @@ function buildUnifiedCalendarCellContent(dayData) {
         : null;
 
     const lateStartIconHtml = lateStart
-        ? `<span class="cal-adjustment-icon badge-late-start-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${lateStart.label} at ${lateStart.time}${lateStart.notes ? ` — ${lateStart.notes}` : ''}`)}"><i class="fas fa-hourglass-start"></i></span>`
+        ? `<span class="cal-adjustment-icon cal-icon-box badge-late-start-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${lateStart.label} at ${lateStart.time}${lateStart.notes ? ` — ${lateStart.notes}` : ''}`)}"><i class="fas fa-hourglass-start"></i></span>`
         : '';
 
     const earlyFinishIconHtml = earlyFinish
-        ? `<span class="cal-adjustment-icon badge-early-finish-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${earlyFinish.label} at ${earlyFinish.time}${earlyFinish.notes ? ` — ${earlyFinish.notes}` : ''}`)}"><i class="fas fa-hourglass-end"></i></span>`
+        ? `<span class="cal-adjustment-icon cal-icon-box badge-early-finish-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`${earlyFinish.label} at ${earlyFinish.time}${earlyFinish.notes ? ` — ${earlyFinish.notes}` : ''}`)}"><i class="fas fa-hourglass-end"></i></span>`
         : '';
 
     const extraShiftIconHtml = extraShiftTooltip
-        ? `<span class="cal-adjustment-icon badge-extra-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(extraShiftTooltip)}"><i class="fas fa-plus"></i></span>`
+        ? `<span class="cal-adjustment-icon cal-icon-box badge-extra-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(extraShiftTooltip)}"><i class="fas fa-plus"></i></span>`
         : '';
 
     const swapGiveUpIconHtml = hasSwapGiveUp
-        ? `<span class="cal-adjustment-icon badge-swap-giveup-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`Swap give-up day (${swapGiveUpCount})`)}"><i class="fas fa-right-from-bracket"></i></span>`
+        ? `<span class="cal-adjustment-icon badge-swap-giveup-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(swapGiveUpCount > 1 ? `Swap give-up day (${swapGiveUpCount})` : 'Swap give-up day')}"><i class="fas fa-right-from-bracket"></i></span>`
         : '';
 
     const swapWorkIconHtml = hasSwapWork
-        ? `<span class="cal-adjustment-icon badge-swap-work-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(`Swap work day (${swapWorkCount})`)}"><i class="fas fa-right-to-bracket"></i></span>`
-        : '';
-
-    const swapTooltipParts = [];
-    if (hasSwapGiveUp) swapTooltipParts.push(`Swap give-up day (${swapGiveUpCount})`);
-    if (hasSwapWork) swapTooltipParts.push(`Swap work day (${swapWorkCount})`);
-
-    const swapInlineMarkerHtml = swapTooltipParts.length
-        ? `<i class="fas fa-exchange-alt ms-1" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(swapTooltipParts.join(' • '))}"></i>`
+        ? `<span class="cal-adjustment-icon badge-swap-work-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHtml(swapWorkCount > 1 ? `Swap work day (${swapWorkCount})` : 'Swap work day')}"><i class="fas fa-right-to-bracket"></i></span>`
         : '';
 
     const baseContentHtml = `${shiftBadges.join('')}${timeOffHtml}`;
-    const contentHtml = (baseContentHtml || swapInlineMarkerHtml)
-        ? `${baseContentHtml}${swapInlineMarkerHtml}`
+    const contentHtml = baseContentHtml
+        ? `${baseContentHtml}`
         : '<small class="text-muted">No shift</small>';
+
+    const iconCount =
+        (shiftBadges.length + (timeOffHtml ? 1 : 0))
+        + (lateStart ? 1 : 0)
+        + (earlyFinish ? 1 : 0)
+        + (extraShiftTooltip ? 1 : 0);
+
+    let inlineSizeClass = '';
+    if (iconCount >= 5) inlineSizeClass = 'cal-icons-5plus';
+    else if (iconCount >= 4) inlineSizeClass = 'cal-icons-4';
 
     return {
         contentHtml,
@@ -142,6 +162,7 @@ function buildUnifiedCalendarCellContent(dayData) {
         extraShiftIconHtml,
         swapGiveUpIconHtml,
         swapWorkIconHtml,
+        inlineSizeClass,
     };
 }
 
