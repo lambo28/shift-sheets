@@ -74,16 +74,25 @@
                                                 <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
                                             {% endfor %}
                                         </select>
+                                        <div class="form-text" id="holidayDriverRequiredHint">
+                                            <i class="fas fa-info-circle me-1"></i>Select a driver to enable the calendar
+                                        </div>
                                     </div>
                                     <div class="mb-3">
                                         <label for="timeOffType" class="form-label">Type</label>
-                                        <select class="form-select" id="timeOffType" name="time_off_type" required>
-                                            <option value="holiday">Holiday</option>
-                                            <option value="sickness">Sickness</option>
-                                            <option value="vor">VOR (Vehicle Off Road)</option>
-                                            <option value="other">Other</option>
+                                        <select class="form-select d-none" id="timeOffType" name="time_off_type" required>
+                                            <option value="holiday" data-icon="fas fa-umbrella-beach" data-badge="bg-warning text-dark">Holiday</option>
+                                            <option value="sickness" data-icon="fas fa-notes-medical" data-badge="bg-danger">Sickness</option>
+                                            <option value="vor" data-icon="fas fa-wrench" data-badge="bg-secondary">VOR (Vehicle Off Road)</option>
+                                            <option value="other" data-icon="fas fa-question-circle" data-badge="bg-info text-dark">Other</option>
                                         </select>
-                                        <div class="form-text" id="holidayDateDisplay">Click a date to start selecting a range.</div>
+                                        <div class="dropdown">
+                                            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" id="timeOffTypeBtn" data-bs-toggle="dropdown" aria-expanded="false" style="text-align: left !important;">
+                                                <span id="timeOffTypeDisplay">— Select type —</span>
+                                            </button>
+                                            <ul class="dropdown-menu w-100" id="timeOffTypeMenu" aria-labelledby="timeOffTypeBtn" style="width: 100% !important;"></ul>
+                                        </div>
+                                        <div class="form-text" id="holidayDateDisplay">Select a driver, then click a start and end date on the calendar.</div>
                                     </div>
                                     <div class="mb-3">
                                         <label for="holidayNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
@@ -414,15 +423,24 @@
                                                 <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
                                             {% endfor %}
                                         </select>
+                                        <div class="form-text" id="adjDriverRequiredHint">
+                                            <i class="fas fa-info-circle me-1"></i>Select a driver to enable the calendar
+                                        </div>
                                     </div>
                                     <div class="row g-2 mb-3">
                                         <div class="col-md-5">
                                             <label for="adjType" class="form-label">Type</label>
-                                            <select class="form-select" id="adjType" name="adjustment_type" required>
+                                            <select class="form-select d-none" id="adjType" name="adjustment_type" required>
                                                 <option value="">— Select type —</option>
-                                                <option value="late_start">Late Start</option>
-                                                <option value="early_finish">Early Finish</option>
+                                                <option value="late_start" data-icon="fas fa-hourglass-start" data-badge="badge-late-start">Late Start</option>
+                                                <option value="early_finish" data-icon="fas fa-hourglass-end" data-badge="badge-early-finish">Early Finish</option>
                                             </select>
+                                            <div class="dropdown">
+                                                <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" id="adjTypeBtn" data-bs-toggle="dropdown" aria-expanded="false" style="text-align: left !important;">
+                                                    <span id="adjTypeDisplay">— Select type —</span>
+                                                </button>
+                                                <ul class="dropdown-menu w-100" id="adjTypeMenu" aria-labelledby="adjTypeBtn" style="width: 100% !important;"></ul>
+                                            </div>
                                         </div>
                                         <div class="col-md-7">
                                             <label for="adjTime" class="form-label" id="adjTimeLabel">Adjusted Time</label>
@@ -865,6 +883,9 @@
                                             <option value="{{ driver.id }}">{{ driver.formatted_driver_number() }} – {{ driver.formatted_name() }}</option>
                                         {% endfor %}
                                     </select>
+                                    <div class="form-text" id="swapDriverRequiredHint">
+                                        <i class="fas fa-info-circle me-1"></i>Select a driver to enable the calendar
+                                    </div>
                                 </div>
                             </div>
                             <div class="row g-3 mb-3">
@@ -957,7 +978,7 @@
                                     </div>
                                 </div>
                                 <div class="card-footer py-2 d-flex justify-content-between align-items-center">
-                                    <small id="swapDateSelectionDisplay" class="text-muted">Select a driver, then click a worked day (left) and an off day (right).</small>
+                                    <small id="swapDateSelectionDisplay" class="text-muted">Select a driver, then click a worked day (left) and an off day (right) on the calendars.</small>
                                     <button type="button" class="btn btn-sm btn-outline-secondary" id="clearSwapSelection">
                                         Clear Selection
                                     </button>
@@ -992,9 +1013,15 @@
                                     <input type="hidden" id="swapWorkShiftType" name="work_shift_type" required>
                                     <div id="swapSecondShiftWrapper" class="mt-2 d-none">
                                         <label for="swapSecondShiftType" class="form-label mb-1">Second Shift (Optional)</label>
-                                        <select class="form-select" id="swapSecondShiftType" aria-label="Second Shift">
+                                        <select class="form-select d-none" id="swapSecondShiftType" aria-label="Second Shift">
                                             <option value="">None</option>
                                         </select>
+                                        <div class="dropdown">
+                                            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" id="swapSecondShiftTypeBtn" data-bs-toggle="dropdown" aria-expanded="false" style="text-align: left !important;">
+                                                <span id="swapSecondShiftTypeDisplay">None</span>
+                                            </button>
+                                            <ul class="dropdown-menu w-100" id="swapSecondShiftTypeMenu" aria-labelledby="swapSecondShiftTypeBtn" style="width: 100% !important;"></ul>
+                                        </div>
                                     </div>
                                 </div>
                                 <div class="col-md-6">

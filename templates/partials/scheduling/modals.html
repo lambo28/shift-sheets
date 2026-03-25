@@ -283,12 +283,18 @@
                     </div>
                     <div class="mb-3">
                         <label for="editTimeOffType" class="form-label">Type</label>
-                        <select class="form-select" id="editTimeOffType" name="time_off_type" required>
-                            <option value="holiday">Holiday</option>
-                            <option value="sickness">Sickness</option>
-                            <option value="vor">VOR (Vehicle Off Road)</option>
-                            <option value="other">Other</option>
+                        <select class="form-select d-none" id="editTimeOffType" name="time_off_type" required>
+                            <option value="holiday" data-icon="fas fa-umbrella-beach" data-badge="bg-warning text-dark">Holiday</option>
+                            <option value="sickness" data-icon="fas fa-notes-medical" data-badge="bg-danger">Sickness</option>
+                            <option value="vor" data-icon="fas fa-wrench" data-badge="bg-secondary">VOR (Vehicle Off Road)</option>
+                            <option value="other" data-icon="fas fa-question-circle" data-badge="bg-info text-dark">Other</option>
                         </select>
+                        <div class="dropdown">
+                            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" id="editTimeOffTypeBtn" data-bs-toggle="dropdown" aria-expanded="false" style="text-align: left !important;">
+                                <span id="editTimeOffTypeDisplay">— Select type —</span>
+                            </button>
+                            <ul class="dropdown-menu w-100" id="editTimeOffTypeMenu" aria-labelledby="editTimeOffTypeBtn" style="width: 100% !important;"></ul>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label for="editHolNotes" class="form-label">Notes</label>
@@ -320,10 +326,16 @@
                     </div>
                     <div class="mb-3">
                         <label for="editAdjType" class="form-label">Type</label>
-                        <select class="form-select" id="editAdjType" name="adjustment_type" required>
-                            <option value="late_start">Late Start</option>
-                            <option value="early_finish">Early Finish</option>
+                        <select class="form-select d-none" id="editAdjType" name="adjustment_type" required>
+                            <option value="late_start" data-icon="fas fa-hourglass-start" data-badge="badge-late-start">Late Start</option>
+                            <option value="early_finish" data-icon="fas fa-hourglass-end" data-badge="badge-early-finish">Early Finish</option>
                         </select>
+                        <div class="dropdown">
+                            <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" id="editAdjTypeBtn" data-bs-toggle="dropdown" aria-expanded="false" style="text-align: left !important;">
+                                <span id="editAdjTypeDisplay">— Select type —</span>
+                            </button>
+                            <ul class="dropdown-menu w-100" id="editAdjTypeMenu" aria-labelledby="editAdjTypeBtn" style="width: 100% !important;"></ul>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label for="editAdjTime" class="form-label">Adjusted Time</label>

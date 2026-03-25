@@ -125,6 +125,16 @@
         const monthLabel = document.getElementById('adjCalMonthLabel');
         if (!tbody || !monthLabel) return;
 
+        const calendarEl = tbody.closest('.holiday-calendar');
+        if (calendarEl) {
+            calendarEl.classList.toggle('cal-disabled-state', !adjSelectedDriverId);
+        }
+
+        const requiredHint = document.getElementById('adjDriverRequiredHint');
+        if (requiredHint) {
+            requiredHint.classList.toggle('d-none', Boolean(adjSelectedDriverId));
+        }
+
         disposeTooltipsIn(tbody);
 
         const year = adjCalViewDate.getFullYear();
@@ -166,6 +176,16 @@
             if (isSelected) classes += ' cal-selected';
 
             const dayData = getAdjustmentShiftsForDate(dateStr);
+
+            if (adjSelectedDriverId) {
+                const dayShifts = (dayData && dayData.shifts) || [];
+                const dayWorkingShifts = dayShifts.filter(function (s) { return s.shift_type !== 'day_off'; });
+                const dayNonExtraShifts = dayWorkingShifts.filter(function (s) { return !s.is_extra; });
+                if (!dayWorkingShifts.length || dayNonExtraShifts.length >= 2) {
+                    classes += ' cal-disabled';
+                }
+            }
+
             const visuals = buildUnifiedCalendarCellContent(dayData);
             const inlineRowHtml = `${visuals.contentHtml}${visuals.extraShiftIconHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
 
@@ -184,6 +204,7 @@
         tbody.querySelectorAll('td.cal-day').forEach(function (td) {
             td.addEventListener('click', function () {
                 if (!adjSelectedDriverId) return;
+                if (td.classList.contains('cal-disabled')) return;
                 adjSelectedDate = td.getAttribute('data-date');
                 updateAdjustmentDateDisplay();
                 updateAdjustmentShiftStatus();
@@ -234,6 +255,7 @@
                 }
                 if (typeSelectEl) {
                     typeSelectEl.value = '';
+                    typeSelectEl.dispatchEvent(new Event('change', { bubbles: true }));
                 }
                 if (timeEl) {
                     timeEl.value = '';

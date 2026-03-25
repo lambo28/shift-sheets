@@ -69,6 +69,16 @@
         const monthLabel = document.getElementById('calMonthLabel');
         if (!tbody || !monthLabel) return;
 
+        const calendarEl = tbody.closest('.holiday-calendar');
+        if (calendarEl) {
+            calendarEl.classList.toggle('cal-disabled-state', !selectedDriverId);
+        }
+
+        const requiredHint = document.getElementById('holidayDriverRequiredHint');
+        if (requiredHint) {
+            requiredHint.classList.toggle('d-none', Boolean(selectedDriverId));
+        }
+
         disposeTooltipsIn(tbody);
 
         const year = calViewDate.getFullYear();
@@ -115,9 +125,17 @@
                 if (isToday) classes += ' cal-today';
                 if (isHoliday) classes += ' cal-holiday';
                 if (isRangeStart || isRangeEnd) classes += ' cal-selected';
-                if (isInRange && calStartDate && calEndDate && calStartDate !== calEndDate) classes += ' cal-in-range';
 
                 const dayData = getShiftsForDate(dateStr);
+                const dayWorkingShifts = ((dayData && dayData.shifts) || []).filter(function (s) { return s.shift_type !== 'day_off'; });
+                const isDayWorking = dayWorkingShifts.length > 0;
+
+                if (selectedDriverId && !isDayWorking) classes += ' cal-disabled';
+
+                // Only highlight in-range days that are working days when a driver is selected
+                const showInRange = isInRange && calStartDate && calEndDate && calStartDate !== calEndDate;
+                if (showInRange && (!selectedDriverId || isDayWorking)) classes += ' cal-in-range';
+
                 const visuals = buildUnifiedCalendarCellContent(dayData);
                 const inlineRowHtml = `${visuals.contentHtml}${visuals.extraShiftIconHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
 
@@ -138,6 +156,8 @@
         // Attach click handlers
         tbody.querySelectorAll('td.cal-day').forEach(function (td) {
             td.addEventListener('click', function () {
+                if (!selectedDriverId) return;
+                if (td.classList.contains('cal-disabled')) return;
                 selectCalDay(td.getAttribute('data-date'));
             });
         });
@@ -185,7 +205,11 @@
         if (!display) return;
 
         if (!calStartDate) {
-            display.textContent = 'Click a date to start selecting a range.';
+            if (!selectedDriverId) {
+                display.textContent = 'Select a driver, then click a start and end date on the calendar.';
+            } else {
+                display.textContent = 'Click a start date, then click an end date on the calendar.';
+            }
             return;
         }
 
@@ -265,6 +289,7 @@
                 }
                 if (typeSelectEl) {
                     typeSelectEl.value = 'holiday';
+                    typeSelectEl.dispatchEvent(new Event('change', { bubbles: true }));
                 }
                 if (notesEl) {
                     notesEl.value = '';
@@ -286,6 +311,7 @@
                 selectedDriverId = this.value ? parseInt(this.value, 10) : null;
                 // Clear calendar selection when driver is deselected
                 if (!selectedDriverId) {
+                    driverShiftData = null;
                     calStartDate = null;
                     calEndDate = null;
                     updateDateDisplay();

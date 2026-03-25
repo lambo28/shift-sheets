@@ -6,6 +6,78 @@
 (function () {
     'use strict';
 
+    function initStyledTypeDropdown(selectId, menuId, displayId, placeholder, config = {}) {
+        const selectEl = document.getElementById(selectId);
+        const menuEl = document.getElementById(menuId);
+        const displayEl = document.getElementById(displayId);
+        if (!selectEl || !menuEl || !displayEl) return;
+
+        const autoSelectFirst = Boolean(config.autoSelectFirst);
+
+        const selectOptions = Array.from(selectEl.options || []);
+        const selectableOptions = selectOptions.filter(function (opt) {
+            return String(opt.value || '').trim() !== '';
+        });
+
+        menuEl.innerHTML = selectableOptions.map(function (opt) {
+            const value = opt.value;
+            const label = opt.textContent || value;
+            const icon = opt.dataset.icon || 'fas fa-circle';
+            const badgeClass = opt.dataset.badge || 'bg-secondary';
+            return `<li>
+                <a class="dropdown-item scheduling-type-option" href="#" data-value="${value}" data-label="${label}" data-icon="${icon}" data-badge="${badgeClass}">
+                    <span class="badge ${badgeClass} p-2 me-2"><i class="${icon}"></i></span>
+                    ${label}
+                </a>
+            </li>`;
+        }).join('');
+
+        function renderSelected() {
+            const currentValue = String(selectEl.value || '').trim();
+            let selected = selectableOptions.find(function (opt) {
+                return opt.value === currentValue;
+            });
+
+            if (!selected && autoSelectFirst && selectableOptions.length) {
+                const fallbackValue = selectableOptions[0].value;
+                if (currentValue !== fallbackValue) {
+                    selectEl.value = fallbackValue;
+                    selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+                    return;
+                }
+                selected = selectableOptions[0];
+            }
+
+            if (!selected) {
+                displayEl.innerHTML = `<span class="badge bg-light text-dark border p-2 me-1"><i class="fas fa-minus"></i></span>${placeholder}`;
+                return;
+            }
+
+            const icon = selected.dataset.icon || 'fas fa-circle';
+            const badgeClass = selected.dataset.badge || 'bg-secondary';
+            const label = selected.textContent || selected.value;
+            displayEl.innerHTML = `<span class="badge ${badgeClass} p-2 me-1"><i class="${icon}"></i></span>${label}`;
+        }
+
+        menuEl.querySelectorAll('.scheduling-type-option').forEach(function (link) {
+            link.addEventListener('click', function (e) {
+                e.preventDefault();
+                const value = this.getAttribute('data-value') || '';
+                selectEl.value = value;
+                selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+                renderSelected();
+            });
+        });
+
+        if (autoSelectFirst && !String(selectEl.value || '').trim() && selectableOptions.length) {
+            selectEl.value = selectableOptions[0].value;
+            selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        selectEl.addEventListener('change', renderSelected);
+        renderSelected();
+    }
+
     function showPageAlert(message, level = 'danger') {
         if (typeof window.showAlertBanner === 'function') {
             window.showAlertBanner(level, message, true, 4000);
@@ -35,6 +107,11 @@
         if (window.schedulingSwapCalendar) {
             window.schedulingSwapCalendar.init();
         }
+
+        initStyledTypeDropdown('timeOffType', 'timeOffTypeMenu', 'timeOffTypeDisplay', '— Select type —', { autoSelectFirst: true });
+        initStyledTypeDropdown('adjType', 'adjTypeMenu', 'adjTypeDisplay', '— Select type —', { autoSelectFirst: true });
+        initStyledTypeDropdown('editTimeOffType', 'editTimeOffTypeMenu', 'editTimeOffTypeDisplay', '— Select type —', { autoSelectFirst: true });
+        initStyledTypeDropdown('editAdjType', 'editAdjTypeMenu', 'editAdjTypeDisplay', '— Select type —', { autoSelectFirst: true });
 
         // Update time input hint when adjustment type changes
         const adjTypeSelect = document.getElementById('adjType');
@@ -242,7 +319,10 @@
         const notesEl = document.getElementById('editAdjNotes');
 
         if (dateEl) dateEl.value = date;
-        if (typeEl) typeEl.value = type;
+        if (typeEl) {
+            typeEl.value = type;
+            typeEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         if (timeEl) timeEl.value = time;
         if (notesEl) notesEl.value = notes;
 
@@ -335,7 +415,11 @@ function loadHolidayGroupForEdit(driverId, startDate, endDate, timeOffType, note
     document.getElementById('editHolEndDate').value = endDate;
     document.getElementById('editHolStartDate').dataset.oldStart = startDate;
     document.getElementById('editHolEndDate').dataset.oldEnd = endDate;
-    document.getElementById('editTimeOffType').value = timeOffType || 'holiday';
+    const editTimeOffTypeEl = document.getElementById('editTimeOffType');
+    if (editTimeOffTypeEl) {
+        editTimeOffTypeEl.value = timeOffType || 'holiday';
+        editTimeOffTypeEl.dispatchEvent(new Event('change', { bubbles: true }));
+    }
     document.getElementById('editHolNotes').value = notes;
     
     // Fetch driver name
