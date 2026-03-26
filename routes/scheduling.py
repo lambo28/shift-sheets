@@ -344,6 +344,8 @@ def register(app):
             "scheduling.html",
             drivers=all_drivers,
             holidays=holidays,
+            all_school_terms=all_school_terms,
+            all_school_closures=all_school_closures,
             school_terms=school_terms,
             school_terms_finished=school_terms_finished,
             finished_school_term_count=finished_school_term_count,

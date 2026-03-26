@@ -24,6 +24,52 @@
     /**
      * Fetch all drivers' time off for the given month
      */
+    const schoolTermRanges = [];
+    const schoolClosureDates = new Set();
+
+    function loadSchoolTerms() {
+        const el = document.getElementById('schoolTermsDataEl');
+        if (!el) return;
+        try {
+            const starts = JSON.parse(el.getAttribute('data-term-starts') || '[]');
+            const ends = JSON.parse(el.getAttribute('data-term-ends') || '[]');
+            const closures = JSON.parse(el.getAttribute('data-closure-dates') || '[]');
+            for (let i = 0; i < starts.length; i++) {
+                if (starts[i] && ends[i]) {
+                    schoolTermRanges.push({ start: String(starts[i]), end: String(ends[i]) });
+                }
+            }
+            closures.forEach(function (dateStr) {
+                if (dateStr) schoolClosureDates.add(String(dateStr));
+            });
+        } catch (e) { }
+    }
+
+    function isWeekendISO(dateStr) {
+        if (!dateStr) return false;
+        const parsed = new Date(`${dateStr}T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) return false;
+        const day = parsed.getDay();
+        return day === 0 || day === 6;
+    }
+
+    function isInSchoolTerm(dateStr) {
+        if (isWeekendISO(dateStr)) return false;
+        if (schoolClosureDates.has(dateStr)) return false;
+        return schoolTermRanges.some(function (r) { return dateStr >= r.start && dateStr <= r.end; });
+    }
+
+    function escapeCalendarViewHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    /**
+     * Fetch all drivers' time off for the given month
+     */
     async function fetchAllDriversTimeOff(year, month) {
         try {
             const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
@@ -66,48 +112,71 @@
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
 
-        let html = '';
-        html += '<tr>';
+        const dayCells = [];
+
         for (let i = 0; i < totalCells; i++) {
-            if (i % 7 === 0 && i > 0) html += '</tr><tr>';
-
             const cellNum = i - startOffset + 1;
-            let cellClass = '';
-            let cellContent = '';
-
             if (cellNum >= 1 && cellNum <= daysInMonth) {
                 const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(cellNum).padStart(2, '0')}`;
-                cellClass = 'calendar-view-day';
+                let cellClass = 'cal-day calendar-view-day';
+                if (isInSchoolTerm(dateStr)) cellClass += ' cal-school-term';
 
                 const driversOnThisDate = calViewModalData[dateStr] || [];
-                const sortedDrivers = [...driversOnThisDate].sort((a, b) => {
+                const sortedDrivers = [...driversOnThisDate].sort(function (a, b) {
                     const aNumber = String(a.driver_number || '');
                     const bNumber = String(b.driver_number || '');
                     return aNumber.localeCompare(bNumber, undefined, { numeric: true, sensitivity: 'base' });
                 });
 
-                cellContent = `<div class="d-flex justify-content-between align-items-center mb-1"><strong>${cellNum}</strong>${sortedDrivers.length > 0 ? `<strong class="small text-danger">${sortedDrivers.length} ${sortedDrivers.length === 1 ? 'DRIVER' : 'DRIVERS'} OFF</strong>` : ''}</div>`;
-                if (sortedDrivers.length > 0) {
-                    cellContent += '<div style="display: flex; flex-wrap: wrap; gap: 2px;">';
-                    sortedDrivers.forEach(driverEntry => {
+                const driverCount = sortedDrivers.length;
+                let badgeSizeClass = '';
+                if (driverCount >= 11) badgeSizeClass = 'cal-view-badges-xs';
+                else if (driverCount >= 7) badgeSizeClass = 'cal-view-badges-sm';
+
+                let headerHtml = `<div class="cal-day-header"><div class="fw-bold small">${cellNum}</div>`;
+                if (driverCount > 0) {
+                    headerHtml += `<span class="cal-view-count-badge">${driverCount} OFF</span>`;
+                }
+                headerHtml += '</div>';
+
+                let gridHtml = '';
+                if (driverCount > 0) {
+                    gridHtml += `<div class="cal-day-shifts cal-view-driver-grid ${badgeSizeClass}">`;
+                    sortedDrivers.forEach(function (driverEntry) {
                         const type = driverEntry.time_off_type || 'holiday';
                         const color = typeColorMap[type] || typeColorMap.holiday;
-                        cellContent += `<span class="badge" style="background-color: ${color}; color: #000; font-size: 14px; padding: 0.25rem 0.4rem;" title="Driver ${driverEntry.driver_number} off (${type.toUpperCase()})">${driverEntry.driver_number}</span>`;
+                        gridHtml += `<span class="cal-view-driver-badge" style="background-color: ${color};" title="Driver ${escapeCalendarViewHtml(driverEntry.driver_number)} off (${type.toUpperCase()})">${escapeCalendarViewHtml(driverEntry.driver_number)}</span>`;
                     });
-                    cellContent += '</div>';
+                    gridHtml += '</div>';
+                } else {
+                    gridHtml = '<div class="cal-day-shifts"><small class="text-muted">No drivers off</small></div>';
                 }
+
+                dayCells.push(`<td class="${cellClass}">${headerHtml}${gridHtml}</td>`);
+            } else {
+                dayCells.push('<td class="cal-empty"></td>');
             }
-
-            html += `<td class="${cellClass}" style="height: 80px; vertical-align: top; padding: 8px; position: relative;">${cellContent}</td>`;
         }
-        html += '</tr>';
 
-        document.getElementById('calendarViewBody').innerHTML = html;
+        const rows = [];
+        for (let i = 0; i < dayCells.length; i += 7) {
+            rows.push(`<tr>${dayCells.slice(i, i + 7).join('')}</tr>`);
+        }
+
+        document.getElementById('calendarViewBody').innerHTML = rows.join('');
+
+        if (window.bootstrap && window.bootstrap.Tooltip) {
+            document.getElementById('calendarViewBody').querySelectorAll('[title]').forEach(function (el) {
+                window.bootstrap.Tooltip.getOrCreateInstance(el);
+            });
+        }
     }
 
     function initCalendarViewModal() {
         const modal = document.getElementById('calendarViewModal');
         if (!modal) return;
+        loadSchoolTerms();
+
 
         const prevBtn = document.getElementById('calViewPrev');
         const nextBtn = document.getElementById('calViewNext');

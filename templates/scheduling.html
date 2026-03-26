@@ -10,7 +10,14 @@
 {% block content %}
 <!-- Embed existing holiday dates for the calendar widget -->
 <div id="holidaysDataEl" style="display:none;"
-     data-holidays="{{ holidays | map(attribute='holiday_date') | map('string') | list | tojson }}">
+     data-holidays='{{ holidays | map(attribute="holiday_date") | map("string") | list | tojson }}'>
+</div>
+
+<!-- Embed school term date ranges for calendar highlighting -->
+<div id="schoolTermsDataEl" style="display:none;"
+    data-term-starts='{{ all_school_terms | map(attribute="start_date") | map("string") | list | tojson }}'
+    data-term-ends='{{ all_school_terms | map(attribute="end_date") | map("string") | list | tojson }}'
+    data-closure-dates='{{ all_school_closures | map(attribute="closure_date") | map("string") | list | tojson }}'>
 </div>
 
 {% set page_header_icon = 'fas fa-calendar-alt' %}

@@ -23,6 +23,42 @@
     /** @type {Set<string>} Dates already saved as holidays (YYYY-MM-DD), populated by server on render */
     const existingHolidayDates = new Set();
 
+    /** @type {Array<{start: string, end: string}>} School term date ranges */
+    const schoolTermRanges = [];
+    const schoolClosureDates = new Set();
+
+    function loadSchoolTerms() {
+        const el = document.getElementById('schoolTermsDataEl');
+        if (!el) return;
+        try {
+            const starts = JSON.parse(el.getAttribute('data-term-starts') || '[]');
+            const ends = JSON.parse(el.getAttribute('data-term-ends') || '[]');
+            const closures = JSON.parse(el.getAttribute('data-closure-dates') || '[]');
+            for (let i = 0; i < starts.length; i++) {
+                if (starts[i] && ends[i]) {
+                    schoolTermRanges.push({ start: String(starts[i]), end: String(ends[i]) });
+                }
+            }
+            closures.forEach(function (dateStr) {
+                if (dateStr) schoolClosureDates.add(String(dateStr));
+            });
+        } catch (e) { }
+    }
+
+    function isWeekendISO(dateStr) {
+        if (!dateStr) return false;
+        const parsed = new Date(`${dateStr}T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) return false;
+        const day = parsed.getDay();
+        return day === 0 || day === 6;
+    }
+
+    function isInSchoolTerm(dateStr) {
+        if (isWeekendISO(dateStr)) return false;
+        if (schoolClosureDates.has(dateStr)) return false;
+        return schoolTermRanges.some(function (r) { return dateStr >= r.start && dateStr <= r.end; });
+    }
+
     /** @type {Object} Shift data for the selected driver */
     let driverShiftData = null;
 
@@ -135,17 +171,17 @@
             } else {
                 const dateStr = formatDateISO(new Date(year, month, dayCounter));
                 const isToday = dateStr === todayStr;
-                const isHoliday = existingHolidayDates.has(dateStr);
                 const isInRange = isDateInRange(dateStr);
                 const isRangeStart = dateStr === calStartDate;
                 const isRangeEnd = dateStr === calEndDate;
 
                 let classes = 'cal-day';
                 if (isToday) classes += ' cal-today';
-                if (isHoliday) classes += ' cal-holiday';
                 if (isRangeStart || isRangeEnd) classes += ' cal-selected';
 
                 const dayData = getShiftsForDate(dateStr);
+                if (isInSchoolTerm(dateStr)) classes += ' cal-school-term';
+
                 const dayWorkingShifts = ((dayData && dayData.shifts) || []).filter(function (s) { return s.shift_type !== 'day_off'; });
                 const isDayWorking = dayWorkingShifts.length > 0;
                 const isSwapWorkDay = Boolean(dayData && dayData.has_swap_work);
@@ -278,6 +314,7 @@
     }
 
     function initCalendar() {
+        loadSchoolTerms();
         loadExistingHolidays();
         renderCalendar();
 

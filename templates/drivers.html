@@ -9,6 +9,12 @@
 
 
 {% block content %}
+<div id="driverSchoolTermsDataEl" style="display:none;"
+    data-term-starts='{{ all_school_terms | map(attribute="start_date") | map("string") | list | tojson }}'
+    data-term-ends='{{ all_school_terms | map(attribute="end_date") | map("string") | list | tojson }}'
+    data-closure-dates='{{ all_school_closures | map(attribute="closure_date") | map("string") | list | tojson }}'>
+</div>
+
 {% set page_header_icon = 'fas fa-users' %}
 {% set page_header_title = 'Driver Management' %}
 {% set page_header_actions_html %}

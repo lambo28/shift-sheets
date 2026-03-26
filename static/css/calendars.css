@@ -119,6 +119,22 @@
     box-shadow: 0 0 0 1px #0d6efd;
 }
 
+.holiday-calendar td.cal-day.cal-today.cal-disabled,
+.holiday-calendar.cal-disabled-state td.cal-day.cal-today,
+.holiday-calendar.cal-disabled-state td.cal-day.cal-today.cal-disabled {
+    border: 2px solid #0d6efd !important;
+    box-shadow: 0 0 0 1px #0d6efd !important;
+}
+
+.holiday-calendar.compact td.cal-day.cal-today,
+.holiday-calendar.compact td.cal-day.cal-today.cal-disabled,
+.holiday-calendar.compact.cal-disabled-state td.cal-day.cal-today,
+.holiday-calendar.compact.cal-disabled-state td.cal-day.cal-today.cal-disabled,
+.holiday-calendar.compact td.cal-day.cal-today.cal-selected {
+    border: 2px solid #0d6efd !important;
+    box-shadow: inset 0 0 0 1px #0d6efd !important;
+}
+
 .holiday-calendar td.cal-day.cal-swap-giveup {
     background: #ffc107 !important;
     color: #000;
@@ -352,11 +368,139 @@
     font-size: 0.45rem;
 }
 
+/* Compact calendars: make only time-off badges larger with black icon */
+.holiday-calendar.compact .cal-day-inline .cal-icon-box.cal-timeoff,
+.holiday-calendar.compact .cal-day-inline.cal-icons-4 .cal-icon-box.cal-timeoff,
+.holiday-calendar.compact .cal-day-inline.cal-icons-5plus .cal-icon-box.cal-timeoff {
+    width: 20px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0;
+}
+
+.holiday-calendar.compact .cal-day-inline .cal-icon-box.cal-timeoff i,
+.holiday-calendar.compact .cal-day-inline .cal-icon-box.cal-timeoff .scheduling-type-white-icon,
+.holiday-calendar.compact .cal-day-inline.cal-icons-4 .cal-icon-box.cal-timeoff i,
+.holiday-calendar.compact .cal-day-inline.cal-icons-4 .cal-icon-box.cal-timeoff .scheduling-type-white-icon,
+.holiday-calendar.compact .cal-day-inline.cal-icons-5plus .cal-icon-box.cal-timeoff i,
+.holiday-calendar.compact .cal-day-inline.cal-icons-5plus .cal-icon-box.cal-timeoff .scheduling-type-white-icon {
+    color: #000 !important;
+    font-size: 0.68rem;
+}
+
 .holiday-calendar .cal-shift-label {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 2px;
+}
+
+/* ==================== NON-COMPACT CALENDAR: INLINE CONTENT AREA ==================== */
+/* Constrain the inline area so cells stay at fixed height */
+.holiday-calendar:not(.compact) .cal-day-inline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    justify-content: center;
+    align-content: flex-start;
+    max-height: 92px;
+    overflow: hidden;
+    padding-top: 2px;
+}
+
+/* Smaller icon-only shift/time-off boxes in full-size holiday calendar */
+.holiday-calendar:not(.compact) .cal-icon-box {
+    min-width: 28px;
+    padding: 0.2rem 0.28rem;
+    font-size: 0.68rem;
+}
+
+/* ==================== SCHOOL TERM BACKGROUND ==================== */
+.holiday-calendar:not(.compact) td.cal-day.cal-school-term {
+    background: #e8f5e9 !important;
+}
+
+.holiday-calendar:not(.compact).cal-disabled-state td.cal-day.cal-school-term,
+.holiday-calendar:not(.compact).cal-disabled-state td.cal-day.cal-school-term:hover,
+.holiday-calendar:not(.compact) td.cal-day.cal-school-term:hover {
+    background: #e8f5e9 !important;
+}
+
+/* ==================== CALENDAR VIEW MODAL ==================== */
+#calendarViewTable {
+    table-layout: fixed;
+}
+
+#calendarViewBody td {
+    padding: 4px 2px;
+    vertical-align: top;
+}
+
+.schedule-calendar-view td {
+    min-height: 112px;
+    height: 112px;
+}
+
+.schedule-calendar-view .cal-day-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.schedule-calendar-view .cal-day-shifts {
+    min-height: 58px;
+    height: 58px;
+    padding-bottom: 0;
+    align-items: flex-start;
+    align-content: flex-start;
+    justify-content: center;
+    gap: 4px;
+    overflow: hidden;
+}
+
+.cal-view-count-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #f8d7da;
+    color: #842029;
+    font-size: 0.62rem;
+    font-weight: 700;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.cal-view-driver-grid .cal-view-driver-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 20px;
+    padding: 0 4px;
+    border-radius: 0.35rem;
+    color: #000;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.cal-view-driver-grid.cal-view-badges-sm .cal-view-driver-badge {
+    min-width: 24px;
+    height: 18px;
+    padding: 0 3px;
+    font-size: 0.6rem;
+}
+
+.cal-view-driver-grid.cal-view-badges-xs .cal-view-driver-badge {
+    min-width: 21px;
+    height: 16px;
+    padding: 0 2px;
+    font-size: 0.54rem;
 }
 
 .holiday-calendar .cal-box-swap-icon {

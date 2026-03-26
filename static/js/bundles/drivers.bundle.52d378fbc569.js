@@ -1760,6 +1760,45 @@ let driverCalendarState = {
     monthDate: null,
 };
 
+const driverSchoolTermRanges = [];
+const driverSchoolClosureDates = new Set();
+
+function loadDriverSchoolCalendarData() {
+    const el = document.getElementById('driverSchoolTermsDataEl');
+    if (!el) return;
+    try {
+        const starts = JSON.parse(el.getAttribute('data-term-starts') || '[]');
+        const ends = JSON.parse(el.getAttribute('data-term-ends') || '[]');
+        const closures = JSON.parse(el.getAttribute('data-closure-dates') || '[]');
+
+        for (let i = 0; i < starts.length; i++) {
+            if (starts[i] && ends[i]) {
+                driverSchoolTermRanges.push({ start: String(starts[i]), end: String(ends[i]) });
+            }
+        }
+
+        closures.forEach(function (dateStr) {
+            if (dateStr) driverSchoolClosureDates.add(String(dateStr));
+        });
+    } catch (e) { }
+}
+
+function isWeekendISO(dateStr) {
+    if (!dateStr) return false;
+    const parsed = new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return false;
+    const day = parsed.getDay();
+    return day === 0 || day === 6;
+}
+
+function isDriverSchoolTermDate(dateStr) {
+    if (isWeekendISO(dateStr)) return false;
+    if (driverSchoolClosureDates.has(dateStr)) return false;
+    return driverSchoolTermRanges.some(function (range) {
+        return dateStr >= range.start && dateStr <= range.end;
+    });
+}
+
 function toCalendarMonthParam(dateObj) {
     const year = dateObj.getFullYear();
     const month = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -1921,7 +1960,10 @@ function renderDriverCalendar(data) {
 
         const contentHtml = `${shiftsHtml}${timeOffHtml}` || '<small class="text-muted">No shift</small>';
 
-        const cellClass = day.is_today ? 'table-warning' : '';
+        let cellClass = day.is_today ? 'cal-today' : '';
+        if (isDriverSchoolTermDate(day.date)) {
+            cellClass = `${cellClass} cal-school-term`.trim();
+        }
 
         dayCells.push(`
             <td class="cal-day ${cellClass}">
@@ -2004,6 +2046,8 @@ function loadDriverCalendar() {
 }
 
 function initializeDriverCalendarModule() {
+    loadDriverSchoolCalendarData();
+
     document.getElementById('driverCalendarPrevMonth')?.addEventListener('click', function() {
         if (!driverCalendarState.monthDate) return;
         driverCalendarState.monthDate = new Date(driverCalendarState.monthDate.getFullYear(), driverCalendarState.monthDate.getMonth() - 1, 1);

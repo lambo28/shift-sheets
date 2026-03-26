@@ -343,6 +343,13 @@
         if (clearBtn) {
             clearBtn.addEventListener('click', function () {
                 selectedDate = null;
+                const notesInput = document.getElementById('closureNotes');
+                if (notesInput) notesInput.value = '';
+                const closureTypeEl = document.getElementById('closureType');
+                if (closureTypeEl) {
+                    closureTypeEl.value = '';
+                    closureTypeEl.dispatchEvent(new Event('change', { bubbles: true }));
+                }
                 syncInput();
                 updateDisplay();
                 render();
@@ -520,6 +527,8 @@
             clearBtn.addEventListener('click', function () {
                 startDate = null;
                 endDate = null;
+                const termNameInput = document.getElementById('termName');
+                if (termNameInput) termNameInput.value = '';
                 updateDisplayText();
                 syncInputs();
                 render();

@@ -2,7 +2,7 @@ from flask import render_template, request, redirect, url_for, flash, jsonify
 from datetime import datetime
 
 from extensions import db
-from models import Driver, ShiftPattern, ShiftTiming
+from models import Driver, ShiftPattern, ShiftTiming, SchoolTerm, SchoolClosureDate
 from utils import (
     serialize_driver_assignment_items, get_custom_timing_affected_pattern_ids,
     is_ajax_request, json_success, json_error,
@@ -84,6 +84,8 @@ def register(app):
 
         driver_assignments = {}
         custom_timing_pattern_ids = {}
+        all_school_terms = SchoolTerm.query.order_by(SchoolTerm.start_date.asc(), SchoolTerm.id.asc()).all()
+        all_school_closures = SchoolClosureDate.query.order_by(SchoolClosureDate.closure_date.asc(), SchoolClosureDate.id.asc()).all()
         for driver in all_drivers:
             driver_assignments[driver.id] = serialize_driver_assignment_items(driver)
             custom_timing_pattern_ids[driver.id] = sorted(get_custom_timing_affected_pattern_ids(driver))
@@ -97,6 +99,8 @@ def register(app):
             datetime=datetime,
             driver_assignments=driver_assignments,
             custom_timing_pattern_ids=custom_timing_pattern_ids,
+            all_school_terms=all_school_terms,
+            all_school_closures=all_school_closures,
         )
 
     @app.route("/driver/add", methods=["GET", "POST"])
