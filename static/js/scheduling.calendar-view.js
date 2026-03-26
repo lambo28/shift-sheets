@@ -111,6 +111,7 @@
 
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+        const todayStr = new Date().toISOString().slice(0, 10);
 
         const dayCells = [];
 
@@ -119,6 +120,7 @@
             if (cellNum >= 1 && cellNum <= daysInMonth) {
                 const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(cellNum).padStart(2, '0')}`;
                 let cellClass = 'cal-day calendar-view-day';
+                if (dateStr === todayStr) cellClass += ' cal-today';
                 if (isInSchoolTerm(dateStr)) cellClass += ' cal-school-term';
 
                 const driversOnThisDate = calViewModalData[dateStr] || [];
