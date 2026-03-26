@@ -509,8 +509,8 @@ class TestWorkRuleValidation:
             assert suggested_start is None
             assert suggested_end is None
 
-    def test_holiday_removes_scheduled_shift_from_validation(self, db):
-        """A holiday should suppress the scheduled shift, so extra work is validated as if off-duty."""
+    def test_holiday_blocks_extra_assignment_validation(self, db):
+        """Time-off days should block extra assignments entirely."""
         with flask_app.app_context():
             ref = date(2026, 6, 15)
             make_shift_timing(db, 'holiday_morning', '06:00', '14:00')
@@ -525,8 +525,8 @@ class TestWorkRuleValidation:
             p_end = datetime(2026, 6, 15, 22, 0)
             valid, errors, _, _ = validate_extra_car_assignment(driver, req, p_start, p_end)
 
-            assert valid
-            assert errors == []
+            assert not valid
+            assert any('time off' in err.lower() for err in errors)
 
     def test_custom_timing_is_used_for_rest_validation(self, db):
         """Custom end time should tighten rest rules for extra work."""
@@ -841,6 +841,42 @@ class TestStatusTransitions:
             assert ExtraCarRequest.query.count() == 0
             assert ExtraCarAssignment.query.count() == 0
 
+    def test_closed_future_request_not_in_finished_modal(self, client, db):
+        now = datetime.now()
+        future_date = now.date() + timedelta(days=1)
+
+        with flask_app.app_context():
+            make_extra_request(
+                db,
+                req_date=future_date,
+                window_start='08:00',
+                window_end='12:00',
+                status='CLOSED',
+            )
+
+        resp = client.get('/extra-cars')
+        assert resp.status_code == 200
+        html = resp.get_data(as_text=True)
+        assert 'Finished Requests (' not in html
+
+    def test_closed_past_request_is_in_finished_modal(self, client, db):
+        now = datetime.now()
+        past_date = now.date() - timedelta(days=1)
+
+        with flask_app.app_context():
+            make_extra_request(
+                db,
+                req_date=past_date,
+                window_start='08:00',
+                window_end='12:00',
+                status='CLOSED',
+            )
+
+        resp = client.get('/extra-cars')
+        assert resp.status_code == 200
+        html = resp.get_data(as_text=True)
+        assert 'Finished Requests (1)' in html
+
     def test_duplicate_assignment_for_same_request_rejected(self, client, db):
         with flask_app.app_context():
             driver = make_driver(db, '11', 'Dup Driver')
@@ -858,6 +894,25 @@ class TestStatusTransitions:
 
         with flask_app.app_context():
             assert ExtraCarAssignment.query.filter_by(request_id=req_id, driver_id=driver_id).count() == 1
+
+    def test_assignment_add_rejects_driver_marked_time_off(self, client, db):
+        with flask_app.app_context():
+            req_date = date(2026, 7, 10)
+            driver = make_driver(db, '111', 'Time Off Driver')
+            make_driver_holiday(db, driver, req_date, time_off_type='holiday')
+            req = make_extra_request(db, req_date=req_date, window_start='08:00', window_end='12:00')
+            req_id = req.id
+            driver_id = driver.id
+
+        resp = client.post(
+            f'/extra-cars/request/{req_id}/assignment/add',
+            data={'driver_id': str(driver_id), 'start_time': '08:00', 'end_time': '12:00'},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+
+        with flask_app.app_context():
+            assert ExtraCarAssignment.query.filter_by(request_id=req_id, driver_id=driver_id).count() == 0
 
     def test_overlapping_assignment_is_trimmed_to_net_new_window(self, client, db):
         with flask_app.app_context():

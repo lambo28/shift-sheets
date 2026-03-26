@@ -4,6 +4,30 @@
 .status-badge-FILLED { background-color: #198754; color: #fff; }
 .status-badge-CLOSED { background-color: #adb5bd; color: #fff; }
 
+.extra-cars-dropdown-icon-badge {
+    width: 1.45rem;
+    height: 1.45rem;
+    border-radius: 0.35rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.extra-cars-type-white-icon {
+    color: #fff !important;
+    font-size: 0.72rem;
+    line-height: 1;
+}
+
+.extra-car-date-calendar {
+    max-width: 100%;
+}
+
+.extra-car-date-calendar .cal-day-header .fw-bold.small {
+    font-size: 0.72rem;
+}
+
 .coverage-bar-container {
     height: 14px;
     background: #e9ecef;

@@ -37,6 +37,7 @@ def register(app):
     @app.route("/extra-cars")
     def extra_cars():
         """Extra car requests management page."""
+        now = datetime.now()
         all_requests = (
             ExtraCarRequest.query
             .order_by(ExtraCarRequest.date.asc(), ExtraCarRequest.id.asc())
@@ -61,11 +62,13 @@ def register(app):
                 'available_end': available_end,
             }
 
-            if req.status == 'CLOSED':
-                _, req_end_dt = req.get_time_window()
+            _, req_end_dt = req.get_time_window()
+            has_ended = req_end_dt is not None and req_end_dt <= now
+
+            if req.status == 'CLOSED' and has_ended:
                 if req_end_dt is not None:
                     delete_cutoff = req_end_dt + timedelta(hours=24)
-                    payload['deletable'] = datetime.now() >= delete_cutoff
+                    payload['deletable'] = now >= delete_cutoff
                     payload['delete_available_from'] = delete_cutoff.strftime('%-d %b %Y %H:%M')
                 else:
                     payload['deletable'] = True
@@ -271,8 +274,7 @@ def register(app):
                 return _extra_cars_redirect("Please enter a positive number of required slots, or select unlimited.")
 
         new_status = request.form.get("status", "").strip()
-        valid_statuses = ("DRAFT", "OPEN", "PARTIALLY_FILLED", "FILLED", "CLOSED")
-        if new_status in valid_statuses:
+        if new_status in ("OPEN", "CLOSED"):
             req.status = new_status
 
         req.date = req_date

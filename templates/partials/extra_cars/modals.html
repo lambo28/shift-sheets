@@ -84,7 +84,7 @@
 {% endif %}
 
 <div class="modal fade" id="editRequestModal" tabindex="-1" aria-labelledby="editRequestModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="editRequestModalLabel">
@@ -96,50 +96,62 @@
                 <div class="modal-body">
                     <div class="row g-3">
                         <div class="col-md-6">
-                            <label for="editReqDate" class="form-label">Date <span class="text-danger">*</span></label>
-                            <input type="date" class="form-control" id="editReqDate" name="date" min="{{ today.isoformat() }}" required>
-                        </div>
-
-                        <div class="col-md-6">
-                            <label for="editReqStatus" class="form-label">Status</label>
-                            <select class="form-select" id="editReqStatus" name="status">
-                                {% for s in ['DRAFT','OPEN','PARTIALLY_FILLED','FILLED','CLOSED'] %}
-                                <option value="{{ s }}">{{ s.replace('_', ' ') }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-
-                        <div class="col-12">
-                            <label class="form-label">Window type <span class="text-danger">*</span></label>
-                            <div class="d-flex gap-2">
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="request_type"
-                                           id="editRtShift" value="shift_type">
-                                    <label class="form-check-label" for="editRtShift">Shift type</label>
-                                </div>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="radio" name="request_type"
-                                           id="editRtWindow" value="time_window">
-                                    <label class="form-check-label" for="editRtWindow">Custom window</label>
+                            <div class="mb-3">
+                                <label for="editReqStatus" class="form-label">Block new assignments</label>
+                                <div class="form-text mb-2">Choose Closed to stop adding drivers. Choose Open to allow normal auto status updates (Open / Partially Filled / Filled).</div>
+                                <select class="form-select d-none" id="editReqStatus" name="status">
+                                    <option value="OPEN" data-icon="fas fa-folder-open" data-badge="bg-primary">Open</option>
+                                    <option value="CLOSED" data-icon="fas fa-lock" data-badge="bg-dark">Closed</option>
+                                </select>
+                                <div class="dropdown">
+                                    <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" id="editReqStatusBtn" data-bs-toggle="dropdown" aria-expanded="false" style="text-align: left !important;">
+                                        <span id="editReqStatusDisplay">— Select open or closed —</span>
+                                    </button>
+                                    <ul class="dropdown-menu w-100" id="editReqStatusMenu" aria-labelledby="editReqStatusBtn"></ul>
                                 </div>
                             </div>
-                        </div>
 
-                        <div class="col-12" id="editShiftTypeField">
+                            <div class="mb-3">
+                                <label class="form-label">Window type <span class="text-danger">*</span></label>
+                                <div class="d-flex gap-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="request_type"
+                                               id="editRtShift" value="shift_type">
+                                        <label class="form-check-label" for="editRtShift">Shift type</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" name="request_type"
+                                               id="editRtWindow" value="time_window">
+                                        <label class="form-check-label" for="editRtWindow">Custom window</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-3" id="editShiftTypeField">
                             <label for="editReqShiftType" class="form-label">Shift type</label>
-                            <select class="form-select" id="editReqShiftType" name="shift_type">
+                            <select class="form-select d-none" id="editReqShiftType" name="shift_type">
                                 <option value="">— Select —</option>
                                 {% for st in all_shift_timings %}
                                     {% if st.shift_type != 'day_off' %}
-                                    <option value="{{ st.shift_type }}" data-start="{{ st.start_time.strftime('%H:%M') if st.start_time }}" data-end="{{ st.end_time.strftime('%H:%M') if st.end_time }}">
-                                        {{ st.display_label }} ({{ st.start_time.strftime('%H:%M') if st.start_time }}–{{ st.end_time.strftime('%H:%M') if st.end_time }})
+                                    <option value="{{ st.shift_type }}"
+                                            data-start="{{ st.start_time.strftime('%H:%M') if st.start_time }}"
+                                            data-end="{{ st.end_time.strftime('%H:%M') if st.end_time }}"
+                                            data-icon="{{ st.icon or 'fas fa-clock' }}"
+                                            data-badge="{{ st.badge_color or 'bg-primary' }}">
+                                        {{ st.display_label }}
                                     </option>
                                     {% endif %}
                                 {% endfor %}
                             </select>
-                        </div>
+                            <div class="dropdown">
+                                <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start" type="button" id="editReqShiftTypeBtn" data-bs-toggle="dropdown" aria-expanded="false" style="text-align: left !important;">
+                                    <span id="editReqShiftTypeDisplay">— Select shift type —</span>
+                                </button>
+                                <ul class="dropdown-menu w-100" id="editReqShiftTypeMenu" aria-labelledby="editReqShiftTypeBtn"></ul>
+                            </div>
+                            </div>
 
-                        <div class="col-12 d-none" id="editTimeWindowField">
+                            <div class="mb-3 d-none" id="editTimeWindowField">
                             <div class="row g-2">
                                 <div class="col-6">
                                     <label for="editReqWindowStart" class="form-label">Start</label>
@@ -150,25 +162,51 @@
                                     <input type="time" class="form-control" id="editReqWindowEnd" name="window_end">
                                 </div>
                             </div>
-                        </div>
+                            </div>
 
-                        <div class="col-12">
-                            <label class="form-label">Capacity</label>
-                            <div class="input-group">
-                                <input type="number" class="form-control" id="editReqSlots" name="required_slots"
-                                       min="1" placeholder="Slots required">
-                                <div class="input-group-text">
-                                    <input class="form-check-input me-1" type="checkbox"
-                                           id="editReqUnlimited" name="unlimited" value="1">
-                                    <label class="form-check-label" for="editReqUnlimited">Unlimited</label>
+                            <div class="mb-3">
+                                <label class="form-label">Capacity</label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control" id="editReqSlots" name="required_slots"
+                                           min="1" placeholder="Slots required">
+                                    <div class="input-group-text">
+                                        <input class="form-check-input me-1" type="checkbox"
+                                               id="editReqUnlimited" name="unlimited" value="1">
+                                        <label class="form-check-label" for="editReqUnlimited">Unlimited</label>
+                                    </div>
                                 </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="editReqNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
+                                <input type="text" class="form-control" id="editReqNotes" name="notes"
+                                       maxlength="300" placeholder="Optional notes">
                             </div>
                         </div>
 
-                        <div class="col-12">
-                            <label for="editReqNotes" class="form-label">Notes <span class="text-muted">(optional)</span></label>
-                            <input type="text" class="form-control" id="editReqNotes" name="notes"
-                                   maxlength="300" placeholder="Optional notes">
+                        <div class="col-md-6">
+                            <label class="form-label">Date <span class="text-danger">*</span></label>
+                            <div class="form-text mb-2" id="editReqDateDisplay">Select a date from the calendar.</div>
+                            <div class="holiday-calendar compact border rounded p-2 bg-white extra-car-date-calendar">
+                                <div class="cal-header">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="editReqCalPrev">
+                                        <i class="fas fa-chevron-left"></i>
+                                    </button>
+                                    <strong id="editReqCalMonthLabel"></strong>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="editReqCalNext">
+                                        <i class="fas fa-chevron-right"></i>
+                                    </button>
+                                </div>
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Mo</th><th>Tu</th><th>We</th><th>Th</th><th>Fr</th><th>Sa</th><th>Su</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="editReqCalBody"></tbody>
+                                </table>
+                            </div>
+                            <input type="hidden" id="editReqDate" name="date" required>
                         </div>
                     </div>
                 </div>

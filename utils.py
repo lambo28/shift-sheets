@@ -1364,13 +1364,35 @@ def validate_extra_car_assignment(driver, request_obj, proposed_start_dt, propos
         timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
 
     errors = []
+    suggested_start = proposed_start_dt
+    suggested_end = proposed_end_dt
+
+    # Time-off days are hard-blocked for extra assignments, even if a holiday
+    # suppresses normal shift intervals for that day.
+    if proposed_end_dt > proposed_start_dt:
+        final_check_date = (proposed_end_dt - timedelta(seconds=1)).date()
+    else:
+        final_check_date = proposed_start_dt.date()
+
+    blocked_dates = []
+    check_date = proposed_start_dt.date()
+    while check_date <= final_check_date:
+        if is_driver_on_holiday(driver.id, check_date):
+            blocked_dates.append(check_date)
+        check_date += timedelta(days=1)
+
+    if blocked_dates:
+        blocked_dates_str = ', '.join(d.strftime('%d/%m/%Y') for d in blocked_dates)
+        errors.append(
+            "Driver is marked as time off and cannot be assigned extra work on: "
+            f"{blocked_dates_str}."
+        )
+        return False, errors, suggested_start, suggested_end
+
     raw_intervals = get_driver_all_work_intervals(
         driver, request_obj.date, timings_dict, exclude_request_id=request_obj.id
     )
     existing_intervals = [(s, e) for _, s, e in raw_intervals]
-
-    suggested_start = proposed_start_dt
-    suggested_end = proposed_end_dt
 
     # -----------------------------------------------------------------------
     # Step 1: Detect overlap with existing work and compute net-new window

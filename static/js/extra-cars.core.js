@@ -8,6 +8,255 @@
 
     var MIN_REQUEST_WINDOW_HOURS = 2;
 
+    function initStyledTypeDropdown(selectId, menuId, displayId, placeholder, config) {
+        var settings = config || {};
+        var autoSelectFirst = Boolean(settings.autoSelectFirst);
+        var selectEl = document.getElementById(selectId);
+        var menuEl = document.getElementById(menuId);
+        var displayEl = document.getElementById(displayId);
+        if (!selectEl || !menuEl || !displayEl) return;
+
+        var selectOptions = Array.from(selectEl.options || []);
+        var selectableOptions = selectOptions.filter(function (opt) {
+            return String(opt.value || '').trim() !== '';
+        });
+
+        menuEl.innerHTML = selectableOptions.map(function (opt) {
+            var value = opt.value;
+            var label = opt.textContent || value;
+            var icon = opt.dataset.icon || 'fas fa-circle';
+            var badgeClass = opt.dataset.badge || 'bg-secondary';
+            return '<li>' +
+                '<a class="dropdown-item extra-cars-type-option" href="#" data-value="' + value + '">' +
+                    '<span class="badge ' + badgeClass + ' extra-cars-dropdown-icon-badge me-2"><i class="' + icon + ' extra-cars-type-white-icon"></i></span>' +
+                    label +
+                '</a>' +
+            '</li>';
+        }).join('');
+
+        function renderSelected() {
+            var currentValue = String(selectEl.value || '').trim();
+            var selected = selectableOptions.find(function (opt) {
+                return opt.value === currentValue;
+            });
+
+            if (!selected && autoSelectFirst && selectableOptions.length) {
+                var fallbackValue = selectableOptions[0].value;
+                if (currentValue !== fallbackValue) {
+                    selectEl.value = fallbackValue;
+                    selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+                    return;
+                }
+                selected = selectableOptions[0];
+            }
+
+            if (!selected) {
+                displayEl.innerHTML = '<span class="badge bg-light text-dark border extra-cars-dropdown-icon-badge me-1"><i class="fas fa-minus text-secondary"></i></span>' + placeholder;
+                return;
+            }
+
+            var icon = selected.dataset.icon || 'fas fa-circle';
+            var badgeClass = selected.dataset.badge || 'bg-secondary';
+            var label = selected.textContent || selected.value;
+            displayEl.innerHTML = '<span class="badge ' + badgeClass + ' extra-cars-dropdown-icon-badge me-1"><i class="' + icon + ' extra-cars-type-white-icon"></i></span>' + label;
+        }
+
+        menuEl.querySelectorAll('.extra-cars-type-option').forEach(function (link) {
+            link.addEventListener('click', function (e) {
+                e.preventDefault();
+                var value = this.getAttribute('data-value') || '';
+                selectEl.value = value;
+                selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+                renderSelected();
+            });
+        });
+
+        if (autoSelectFirst && !String(selectEl.value || '').trim() && selectableOptions.length) {
+            selectEl.value = selectableOptions[0].value;
+            selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        selectEl.addEventListener('change', renderSelected);
+        renderSelected();
+    }
+
+    function initDateCalendar(options) {
+        var inputEl = document.getElementById(options.inputId);
+        var displayEl = document.getElementById(options.displayId);
+        var bodyEl = document.getElementById(options.bodyId);
+        var monthLabelEl = document.getElementById(options.monthLabelId);
+        var prevBtn = document.getElementById(options.prevBtnId);
+        var nextBtn = document.getElementById(options.nextBtnId);
+        if (!inputEl || !bodyEl || !monthLabelEl) return null;
+
+        var today = new Date();
+        today.setHours(0, 0, 0, 0);
+        var minDate = new Date(today);
+
+        var selectedDate = inputEl.value || '';
+        if (!selectedDate) {
+            selectedDate = toISO(today);
+            inputEl.value = selectedDate;
+        }
+
+        var viewDate = new Date(selectedDate + 'T00:00:00');
+        if (Number.isNaN(viewDate.getTime())) viewDate = new Date(today);
+        viewDate.setDate(1);
+
+        function toISO(dateObj) {
+            var year = dateObj.getFullYear();
+            var month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            var day = String(dateObj.getDate()).padStart(2, '0');
+            return year + '-' + month + '-' + day;
+        }
+
+        function isBeforeMin(dateStr) {
+            var parsed = new Date(dateStr + 'T00:00:00');
+            if (Number.isNaN(parsed.getTime())) return false;
+            return parsed < minDate;
+        }
+
+        function updateDisplay() {
+            if (!displayEl) return;
+            if (!selectedDate) {
+                displayEl.textContent = 'Select a date from the calendar.';
+                return;
+            }
+            var parsed = new Date(selectedDate + 'T00:00:00');
+            if (Number.isNaN(parsed.getTime())) {
+                displayEl.textContent = 'Select a date from the calendar.';
+                return;
+            }
+            var formatted = parsed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+            displayEl.innerHTML = '<strong>Selected:</strong> ' + formatted;
+        }
+
+        function render() {
+            var year = viewDate.getFullYear();
+            var month = viewDate.getMonth();
+            monthLabelEl.textContent = viewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+            var firstDay = new Date(year, month, 1);
+            var startOffset = firstDay.getDay() - 1;
+            if (startOffset < 0) startOffset = 6;
+
+            var daysInMonth = new Date(year, month + 1, 0).getDate();
+            var totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+
+            var html = '<tr>';
+            var dayCounter = 1;
+            for (var i = 0; i < totalCells; i++) {
+                if (i % 7 === 0 && i > 0) html += '</tr><tr>';
+
+                if (i < startOffset || dayCounter > daysInMonth) {
+                    html += '<td class="cal-empty"></td>';
+                    continue;
+                }
+
+                var dateStr = toISO(new Date(year, month, dayCounter));
+                var isSelected = dateStr === selectedDate;
+                var isDisabled = isBeforeMin(dateStr);
+                var classes = 'cal-day';
+                if (isSelected) classes += ' cal-selected';
+                if (isDisabled) classes += ' cal-disabled';
+
+                html += '<td class="' + classes + '" data-date="' + dateStr + '">' +
+                    '<div class="cal-day-header"><div class="fw-bold small">' + dayCounter + '</div></div>' +
+                '</td>';
+                dayCounter++;
+            }
+            html += '</tr>';
+
+            bodyEl.innerHTML = html;
+
+            bodyEl.querySelectorAll('td.cal-day').forEach(function (cell) {
+                cell.addEventListener('click', function () {
+                    if (cell.classList.contains('cal-disabled')) return;
+                    var picked = cell.getAttribute('data-date');
+                    if (!picked) return;
+                    selectedDate = picked;
+                    inputEl.value = picked;
+                    updateDisplay();
+                    render();
+                });
+            });
+        }
+
+        if (prevBtn) {
+            prevBtn.addEventListener('click', function () {
+                viewDate.setMonth(viewDate.getMonth() - 1);
+                render();
+            });
+        }
+        if (nextBtn) {
+            nextBtn.addEventListener('click', function () {
+                viewDate.setMonth(viewDate.getMonth() + 1);
+                render();
+            });
+        }
+
+        inputEl.addEventListener('change', function () {
+            selectedDate = inputEl.value || '';
+            if (selectedDate) {
+                var parsed = new Date(selectedDate + 'T00:00:00');
+                if (!Number.isNaN(parsed.getTime())) {
+                    viewDate = new Date(parsed);
+                    viewDate.setDate(1);
+                }
+            }
+            updateDisplay();
+            render();
+        });
+
+        updateDisplay();
+        render();
+
+        return {
+            setDate: function (dateStr) {
+                selectedDate = dateStr || '';
+                inputEl.value = selectedDate;
+                if (selectedDate) {
+                    var parsed = new Date(selectedDate + 'T00:00:00');
+                    if (!Number.isNaN(parsed.getTime())) {
+                        viewDate = new Date(parsed);
+                        viewDate.setDate(1);
+                    }
+                }
+                updateDisplay();
+                render();
+            }
+        };
+    }
+
+    function initExtraCarsStyledControls() {
+        initStyledTypeDropdown('reqShiftType', 'reqShiftTypeMenu', 'reqShiftTypeDisplay', '— Select shift type —', { autoSelectFirst: true });
+        initStyledTypeDropdown('editReqShiftType', 'editReqShiftTypeMenu', 'editReqShiftTypeDisplay', '— Select shift type —', { autoSelectFirst: true });
+        initStyledTypeDropdown('editReqStatus', 'editReqStatusMenu', 'editReqStatusDisplay', '— Select open or closed —');
+
+        var addCalendar = initDateCalendar({
+            inputId: 'reqDate',
+            displayId: 'reqDateDisplay',
+            bodyId: 'reqCalBody',
+            monthLabelId: 'reqCalMonthLabel',
+            prevBtnId: 'reqCalPrev',
+            nextBtnId: 'reqCalNext'
+        });
+
+        var editCalendar = initDateCalendar({
+            inputId: 'editReqDate',
+            displayId: 'editReqDateDisplay',
+            bodyId: 'editReqCalBody',
+            monthLabelId: 'editReqCalMonthLabel',
+            prevBtnId: 'editReqCalPrev',
+            nextBtnId: 'editReqCalNext'
+        });
+
+        return {
+            addCalendar: addCalendar,
+            editCalendar: editCalendar
+        };
+    }
+
     // -------------------------------------------------------------------------
     // Create request form: toggle shift-type vs time-window fields
     // -------------------------------------------------------------------------
@@ -432,6 +681,7 @@
         var slotsInput  = document.getElementById('editReqSlots');
         var unlimCheck  = document.getElementById('editReqUnlimited');
         var notesInput  = document.getElementById('editReqNotes');
+        var controlsApi = window.extraCarsStyledControlsApi || {};
 
         function updateTypeFields() {
             var sel = modal.querySelector('input[name="request_type"]:checked');
@@ -477,8 +727,14 @@
 
             if (form)       form.action = '/extra-cars/request/' + requestId + '/edit';
             if (dateInput)  dateInput.value = reqDate || '';
-            if (statusSel)  statusSel.value = status || 'OPEN';
+            if (statusSel) {
+                statusSel.value = status === 'CLOSED' ? 'CLOSED' : 'OPEN';
+            }
             if (notesInput) notesInput.value = notes || '';
+
+            if (controlsApi.editCalendar && reqDate) {
+                controlsApi.editCalendar.setDate(reqDate);
+            }
 
             var radioShift  = modal.querySelector('#editRtShift');
             var radioWindow = modal.querySelector('#editRtWindow');
@@ -489,6 +745,8 @@
             if (shiftSel)  shiftSel.value  = shiftType || '';
             if (winStart)  winStart.value  = wStart || '';
             if (winEnd)    winEnd.value    = wEnd || '';
+            if (shiftSel) shiftSel.dispatchEvent(new Event('change', { bubbles: true }));
+            if (statusSel) statusSel.dispatchEvent(new Event('change', { bubbles: true }));
 
             if (unlimCheck) {
                 unlimCheck.checked = unlimited;
@@ -537,6 +795,7 @@
     // Boot
     // -------------------------------------------------------------------------
     document.addEventListener('DOMContentLoaded', function () {
+        window.extraCarsStyledControlsApi = initExtraCarsStyledControls() || {};
         initRequestTypeToggle();
         initUnlimitedToggle();
         initAddRequestMinimumWindowValidation();
