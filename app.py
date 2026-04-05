@@ -4,6 +4,10 @@ from flask import Flask
 from sqlalchemy import text
 from datetime import datetime
 import os
+import threading
+import time
+
+from backup_utils import AUTO_BACKUP_HOUR, create_auto_backup, get_auto_backup_path, get_sqlite_database_path
 
 from config import config
 from extensions import db
@@ -51,6 +55,8 @@ from utils import (  # noqa: F401
 # -----------------------------------------------------------------------------
 
 app = Flask(__name__)
+
+_auto_backup_scheduler_started = False
 
 config_name = os.environ.get('FLASK_CONFIG') or 'default'
 app.config.from_object(config[config_name])
@@ -148,6 +154,46 @@ def _shift_abbrev_filter(shift_type, all_shifts_str=''):
 def utility_processor():
     return dict(datetime=datetime, bundle_url=bundle_url)
 
+
+def _run_auto_backup_if_due():
+    db_path = get_sqlite_database_path(app.config)
+    if db_path is None or not db_path.exists():
+        return
+
+    now = datetime.now()
+    scheduled_today = now.replace(hour=AUTO_BACKUP_HOUR, minute=0, second=0, microsecond=0)
+    if now < scheduled_today:
+        return
+
+    backup_path = get_auto_backup_path(db_path, now)
+    if backup_path.exists():
+        return
+
+    create_auto_backup(db_path, backup_dt=now)
+
+
+def _auto_backup_scheduler_loop():
+    while True:
+        try:
+            with app.app_context():
+                _run_auto_backup_if_due()
+        except Exception as exc:
+            print(f"[auto-backup] Nightly backup check failed: {exc}")
+        time.sleep(60)
+
+
+def _start_auto_backup_scheduler():
+    global _auto_backup_scheduler_started
+
+    if _auto_backup_scheduler_started:
+        return
+
+    if app.config.get('DEBUG') and os.environ.get('WERKZEUG_RUN_MAIN') != 'true':
+        return
+
+    _auto_backup_scheduler_started = True
+    threading.Thread(target=_auto_backup_scheduler_loop, name='auto-backup-scheduler', daemon=True).start()
+
 # -----------------------------------------------------------------------------
 # Route Registration
 # -----------------------------------------------------------------------------
@@ -169,6 +215,8 @@ extra_cars.register(app)
 with app.app_context():
     db.create_all()
     _run_startup_migrations()
+
+_start_auto_backup_scheduler()
 
 # -----------------------------------------------------------------------------
 # Entry Point

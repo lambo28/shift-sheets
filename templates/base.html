@@ -108,6 +108,11 @@
                             <i class="fas fa-car"></i> Cars Working
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if current_endpoint in ['settings', 'download_backup_now', 'download_auto_backup', 'restore_auto_backup', 'prune_auto_backups_now', 'restore_backup'] %}active{% endif %}" href="{{ url_for('settings') }}" {% if current_endpoint in ['settings', 'download_backup_now', 'download_auto_backup', 'restore_auto_backup', 'prune_auto_backups_now', 'restore_backup'] %}aria-current="page"{% endif %}>
+                            <i class="fas fa-gear"></i> Settings
+                        </a>
+                    </li>
                 </ul>
             </div>
         </div>

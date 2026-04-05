@@ -1,16 +1,59 @@
-from flask import render_template, request, redirect, url_for, flash
+from flask import render_template, request, redirect, url_for, flash, send_file, after_this_request
 from datetime import datetime, timedelta
+from pathlib import Path
+import os
+import shutil
+import tempfile
 
 from extensions import db
 from models import Driver, ShiftTiming
+from backup_utils import (
+    AUTO_BACKUP_RETENTION_DAYS,
+    AUTO_BACKUP_HOUR,
+    create_temp_backup_copy,
+    get_auto_backup_dir,
+    get_sqlite_database_path,
+    list_auto_backups,
+    looks_like_sqlite_db,
+    next_auto_backup_time,
+    prune_auto_backups,
+    resolve_auto_backup_path,
+)
 from utils import (
     get_drivers_for_date, get_drivers_count_by_shift, get_operational_date,
     get_cars_working_at_time, parse_date_string, parse_time_string,
-    get_app_setting, set_app_setting,
 )
 
 
 def register(app):
+    def _replace_database_from_file(db_path, source_file_path):
+        """Replace current database with source_file_path after validating a safe temp copy."""
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        temp_file = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.db', dir=str(db_path.parent)) as tmp:
+                shutil.copy2(source_file_path, tmp.name)
+                temp_file = Path(tmp.name)
+
+            if not looks_like_sqlite_db(temp_file):
+                return False, 'Uploaded file is not a valid Shift Sheets database backup.'
+
+            db.session.remove()
+            db.engine.dispose()
+
+            os.replace(temp_file, db_path)
+            temp_file = None
+            return True, 'Backup restored successfully.'
+        except Exception as exc:
+            return False, f'Backup restore failed: {exc}'
+        finally:
+            if temp_file is not None and temp_file.exists():
+                try:
+                    temp_file.unlink()
+                except Exception:
+                    pass
+
     def _parse_target_date(value):
         try:
             return datetime.strptime(value, '%Y-%m-%d').date()
@@ -123,4 +166,139 @@ def register(app):
                 flash(f"Error calculating cars working: {e}", "error")
 
         return render_template("cars_working.html", timings=all_timings_dict)
+
+    @app.route('/settings')
+    def settings():
+        """Settings page for maintenance actions such as backup/restore."""
+        db_path = get_sqlite_database_path(app.config)
+        db_path_exists = bool(db_path and db_path.exists())
+        auto_backups = list_auto_backups(db_path)
+        last_auto_backup = auto_backups[0] if auto_backups else None
+        return render_template(
+            'settings.html',
+            database_path=str(db_path) if db_path else None,
+            database_path_exists=db_path_exists,
+            auto_backup_dir=str(get_auto_backup_dir(db_path)) if db_path else None,
+            auto_backups=auto_backups,
+            last_auto_backup=last_auto_backup,
+            auto_backup_retention_days=AUTO_BACKUP_RETENTION_DAYS,
+            auto_backup_hour=AUTO_BACKUP_HOUR,
+            next_auto_backup_at=next_auto_backup_time() if db_path else None,
+        )
+
+    @app.route('/settings/backup/download-now', methods=['GET'])
+    def download_backup_now():
+        """Create a fresh backup copy and download it without saving into project data."""
+        db_path = get_sqlite_database_path(app.config)
+        if db_path is None:
+            flash('Backup download is only supported for SQLite deployments.', 'error')
+            return redirect(url_for('settings'))
+
+        if not db_path.exists():
+            flash('Database file not found. Backup could not be created.', 'error')
+            return redirect(url_for('settings'))
+
+        temp_backup_path = create_temp_backup_copy(db_path)
+
+        @after_this_request
+        def cleanup_temp_backup(response):
+            try:
+                temp_backup_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            return response
+
+        timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+        download_name = f'shift-sheets-backup-{timestamp}.db'
+        return send_file(
+            temp_backup_path,
+            as_attachment=True,
+            download_name=download_name,
+            mimetype='application/octet-stream',
+        )
+
+    @app.route('/settings/backup/auto/download', methods=['GET'])
+    def download_auto_backup():
+        """Download one of the stored automatic backups."""
+        db_path = get_sqlite_database_path(app.config)
+        backup_name = (request.args.get('backup_name') or '').strip()
+        backup_path = resolve_auto_backup_path(db_path, backup_name)
+        if backup_path is None:
+            flash('Selected automatic backup was not found.', 'error')
+            return redirect(url_for('settings'))
+
+        return send_file(
+            backup_path,
+            as_attachment=True,
+            download_name=backup_path.name,
+            mimetype='application/octet-stream',
+        )
+
+    @app.route('/settings/backup/auto/restore', methods=['POST'])
+    def restore_auto_backup():
+        """Restore the current database from a selected automatic backup file."""
+        db_path = get_sqlite_database_path(app.config)
+        backup_name = (request.form.get('backup_name') or '').strip()
+        backup_path = resolve_auto_backup_path(db_path, backup_name)
+        if backup_path is None:
+            flash('Selected automatic backup was not found.', 'error')
+            return redirect(url_for('settings'))
+
+        success, message = _replace_database_from_file(db_path, backup_path)
+        flash(message, 'success' if success else 'error')
+        return redirect(url_for('settings'))
+
+    @app.route('/settings/backup/auto/prune', methods=['POST'])
+    def prune_auto_backups_now():
+        """Delete automatic backups beyond retention immediately."""
+        db_path = get_sqlite_database_path(app.config)
+        if db_path is None:
+            flash('Automatic backups are only supported for SQLite deployments.', 'error')
+            return redirect(url_for('settings'))
+
+        removed_count = prune_auto_backups(db_path, retention_days=AUTO_BACKUP_RETENTION_DAYS)
+        if removed_count > 0:
+            flash(f'Removed {removed_count} old automatic backup file(s).', 'success')
+        else:
+            flash('No old automatic backups needed removal.', 'info')
+        return redirect(url_for('settings'))
+
+    @app.route('/settings/backup/restore', methods=['POST'])
+    def restore_backup():
+        """Restore database from uploaded SQLite backup file."""
+        db_path = get_sqlite_database_path(app.config)
+        if db_path is None:
+            flash('Backup restore is only supported for SQLite deployments.', 'error')
+            return redirect(url_for('settings'))
+
+        uploaded = request.files.get('backup_file')
+        if uploaded is None or not uploaded.filename:
+            flash('Please choose a backup file to restore.', 'error')
+            return redirect(url_for('settings'))
+
+        filename = uploaded.filename.lower()
+        if not (filename.endswith('.db') or filename.endswith('.sqlite') or filename.endswith('.sqlite3')):
+            flash('Invalid file type. Please upload a .db or .sqlite backup file.', 'error')
+            return redirect(url_for('settings'))
+
+        temp_file = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.db', dir=str(db_path.parent)) as tmp:
+                uploaded.save(tmp.name)
+                temp_file = Path(tmp.name)
+
+            if not looks_like_sqlite_db(temp_file):
+                flash('Uploaded file is not a valid Shift Sheets database backup.', 'error')
+                return redirect(url_for('settings'))
+
+            success, message = _replace_database_from_file(db_path, temp_file)
+            flash(message, 'success' if success else 'error')
+        finally:
+            if temp_file is not None and temp_file.exists():
+                try:
+                    temp_file.unlink()
+                except Exception:
+                    pass
+
+        return redirect(url_for('settings'))
 

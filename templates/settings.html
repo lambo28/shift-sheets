@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Driver Shift Sheets{% endblock %}
+
+{% block extra_head %}
+<style>
+main > .alert.alert-dismissible {
+    display: none !important;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+{% set page_header_icon = 'fas fa-gear' %}
+{% set page_header_title = 'Settings' %}
+{% include "partials/components/page_header.html" %}
+
+<div class="row">
+    <div class="col-lg-10 mx-auto">
+        <div class="card mb-4">
+            {% set card_icon = 'fas fa-database' %}
+            {% set card_title = 'Backup and Restore' %}
+            {% set card_subtitle = 'Nightly automatic backups, one-off download backups, and restore tools.' %}
+            {% set card_title_level = '5' %}
+            {% include "partials/components/card_header_title.html" %}
+            <div class="card-body">
+                <div class="alert alert-info py-2 mb-4" role="note">
+                    <i class="fas fa-circle-info me-1"></i>
+                    <strong>Tip:</strong> Automatic backups run every day at {{ '%02d:00'|format(auto_backup_hour) }} and the latest {{ auto_backup_retention_days }} days are kept.
+                    {% if last_auto_backup %}
+                    <span class="badge bg-success ms-2" id="lastBackupBadge">
+                        Last backup completed: {{ last_auto_backup.modified_at.strftime('%d/%m/%Y %H:%M:%S') }}
+                    </span>
+                    {% else %}
+                    <span class="badge bg-warning text-dark ms-2" id="lastBackupBadge">
+                        Last backup completed: not yet
+                    </span>
+                    {% endif %}
+                </div>
+
+                <div class="row g-4">
+                    <div class="col-md-6">
+                        <div class="border rounded p-3 h-100 bg-light">
+                            <h6 class="fw-bold mb-2"><i class="fas fa-clock me-2"></i>Automatic Nightly Backups</h6>
+                            <p class="text-muted small mb-3">
+                                Download one of the saved nightly backups from the list below.
+                            </p>
+                            {% if auto_backups %}
+                            <form method="GET" action="{{ url_for('download_auto_backup') }}" id="downloadAutoBackupForm">
+                                <div class="mb-3">
+                                    <select class="form-select" name="backup_name" id="autoBackupSelect" required>
+                                        <option value="" selected disabled>Select automatic backup</option>
+                                        {% for backup in auto_backups %}
+                                        <option value="{{ backup.name }}">
+                                            {{ backup.name }}
+                                            · {{ backup.modified_at.strftime('%d/%m/%Y %H:%M:%S') }}
+                                            · {{ '%.1f'|format(backup.size_bytes / 1048576) }} MB
+                                        </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <button class="btn btn-primary" type="submit" id="downloadAutoBackupBtn">
+                                        <i class="fas fa-file-arrow-down me-2"></i>Download Selected Backup
+                                    </button>
+                                    <button
+                                        class="btn btn-outline-warning"
+                                        type="submit"
+                                        id="restoreAutoBackupBtn"
+                                        formaction="{{ url_for('restore_auto_backup') }}"
+                                        formmethod="post"
+                                        onclick="return confirm('Restore the selected automatic backup? This will replace the current database.');"
+                                    >
+                                        <i class="fas fa-rotate-left me-2"></i>Restore Selected Backup
+                                    </button>
+                                </div>
+                            </form>
+                            <form method="POST" action="{{ url_for('prune_auto_backups_now') }}" id="pruneAutoBackupsForm" class="mt-3">
+                                <button class="btn btn-sm btn-outline-secondary" type="submit">
+                                    <i class="fas fa-trash-can me-1"></i>Delete Old Backups Now
+                                </button>
+                            </form>
+                            {% else %}
+                            <div class="text-muted small border rounded p-3 bg-white">
+                                No automatic backups are available yet. The first one will appear after the next 2am run.
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="border rounded p-3 h-100 bg-light">
+                            <h6 class="fw-bold mb-2"><i class="fas fa-bolt me-2"></i>Create Backup Now</h6>
+                            <p class="text-muted small mb-3">
+                                Creates a fresh backup copy right now and downloads it without saving it into the project data folder.
+                            </p>
+                            <a class="btn btn-success" id="downloadBackupNowBtn" href="{{ url_for('download_backup_now') }}">
+                                <i class="fas fa-download me-2"></i>Create and Download Now
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="border rounded p-3 h-100 bg-light">
+                            <h6 class="fw-bold mb-2"><i class="fas fa-upload me-2"></i>Restore Backup</h6>
+                            <p class="text-muted small mb-3">
+                                Upload a previously downloaded backup file to restore your data.
+                            </p>
+                            <form method="POST" action="{{ url_for('restore_backup') }}" enctype="multipart/form-data">
+                                <div class="mb-3">
+                                    <input
+                                        type="file"
+                                        class="form-control"
+                                        name="backup_file"
+                                        accept=".db,.sqlite,.sqlite3"
+                                        required
+                                    >
+                                </div>
+                                <button type="submit" class="btn btn-warning" onclick="return confirm('This will replace the current database with the uploaded backup. Continue?');">
+                                    <i class="fas fa-database me-2"></i>Restore Backup
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-4">
+                <div class="small text-muted bg-light border rounded p-3">
+                    {% if database_path %}
+                    <div><strong>Database path:</strong> {{ database_path }}</div>
+                    <div><strong>Status:</strong> {{ 'Ready' if database_path_exists else 'Missing file' }}</div>
+                    <div class="mt-2"><strong>Automatic backup folder:</strong> {{ auto_backup_dir }}</div>
+                    <div class="mt-2"><strong>Next automatic backup:</strong> {{ next_auto_backup_at.strftime('%d/%m/%Y %H:%M:%S') if next_auto_backup_at else 'Not scheduled' }}</div>
+                    {% else %}
+                    <div>Backup/restore is only available when using a local SQLite database.</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="alertBannerContainer"></div>
+{% endblock %}
+
+{% block extra_scripts %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/scheduling.flash-banner.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    if (typeof window.showAlertBanner !== 'function') {
+        return;
+    }
+
+    const downloadNowBtn = document.getElementById('downloadBackupNowBtn');
+    const autoBackupForm = document.getElementById('downloadAutoBackupForm');
+
+    if (downloadNowBtn) {
+        downloadNowBtn.addEventListener('click', function () {
+            window.showAlertBanner('success', 'Backup download started.', true, 3000);
+        });
+    }
+
+    if (autoBackupForm) {
+        autoBackupForm.addEventListener('submit', function (event) {
+            const submitter = event.submitter;
+            if (submitter && submitter.id === 'restoreAutoBackupBtn') {
+                window.showAlertBanner('warning', 'Restoring selected automatic backup. The page will refresh when finished.', true, 4500);
+            } else {
+                window.showAlertBanner('success', 'Automatic backup download started.', true, 3000);
+            }
+        });
+    }
+
+    const pruneForm = document.getElementById('pruneAutoBackupsForm');
+    if (pruneForm) {
+        pruneForm.addEventListener('submit', function () {
+            window.showAlertBanner('info', 'Removing old automatic backups...', true, 3000);
+        });
+    }
+
+    const restoreForm = document.querySelector("form[action='{{ url_for('restore_backup') }}']");
+    if (restoreForm) {
+        restoreForm.addEventListener('submit', function () {
+            const fileInput = restoreForm.querySelector('input[name="backup_file"]');
+            if (fileInput && fileInput.files && fileInput.files.length > 0) {
+                window.showAlertBanner('warning', 'Restoring backup. The page will refresh when finished.', true, 4000);
+            }
+        });
+    }
+
+    const autoBackupSelect = document.getElementById('autoBackupSelect');
+    if (autoBackupSelect) {
+        autoBackupSelect.addEventListener('change', function () {
+            const option = autoBackupSelect.options[autoBackupSelect.selectedIndex];
+            if (option && option.value) {
+                autoBackupSelect.title = option.text;
+            }
+        });
+    }
+});
+</script>
+{% endblock %}
