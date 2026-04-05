@@ -265,16 +265,16 @@ class TestWorkRuleValidation:
 
             req = make_extra_request(db, req_date=date(2026, 6, 16),
                                      window_start='16:00', window_end='20:00')
-            # Driver's morning ends 14:00, next extra starts 16:00 (2h gap).
-            # 14:00 on ref, 16:00 on ref+1 = 26h gap. Fine.
+            # Driver's morning ends 14:00, next extra starts 16:00 (2h gap). 
+            # 14:00 on ref, 16:00 on ref+1 = 26h gap. Fine. 
             p_start = datetime(2026, 6, 16, 16, 0)
             p_end = datetime(2026, 6, 16, 20, 0)
             valid, errors, _, _ = validate_extra_car_assignment(driver, req, p_start, p_end)
             assert valid
             assert errors == []
 
-    def test_rest_before_violation(self, db):
-        """Driver ends shift at 14:00; assignment starts at 18:00 same day (4h rest < 8h)."""
+    def test_short_gap_before_is_allowed_within_16h_duty_span(self, db):
+        """A short same-day gap is allowed when the joined duty span stays within 16h."""
         with flask_app.app_context():
             ref = date(2026, 6, 15)
             make_shift_timing(db, 'morning', '06:00', '14:00')
@@ -287,10 +287,9 @@ class TestWorkRuleValidation:
             p_start = datetime(2026, 6, 15, 18, 0)
             p_end = datetime(2026, 6, 15, 22, 0)
             valid, errors, suggested_start, _ = validate_extra_car_assignment(driver, req, p_start, p_end)
-            assert not valid
-            assert len(errors) == 1
-            assert 'no legal assignment window' in errors[0].lower()
-            assert suggested_start is None
+            assert valid
+            assert errors == []
+            assert suggested_start == datetime(2026, 6, 15, 18, 0)
 
     def test_rest_after_violation(self, db):
         """Assignment ends at 22:00; driver's next shift starts at 06:00 (8h gap exactly ok,
@@ -308,13 +307,13 @@ class TestWorkRuleValidation:
             p_start = datetime(2026, 6, 15, 15, 0)
             p_end = datetime(2026, 6, 15, 23, 0)
             valid, errors, _, suggested_end = validate_extra_car_assignment(driver, req, p_start, p_end)
-            assert not valid
-            assert len(errors) == 1
-            assert 'no legal assignment window' in errors[0].lower()
-            assert suggested_end is None
+            assert not valid 
+            assert len(errors) == 1 
+            assert 'no legal assignment window' in errors[0].lower() 
+            assert suggested_end is None 
 
     def test_max_16h_violation(self, db):
-        """A driver already covering >16h in 24h should fail validation.
+        """A driver already covering >16h duty span in 24h should fail validation.
         When the proposed window falls entirely within existing work, it will be blocked
         by the overlap check (net-new hours = 0).  Either the 24h-cap error or the
         net-new-hours error is acceptable — both indicate the driver can't take more work.
@@ -349,6 +348,42 @@ class TestWorkRuleValidation:
             assert not valid
             assert any('rest before' in e.lower() for e in errors)
             assert suggested_start == datetime(2026, 6, 15, 10, 0)
+
+    def test_max_hours_violation_suggests_trimmed_finish_same_day(self, db):
+        """A same-day extra can be trimmed to preserve an 8h continuous break."""
+        with flask_app.app_context():
+            ref = date(2026, 6, 15)
+            make_shift_timing(db, 'day_cap', '06:00', '16:00')
+            driver = make_driver(db, '89', 'Cap Trim Driver')
+            pattern = make_pattern(db, 'Cap Pattern', 7,
+                ['day_cap', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            make_assignment(db, driver, pattern, ref)
+
+            req = make_extra_request(db, req_date=ref, window_start='16:00', window_end='02:00')
+            p_start = datetime(2026, 6, 15, 16, 0)
+            p_end = datetime(2026, 6, 16, 2, 0)
+            valid, errors, _, suggested_end = validate_extra_car_assignment(driver, req, p_start, p_end)
+
+            assert not valid
+            assert any('maximum' in e.lower() or 'rest after' in e.lower() for e in errors)
+            assert suggested_end == datetime(2026, 6, 15, 22, 0)
+
+    def test_short_internal_break_counts_toward_16h_duty_span(self, db):
+        """06:00-14:00 and 16:00-22:00 should count as a 16h duty span, not 14h work."""
+        with flask_app.app_context():
+            ref = date(2026, 6, 15)
+            make_shift_timing(db, 'split_am', '06:00', '14:00')
+            driver = make_driver(db, '90', 'Split Duty Driver')
+            pattern = make_pattern(db, 'Split Pattern', 7,
+                ['split_am', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            make_assignment(db, driver, pattern, ref)
+
+            req = make_extra_request(db, req_date=ref, window_start='16:00', window_end='22:00')
+            p_start = datetime(2026, 6, 15, 16, 0)
+            p_end = datetime(2026, 6, 15, 22, 0)
+            valid, errors, _, _ = validate_extra_car_assignment(driver, req, p_start, p_end)
+
+            assert valid, f"Expected valid at exactly 16h duty span, got errors: {errors}"
 
     def test_valid_assignment_no_existing_shifts(self, db):
         """Driver with no existing shifts should always pass rest/hours checks."""
@@ -509,8 +544,8 @@ class TestWorkRuleValidation:
             assert suggested_start is None
             assert suggested_end is None
 
-    def test_holiday_blocks_extra_assignment_validation(self, db):
-        """Time-off days should block extra assignments entirely."""
+    def test_holiday_respects_normal_shift_conflict_rules(self, db):
+        """Holiday should not bypass normal shift overlap/rest validations."""
         with flask_app.app_context():
             ref = date(2026, 6, 15)
             make_shift_timing(db, 'holiday_morning', '06:00', '14:00')
@@ -520,13 +555,13 @@ class TestWorkRuleValidation:
             make_assignment(db, driver, pattern, ref)
             make_driver_holiday(db, driver, ref, time_off_type='holiday')
 
-            req = make_extra_request(db, req_date=ref, window_start='18:00', window_end='22:00')
-            p_start = datetime(2026, 6, 15, 18, 0)
-            p_end = datetime(2026, 6, 15, 22, 0)
+            req = make_extra_request(db, req_date=ref, window_start='06:00', window_end='10:00')
+            p_start = datetime(2026, 6, 15, 6, 0)
+            p_end = datetime(2026, 6, 15, 10, 0)
             valid, errors, _, _ = validate_extra_car_assignment(driver, req, p_start, p_end)
 
             assert not valid
-            assert any('time off' in err.lower() for err in errors)
+            assert len(errors) > 0
 
     def test_custom_timing_is_used_for_rest_validation(self, db):
         """Custom end time should tighten rest rules for extra work."""
@@ -805,6 +840,373 @@ class TestStatusTransitions:
             req = db.session.get(ExtraCarRequest, req_id)
             assert req.status == 'CLOSED'
 
+    def test_validate_ajax_bypass_for_holiday_matching_shift(self, client, db):
+        """AJAX validate should return valid=True when driver is on holiday for a matching shift-type request."""
+        with flask_app.app_context():
+            req_date = date(2026, 7, 14)
+            make_shift_timing(db, 'day_bypass', '06:00', '16:00')
+            driver = make_driver(db, '213', 'Bypass Driver')
+            pattern = make_pattern(db, 'Bypass Pattern', 7,
+                ['day_bypass', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            make_assignment(db, driver, pattern, req_date)
+            make_driver_holiday(db, driver, req_date, time_off_type='holiday')
+
+            req = ExtraCarRequest(
+                date=req_date,
+                request_type='shift_type',
+                shift_type='day_bypass',
+                unlimited=False,
+                required_slots=2,
+                status='OPEN',
+            )
+            db.session.add(req)
+            db.session.commit()
+            req_id = req.id
+            driver_id = driver.id
+
+        resp = client.post(
+            f'/extra-cars/request/{req_id}/assignment/validate',
+            json={'driver_id': str(driver_id), 'start_time': '06:00', 'end_time': '16:00'},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data['valid'] is True
+        assert data['errors'] == []
+
+    def test_assignment_add_for_holiday_matching_shift_removes_holiday_and_reduces_slots(self, client, db):
+        with flask_app.app_context():
+            req_date = date(2026, 7, 12)
+            make_shift_timing(db, 'day_reinstate', '06:00', '16:00')
+            driver = make_driver(db, '211', 'Reinstate Driver')
+            pattern = make_pattern(db, 'Reinstate Pattern', 7,
+                ['day_reinstate', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            make_assignment(db, driver, pattern, req_date)
+            make_driver_holiday(db, driver, req_date, time_off_type='holiday')
+
+            req = ExtraCarRequest(
+                date=req_date,
+                request_type='shift_type',
+                shift_type='day_reinstate',
+                unlimited=False,
+                required_slots=2,
+                status='OPEN',
+            )
+            db.session.add(req)
+            db.session.commit()
+            req_id = req.id
+            driver_id = driver.id
+
+        resp = client.post(
+            f'/extra-cars/request/{req_id}/assignment/add',
+            data={'driver_id': str(driver_id)},
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+
+        with flask_app.app_context():
+            req = db.session.get(ExtraCarRequest, req_id)
+            assert req.required_slots == 1
+            assert ExtraCarAssignment.query.filter_by(request_id=req_id, driver_id=driver_id).count() == 0
+            assert DriverHoliday.query.filter_by(driver_id=driver_id, holiday_date=req_date).count() == 0
+
+    def test_rebooking_time_off_increases_matching_extra_slots(self, client, db):
+        with flask_app.app_context():
+            req_date = date(2026, 7, 13)
+            make_shift_timing(db, 'day_rebook', '06:00', '16:00')
+            driver = make_driver(db, '212', 'Rebook Driver')
+            pattern = make_pattern(db, 'Rebook Pattern', 7,
+                ['day_rebook', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            make_assignment(db, driver, pattern, req_date)
+
+            req = ExtraCarRequest(
+                date=req_date,
+                request_type='shift_type',
+                shift_type='day_rebook',
+                unlimited=False,
+                required_slots=1,
+                status='OPEN',
+            )
+            db.session.add(req)
+            db.session.commit()
+            req_id = req.id
+            driver_id = driver.id
+
+        resp = client.post('/scheduling/holiday/add', data={
+            'driver_id': str(driver_id),
+            'start_date': req_date.isoformat(),
+            'end_date': req_date.isoformat(),
+            'time_off_type': 'holiday',
+            'notes': '',
+        }, follow_redirects=True)
+        assert resp.status_code == 200
+
+        with flask_app.app_context():
+            req = db.session.get(ExtraCarRequest, req_id)
+            assert req.required_slots == 2
+
+    def test_rebooking_time_off_removes_partial_extra_assignment_and_keeps_late_start_logic(self, client, db):
+        with flask_app.app_context():
+            req_date = date(2026, 7, 15)
+            make_shift_timing(db, 'day_partial', '06:00', '16:00')
+            driver = make_driver(db, '214', 'Partial Window Driver')
+            pattern = make_pattern(db, 'Partial Pattern', 7,
+                ['day_partial', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            make_assignment(db, driver, pattern, req_date)
+            make_driver_holiday(db, driver, req_date, time_off_type='holiday')
+
+            req = make_extra_request(
+                db,
+                req_date=req_date,
+                request_type='time_window',
+                window_start='08:00',
+                window_end='18:00',
+                unlimited=False,
+                required_slots=1,
+            )
+            req_id = req.id
+            driver_id = driver.id
+
+        add_resp = client.post(
+            f'/extra-cars/request/{req_id}/assignment/add',
+            data={'driver_id': str(driver_id)},
+            follow_redirects=True,
+        )
+        assert add_resp.status_code == 200
+
+        with flask_app.app_context():
+            assignments = ExtraCarAssignment.query.filter_by(request_id=req_id, driver_id=driver_id).all()
+            assert len(assignments) == 1
+            assert assignments[0].start_time.strftime('%H:%M') == '16:00'
+            assert assignments[0].end_time.strftime('%H:%M') == '18:00'
+
+            late_start = ShiftAdjustment.query.filter_by(
+                driver_id=driver_id,
+                adjustment_date=req_date,
+                adjustment_type='late_start',
+            ).first()
+            assert late_start is not None
+            assert late_start.adjusted_time.strftime('%H:%M') == '08:00'
+
+            assert DriverHoliday.query.filter_by(driver_id=driver_id, holiday_date=req_date).count() == 0
+
+        holiday_resp = client.post('/scheduling/holiday/add', data={
+            'driver_id': str(driver_id),
+            'start_date': req_date.isoformat(),
+            'end_date': req_date.isoformat(),
+            'time_off_type': 'holiday',
+            'notes': '',
+        }, follow_redirects=True)
+        assert holiday_resp.status_code == 200
+
+        with flask_app.app_context():
+            assert DriverHoliday.query.filter_by(driver_id=driver_id, holiday_date=req_date).count() == 1
+            assert ExtraCarAssignment.query.filter_by(request_id=req_id, driver_id=driver_id).count() == 0
+            assert ShiftAdjustment.query.filter_by(
+                driver_id=driver_id,
+                adjustment_date=req_date,
+                adjustment_type='late_start',
+            ).count() == 0
+
+    def test_partial_reinstated_shift_consumes_slot_capacity(self, client, db):
+        with flask_app.app_context():
+            req_date = date(2026, 7, 16)
+            make_shift_timing(db, 'day_consume', '06:00', '16:00')
+            driver_a = make_driver(db, '215', 'Primary Driver')
+            driver_b = make_driver(db, '216', 'Secondary Driver')
+            pattern = make_pattern(db, 'Consume Pattern', 7,
+                ['day_consume', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            make_assignment(db, driver_a, pattern, req_date)
+            make_driver_holiday(db, driver_a, req_date, time_off_type='holiday')
+
+            req = make_extra_request(
+                db,
+                req_date=req_date,
+                request_type='time_window',
+                window_start='08:00',
+                window_end='18:00',
+                unlimited=False,
+                required_slots=1,
+            )
+            req_id = req.id
+            driver_a_id = driver_a.id
+            driver_b_id = driver_b.id
+
+        add_resp = client.post(
+            f'/extra-cars/request/{req_id}/assignment/add',
+            data={'driver_id': str(driver_a_id)},
+            follow_redirects=True,
+        )
+        assert add_resp.status_code == 200
+
+        with flask_app.app_context():
+            req = db.session.get(ExtraCarRequest, req_id)
+            assert req.required_slots == 0
+            assert req.status == 'FILLED'
+            assignments = ExtraCarAssignment.query.filter_by(request_id=req_id, driver_id=driver_a_id).all()
+            assert len(assignments) == 1
+            assert assignments[0].notes is not None
+            assert 'worked while booked time off' in assignments[0].notes.lower()
+
+        validate_resp = client.post(
+            f'/extra-cars/request/{req_id}/assignment/validate',
+            json={'driver_id': str(driver_b_id), 'start_time': '08:00', 'end_time': '16:00'},
+        )
+        assert validate_resp.status_code == 200
+        payload = validate_resp.get_json()
+        assert payload['valid'] is False
+        assert any('capacity is already fully covered' in msg.lower() for msg in payload['errors'])
+
+    def test_rebooking_time_off_reopens_zero_slot_request(self, client, db):
+        with flask_app.app_context():
+            req_date = date(2026, 7, 17)
+            make_shift_timing(db, 'day_reopen_zero', '06:00', '16:00')
+            driver = make_driver(db, '217', 'Reopen Zero Driver')
+            pattern = make_pattern(db, 'Reopen Zero Pattern', 7,
+                ['day_reopen_zero', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            make_assignment(db, driver, pattern, req_date)
+            make_driver_holiday(db, driver, req_date, time_off_type='holiday')
+
+            req = make_extra_request(
+                db,
+                req_date=req_date,
+                request_type='time_window',
+                window_start='08:00',
+                window_end='18:00',
+                unlimited=False,
+                required_slots=1,
+            )
+            req_id = req.id
+            driver_id = driver.id
+
+        add_resp = client.post(
+            f'/extra-cars/request/{req_id}/assignment/add',
+            data={'driver_id': str(driver_id)},
+            follow_redirects=True,
+        )
+        assert add_resp.status_code == 200
+
+        with flask_app.app_context():
+            req = db.session.get(ExtraCarRequest, req_id)
+            assert req.required_slots == 0
+
+        holiday_resp = client.post('/scheduling/holiday/add', data={
+            'driver_id': str(driver_id),
+            'start_date': req_date.isoformat(),
+            'end_date': req_date.isoformat(),
+            'time_off_type': 'holiday',
+            'notes': '',
+        }, follow_redirects=True)
+        assert holiday_resp.status_code == 200
+
+        with flask_app.app_context():
+            req = db.session.get(ExtraCarRequest, req_id)
+            assert req.required_slots == 1
+            assert req.status == 'OPEN'
+
+    def test_rebooking_time_off_reopens_shift_type_zero_slot_request(self, client, db):
+        with flask_app.app_context():
+            req_date = date(2026, 7, 19)
+            make_shift_timing(db, 'day_zero_shift_type', '06:00', '16:00')
+            driver = make_driver(db, '222', 'Zero Shift Type Driver')
+            pattern = make_pattern(db, 'Zero Shift Type Pattern', 7,
+                ['day_zero_shift_type', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            make_assignment(db, driver, pattern, req_date)
+            make_driver_holiday(db, driver, req_date, time_off_type='holiday')
+
+            req = ExtraCarRequest(
+                date=req_date,
+                request_type='shift_type',
+                shift_type='day_zero_shift_type',
+                unlimited=False,
+                required_slots=1,
+                status='OPEN',
+            )
+            db.session.add(req)
+            db.session.commit()
+            req_id = req.id
+            driver_id = driver.id
+
+        add_resp = client.post(
+            f'/extra-cars/request/{req_id}/assignment/add',
+            data={'driver_id': str(driver_id)},
+            follow_redirects=True,
+        )
+        assert add_resp.status_code == 200
+
+        with flask_app.app_context():
+            req = db.session.get(ExtraCarRequest, req_id)
+            assert req.required_slots == 0
+            assert req.status == 'FILLED'
+
+        holiday_resp = client.post('/scheduling/holiday/add', data={
+            'driver_id': str(driver_id),
+            'start_date': req_date.isoformat(),
+            'end_date': req_date.isoformat(),
+            'time_off_type': 'holiday',
+            'notes': '',
+        }, follow_redirects=True)
+        assert holiday_resp.status_code == 200
+
+        with flask_app.app_context():
+            req = db.session.get(ExtraCarRequest, req_id)
+            assert req.required_slots == 1
+            assert req.status == 'OPEN'
+
+    def test_rebooking_time_off_reopens_reduced_filled_request(self, client, db):
+        with flask_app.app_context():
+            req_date = date(2026, 7, 18)
+            make_shift_timing(db, 'day_reopen_filled', '06:00', '16:00')
+            reinstated_driver = make_driver(db, '218', 'Reopen Filled Driver')
+            pattern = make_pattern(db, 'Reopen Filled Pattern', 7,
+                ['day_reopen_filled', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            make_assignment(db, reinstated_driver, pattern, req_date)
+            make_driver_holiday(db, reinstated_driver, req_date, time_off_type='holiday')
+
+            other_a = make_driver(db, '219', 'Coverage A')
+            other_b = make_driver(db, '220', 'Coverage B')
+            other_c = make_driver(db, '221', 'Coverage C')
+
+            req = make_extra_request(
+                db,
+                req_date=req_date,
+                request_type='time_window',
+                window_start='08:00',
+                window_end='18:00',
+                unlimited=False,
+                required_slots=4,
+            )
+            make_extra_assignment(db, req, other_a)
+            make_extra_assignment(db, req, other_b)
+            make_extra_assignment(db, req, other_c)
+            req_id = req.id
+            reinstated_driver_id = reinstated_driver.id
+
+        add_resp = client.post(
+            f'/extra-cars/request/{req_id}/assignment/add',
+            data={'driver_id': str(reinstated_driver_id)},
+            follow_redirects=True,
+        )
+        assert add_resp.status_code == 200
+
+        with flask_app.app_context():
+            req = db.session.get(ExtraCarRequest, req_id)
+            assert req.required_slots == 3
+            assert req.status == 'FILLED'
+
+        holiday_resp = client.post('/scheduling/holiday/add', data={
+            'driver_id': str(reinstated_driver_id),
+            'start_date': req_date.isoformat(),
+            'end_date': req_date.isoformat(),
+            'time_off_type': 'holiday',
+            'notes': '',
+        }, follow_redirects=True)
+        assert holiday_resp.status_code == 200
+
+        with flask_app.app_context():
+            req = db.session.get(ExtraCarRequest, req_id)
+            assert req.required_slots == 4
+            assert req.status == 'PARTIALLY_FILLED'
+
     def test_closed_status_preserved_by_coverage(self, db):
         """CLOSED requests should not have status overwritten by compute_coverage."""
         with flask_app.app_context():
@@ -895,7 +1297,7 @@ class TestStatusTransitions:
         with flask_app.app_context():
             assert ExtraCarAssignment.query.filter_by(request_id=req_id, driver_id=driver_id).count() == 1
 
-    def test_assignment_add_rejects_driver_marked_time_off(self, client, db):
+    def test_assignment_add_allows_driver_marked_time_off(self, client, db):
         with flask_app.app_context():
             req_date = date(2026, 7, 10)
             driver = make_driver(db, '111', 'Time Off Driver')
@@ -912,7 +1314,7 @@ class TestStatusTransitions:
         assert resp.status_code == 200
 
         with flask_app.app_context():
-            assert ExtraCarAssignment.query.filter_by(request_id=req_id, driver_id=driver_id).count() == 0
+            assert ExtraCarAssignment.query.filter_by(request_id=req_id, driver_id=driver_id).count() == 1
 
     def test_overlapping_assignment_is_trimmed_to_net_new_window(self, client, db):
         with flask_app.app_context():
@@ -1239,8 +1641,8 @@ class TestValidationAjax:
         )
         assert resp.status_code == 200
         data = resp.get_json()
-        assert data['valid'] is False
-        assert len(data['errors']) > 0
+        assert data['valid'] is True
+        assert data['errors'] == []
 
 
 # ===========================================================================
@@ -1249,8 +1651,7 @@ class TestValidationAjax:
 
 class TestExtraCarIntervals:
     def test_existing_extra_assignment_counted_in_intervals(self, db):
-        """A driver's existing extra-car assignment should be counted in
-        get_driver_all_work_intervals so a second assignment can't violate rest."""
+        """Existing extra-car assignments are still counted when checking joined duty spans."""
         with flask_app.app_context():
             ref = date(2026, 6, 15)
             driver = make_driver(db, '1', 'D')
@@ -1268,6 +1669,5 @@ class TestExtraCarIntervals:
             p_start = datetime(2026, 6, 15, 18, 0)
             p_end = datetime(2026, 6, 15, 22, 0)
             valid, errors, _, _ = validate_extra_car_assignment(driver, req2, p_start, p_end)
-            assert not valid
-            assert len(errors) == 1
-            assert 'no legal assignment window' in errors[0].lower()
+            assert valid
+            assert errors == []

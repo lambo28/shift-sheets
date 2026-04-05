@@ -27,6 +27,14 @@
                 A slot can be split across multiple drivers where each covered portion is at least <strong>2 hours</strong>.
                 Normal driver <strong>break requirements</strong> and <strong>maximum daily hours</strong> still apply.
             </div>
+            <div class="alert alert-secondary py-2 mb-3" role="note">
+                <i class="fas fa-calendar-times me-1"></i>
+                <strong>Time off &amp; shift-type requests:</strong>
+                If a driver on time off is assigned to a <strong>shift-type</strong> request that matches their normal shift hours,
+                their holiday is <strong>automatically removed</strong> and the required slot count decreases by 1 —
+                their reinstated shift covers the need directly.
+                If that driver later re-books time off for the same day, the slot count increases by 1 again.
+            </div>
 
             <div class="row g-3">
                 <div class="col-md-6">
@@ -195,6 +203,9 @@
                 {% if req.unlimited %}
                     <i class="fas fa-infinity text-muted"></i>
                     {{ filled }} assignment{{ 's' if filled != 1 }}
+                {% elif cap == 0 %}
+                    <i class="fas fa-check-circle text-success"></i>
+                    Fulfilled by scheduled coverage
                 {% else %}
                     {{ filled }}/{{ cap }} slot{{ 's' if cap != 1 }} filled
                 {% endif %}

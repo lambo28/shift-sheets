@@ -1159,7 +1159,7 @@ def get_driver_all_work_intervals(driver, ref_date, timings_dict=None, exclude_r
     # Collect regular scheduled shifts for the three-day window
     for delta in range(-1, 2):
         check_date = ref_date + timedelta(days=delta)
-        shifts = get_driver_shifts_for_date(driver, check_date, timings_dict)
+        shifts = get_driver_shifts_for_date(driver, check_date, timings_dict, ignore_holiday=True)
         for shift in shifts:
             if shift['shift_type'] == 'day_off':
                 continue
@@ -1348,8 +1348,11 @@ def validate_extra_car_assignment(driver, request_obj, proposed_start_dt, propos
        an existing shift, they form ONE continuous block — the rest gap is only checked
        at the outer boundaries of that combined block, not at the internal join.
 
-    2. The total worked hours within any rolling 24-hour window must not exceed
-       MAX_WORK_HOURS_PER_24H.
+     2. Gaps shorter than MIN_REST_HOURS do not reset the duty period. The total
+         span from the first work start to the last work end inside such a joined
+         duty period must not exceed MAX_WORK_HOURS_PER_24H. This models the
+         requirement for an uninterrupted 8-hour break within the wider 24-hour
+         period, so short internal breaks still count toward the 16-hour limit.
 
     3. If the proposed period *overlaps* an existing shift, only the non-overlapping
        net-new hours count toward the check.  The assignment is allowed if the
@@ -1367,27 +1370,27 @@ def validate_extra_car_assignment(driver, request_obj, proposed_start_dt, propos
     suggested_start = proposed_start_dt
     suggested_end = proposed_end_dt
 
-    # Time-off days are hard-blocked for extra assignments, even if a holiday
-    # suppresses normal shift intervals for that day.
-    if proposed_end_dt > proposed_start_dt:
-        final_check_date = (proposed_end_dt - timedelta(seconds=1)).date()
-    else:
-        final_check_date = proposed_start_dt.date()
+    def merge_intervals_with_gap(intervals, gap_hours):
+        """Merge intervals when the gap between them is smaller than gap_hours."""
+        normalized = []
+        for start_dt, end_dt in intervals:
+            if not start_dt or not end_dt or end_dt <= start_dt:
+                continue
+            normalized.append((start_dt, end_dt))
 
-    blocked_dates = []
-    check_date = proposed_start_dt.date()
-    while check_date <= final_check_date:
-        if is_driver_on_holiday(driver.id, check_date):
-            blocked_dates.append(check_date)
-        check_date += timedelta(days=1)
+        if not normalized:
+            return []
 
-    if blocked_dates:
-        blocked_dates_str = ', '.join(d.strftime('%d/%m/%Y') for d in blocked_dates)
-        errors.append(
-            "Driver is marked as time off and cannot be assigned extra work on: "
-            f"{blocked_dates_str}."
-        )
-        return False, errors, suggested_start, suggested_end
+        normalized.sort(key=lambda item: item[0])
+        merged = [normalized[0]]
+        gap = timedelta(hours=gap_hours)
+        for start_dt, end_dt in normalized[1:]:
+            last_start, last_end = merged[-1]
+            if start_dt < last_end + gap:
+                merged[-1] = (last_start, max(last_end, end_dt))
+            else:
+                merged.append((start_dt, end_dt))
+        return merged
 
     raw_intervals = get_driver_all_work_intervals(
         driver, request_obj.date, timings_dict, exclude_request_id=request_obj.id
@@ -1462,48 +1465,30 @@ def validate_extra_car_assignment(driver, request_obj, proposed_start_dt, propos
     # The merged view after adding the proposed period shows which continuous
     # blocks of work result.  Rest gaps are only checked at the outer edges of
     # the block that contains the proposed work — not at internal joins.
-    merged_with_proposed = merge_work_intervals(existing_intervals + [(proposed_start_dt, proposed_end_dt)])
-
-    # Find the block in merged_with_proposed that contains the proposed period
-    combined_block = None
-    for blk_start, blk_end in merged_with_proposed:
-        if blk_start <= proposed_start_dt and blk_end >= proposed_end_dt:
-            combined_block = (blk_start, blk_end)
-            break
-    if combined_block is None:
-        combined_block = (proposed_start_dt, proposed_end_dt)
-
-    cb_start, cb_end = combined_block
-
-    # --- Rest before the combined block ---
-    prev_ends = [e for s, e in merged_existing if e <= cb_start]
-    if prev_ends:
-        latest_prev_end = max(prev_ends)
-        rest_before = (cb_start - latest_prev_end).total_seconds() / 3600
-        if rest_before < MIN_REST_HOURS:
-            min_block_start = latest_prev_end + timedelta(hours=MIN_REST_HOURS)
-            # Suggest the earliest the *proposed* period can start:
-            # shift the proposed start right by the same amount the block must shift
-            shift = min_block_start - cb_start
-            min_start = proposed_start_dt + shift
+    qualifying_existing_blocks = merge_intervals_with_gap(existing_intervals, MIN_REST_HOURS)
+    prev_blocks = [(s, e) for s, e in qualifying_existing_blocks if e <= proposed_start_dt]
+    if prev_blocks:
+        prev_start, prev_end = max(prev_blocks, key=lambda item: item[1])
+        gap_before = (proposed_start_dt - prev_end).total_seconds() / 3600
+        joined_span_before = (proposed_end_dt - prev_start).total_seconds() / 3600
+        if 0 < gap_before < MIN_REST_HOURS and joined_span_before > MAX_WORK_HOURS_PER_24H:
+            min_start = prev_end + timedelta(hours=MIN_REST_HOURS)
             errors.append(
-                f"Insufficient rest before assignment: {rest_before:.1f}h "
+                f"Insufficient rest before assignment: {gap_before:.1f}h "
                 f"(minimum {MIN_REST_HOURS}h required). "
                 f"Earliest valid start: {min_start.strftime('%H:%M')}."
             )
             suggested_start = min_start
 
-    # --- Rest after the combined block ---
-    next_starts = [s for s, e in merged_existing if s >= cb_end]
-    if next_starts:
-        earliest_next_start = min(next_starts)
-        rest_after = (earliest_next_start - cb_end).total_seconds() / 3600
-        if rest_after < MIN_REST_HOURS:
-            max_block_end = earliest_next_start - timedelta(hours=MIN_REST_HOURS)
-            shift = cb_end - max_block_end
-            max_end = proposed_end_dt - shift
+    next_blocks = [(s, e) for s, e in qualifying_existing_blocks if s >= proposed_end_dt]
+    if next_blocks:
+        next_start, next_end = min(next_blocks, key=lambda item: item[0])
+        gap_after = (next_start - proposed_end_dt).total_seconds() / 3600
+        joined_span_after = (next_end - proposed_start_dt).total_seconds() / 3600
+        if 0 < gap_after < MIN_REST_HOURS and joined_span_after > MAX_WORK_HOURS_PER_24H:
+            max_end = next_start - timedelta(hours=MIN_REST_HOURS)
             errors.append(
-                f"Insufficient rest after assignment: {rest_after:.1f}h "
+                f"Insufficient rest after assignment: {gap_after:.1f}h "
                 f"(minimum {MIN_REST_HOURS}h required). "
                 f"Latest valid finish: {max_end.strftime('%H:%M')}."
             )
@@ -1519,22 +1504,56 @@ def validate_extra_car_assignment(driver, request_obj, proposed_start_dt, propos
         suggested_end = None
 
     # -----------------------------------------------------------------------
-    # Step 3: Max hours in any rolling 24-hour window
+    # Step 3: Duty span between qualifying rest breaks (8h continuous break rule)
     # -----------------------------------------------------------------------
-    all_intervals = merge_work_intervals(existing_intervals + [(proposed_start_dt, proposed_end_dt)])
-    for window_start, _ in all_intervals:
-        window_end = window_start + timedelta(hours=24)
-        total = sum(
-            (min(e, window_end) - max(s, window_start)).total_seconds() / 3600
-            for s, e in all_intervals
-            if e > window_start and s < window_end
+    if not errors:
+        candidate_start = suggested_start or proposed_start_dt
+        candidate_end = suggested_end or proposed_end_dt
+
+        duty_spans = merge_intervals_with_gap(
+            existing_intervals + [(candidate_start, candidate_end)],
+            MIN_REST_HOURS,
         )
-        if total > MAX_WORK_HOURS_PER_24H:
-            errors.append(
-                f"Would exceed maximum {MAX_WORK_HOURS_PER_24H}h work in a 24-hour period "
-                f"({total:.1f}h total)."
-            )
-            break
+        containing_span = None
+        for span_start, span_end in duty_spans:
+            if span_start <= candidate_start and span_end >= candidate_end:
+                containing_span = (span_start, span_end)
+                break
+
+        if containing_span is not None:
+            duty_start, duty_end = containing_span
+            duty_hours = (duty_end - duty_start).total_seconds() / 3600
+            if duty_hours > MAX_WORK_HOURS_PER_24H:
+                latest_valid_finish = duty_start + timedelta(hours=MAX_WORK_HOURS_PER_24H)
+                earliest_valid_start = duty_end - timedelta(hours=MAX_WORK_HOURS_PER_24H)
+
+                if latest_valid_finish > candidate_start and latest_valid_finish < candidate_end:
+                    suggested_end = latest_valid_finish
+                    errors.append(
+                        f"Would exceed maximum {MAX_WORK_HOURS_PER_24H}h duty span without an "
+                        f"{MIN_REST_HOURS}h continuous break. Latest valid finish: "
+                        f"{latest_valid_finish.strftime('%H:%M')}."
+                    )
+                elif earliest_valid_start > candidate_start and earliest_valid_start < candidate_end:
+                    suggested_start = earliest_valid_start
+                    errors.append(
+                        f"Would exceed maximum {MAX_WORK_HOURS_PER_24H}h duty span without an "
+                        f"{MIN_REST_HOURS}h continuous break. Earliest valid start: "
+                        f"{earliest_valid_start.strftime('%H:%M')}."
+                    )
+                else:
+                    errors.append(
+                        f"Would exceed maximum {MAX_WORK_HOURS_PER_24H}h duty span without an "
+                        f"{MIN_REST_HOURS}h continuous break ({duty_hours:.1f}h span)."
+                    )
+
+        if suggested_start and suggested_end and suggested_end <= suggested_start:
+            errors = [
+                "No legal assignment window is available for this driver in this request "
+                "once 24-hour working limits are enforced."
+            ]
+            suggested_start = None
+            suggested_end = None
 
     return (not errors), errors, suggested_start, suggested_end
 

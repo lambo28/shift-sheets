@@ -5,6 +5,7 @@ from extensions import db
 from models import (
     Driver, ShiftTiming, ShiftAdjustment, ShiftSwap,
     DriverHoliday, SchoolTerm, SchoolClosureDate,
+    ExtraCarRequest, ExtraCarAssignment,
 )
 from utils import (
     json_success, json_error,
@@ -50,6 +51,194 @@ def register(app):
             return None, None, _scheduling_redirect("Driver not found.")
 
         return driver_id, driver, None
+
+    def _driver_matches_extra_request_shift_window(driver, req, timings_dict):
+        """Return True when driver's effective shift window matches request window."""
+        req_start, req_end = req.get_time_window()
+        if not req_start or not req_end:
+            return False
+
+        entries = get_driver_shifts_for_date(
+            driver,
+            req.date,
+            timings_dict=timings_dict,
+            include_swaps=True,
+            ignore_holiday=True,
+        )
+        for entry in entries:
+            if entry.get('shift_type') == 'day_off':
+                continue
+
+            start_time = entry.get('start_time')
+            end_time = entry.get('end_time')
+            if start_time is None or end_time is None:
+                continue
+
+            shift_start = datetime.combine(req.date, start_time)
+            shift_end = datetime.combine(req.date, end_time)
+            if shift_end <= shift_start:
+                shift_end += timedelta(days=1)
+
+            if shift_start == req_start and shift_end == req_end:
+                return True
+
+        return False
+
+    def _intervals_cover_window(intervals, window_start, window_end):
+        """Return True when the merged intervals cover the full request window."""
+        clipped = []
+        for start_dt, end_dt in intervals:
+            start = max(start_dt, window_start)
+            end = min(end_dt, window_end)
+            if end > start:
+                clipped.append((start, end))
+
+        if not clipped:
+            return False
+
+        clipped.sort(key=lambda item: item[0])
+        merged_start, merged_end = clipped[0]
+        if merged_start > window_start:
+            return False
+
+        for start_dt, end_dt in clipped[1:]:
+            if start_dt > merged_end:
+                return False
+            if end_dt > merged_end:
+                merged_end = end_dt
+
+        return merged_end >= window_end
+
+    def _driver_has_auto_reinstatement_adjustment(driver, target_date):
+        """Return True when auto-created adjustments exist for a reinstated extra-car day."""
+        return ShiftAdjustment.query.filter(
+            ShiftAdjustment.driver_id == driver.id,
+            ShiftAdjustment.adjustment_date == target_date,
+            ShiftAdjustment.notes == 'Auto-created from extra-car assignment while on time off.',
+        ).first() is not None
+
+    def _driver_shift_plus_assignment_covers_request(driver, req, timings_dict):
+        """Return True when driver's base shift plus their assignment covers the full request window."""
+        req_start, req_end = req.get_time_window()
+        if not req_start or not req_end:
+            return False
+
+        assignments = [asgn for asgn in req.assignments if asgn.driver_id == driver.id]
+        if not assignments:
+            return False
+
+        intervals = []
+        entries = get_driver_shifts_for_date(
+            driver,
+            req.date,
+            timings_dict=timings_dict,
+            include_swaps=True,
+            ignore_holiday=True,
+        )
+        for entry in entries:
+            if entry.get('shift_type') == 'day_off':
+                continue
+
+            start_time = entry.get('start_time')
+            end_time = entry.get('end_time')
+            if start_time is None or end_time is None:
+                continue
+
+            shift_start = datetime.combine(req.date, start_time)
+            shift_end = datetime.combine(req.date, end_time)
+            if shift_end <= shift_start:
+                shift_end += timedelta(days=1)
+            intervals.append((shift_start, shift_end))
+
+        for assignment in assignments:
+            asgn_start = assignment.effective_start()
+            asgn_end = assignment.effective_end()
+            if asgn_start and asgn_end and asgn_end > asgn_start:
+                intervals.append((asgn_start, asgn_end))
+
+        return _intervals_cover_window(intervals, req_start, req_end)
+
+    def _increase_extra_slots_for_new_time_off(driver, holiday_dates, timings_dict):
+        """Increase required slots for shift-type fast-path reinstatements (no assignment row)."""
+        if not holiday_dates:
+            return 0
+
+        adjusted = 0
+        for holiday_date in holiday_dates:
+            requests = ExtraCarRequest.query.filter(
+                ExtraCarRequest.date == holiday_date,
+                ExtraCarRequest.request_type == 'shift_type',
+                ExtraCarRequest.unlimited.is_(False),
+            ).all()
+
+            for req in requests:
+                if any(asgn.driver_id == driver.id for asgn in req.assignments):
+                    continue
+                if not _driver_matches_extra_request_shift_window(driver, req, timings_dict):
+                    continue
+
+                req.required_slots = (req.required_slots or 0) + 1
+                adjusted += 1
+
+        return adjusted
+
+    def _remove_extra_assignments_for_new_time_off(driver, holiday_dates):
+        """Remove driver's extra-car assignments on newly added time-off dates."""
+        if not holiday_dates:
+            return 0, 0
+
+        requests = ExtraCarRequest.query.filter(
+            ExtraCarRequest.date.in_(holiday_dates)
+        ).all()
+
+        removed = 0
+        slots_restored = 0
+        impacted_requests = []
+        for req in requests:
+            rows = ExtraCarAssignment.query.filter_by(
+                request_id=req.id,
+                driver_id=driver.id,
+            ).all()
+            if not rows:
+                continue
+
+            for row in rows:
+                db.session.delete(row)
+                removed += 1
+            if not req.unlimited:
+                req.required_slots = (req.required_slots or 0) + len(rows)
+                slots_restored += len(rows)
+            impacted_requests.append(req)
+
+        if removed:
+            db.session.flush()
+
+        return removed, slots_restored
+
+    def _refresh_extra_request_statuses_for_dates(target_dates):
+        """Recompute status for future requests affected by holiday changes."""
+        if not target_dates:
+            return
+
+        now_dt = datetime.now()
+        requests = ExtraCarRequest.query.filter(
+            ExtraCarRequest.date.in_(target_dates)
+        ).all()
+        for req in requests:
+            req_start, req_end = req.get_time_window()
+            if not req_start or not req_end:
+                continue
+            if req_end <= now_dt:
+                req.status = 'CLOSED'
+                continue
+
+            db.session.expire(req, ['assignments'])
+
+            if req.status == 'CLOSED':
+                req.status = 'OPEN'
+
+            _, new_status = req.compute_coverage()
+            req.status = new_status
 
     @app.route("/scheduling")
     def scheduling():
@@ -557,6 +746,15 @@ def register(app):
         if end_date < start_date:
             return _scheduling_redirect("End date must be on or after start date.")
 
+        existing_holiday_dates = {
+            row.holiday_date
+            for row in DriverHoliday.query.filter(
+                DriverHoliday.driver_id == driver_id,
+                DriverHoliday.holiday_date >= start_date,
+                DriverHoliday.holiday_date <= end_date,
+            ).all()
+        }
+
         # If a swap touches the selected holiday window, remove it first so
         # holiday day eligibility is based on the base (non-swapped) pattern.
         removed_swaps = ShiftSwap.query.filter(
@@ -599,12 +797,19 @@ def register(app):
                 added_holiday_dates.append(current_date)
             current_date += timedelta(days=1)
 
+        newly_added_dates = [d for d in added_holiday_dates if d not in existing_holiday_dates]
+        slots_increased_fast_path = _increase_extra_slots_for_new_time_off(driver, newly_added_dates, timings_dict)
+        assignments_removed, slots_increased_from_removed_assignments = _remove_extra_assignments_for_new_time_off(driver, newly_added_dates)
+        slots_increased = slots_increased_fast_path + slots_increased_from_removed_assignments
+
         removed_adjustments = 0
         if added_holiday_dates:
             removed_adjustments = ShiftAdjustment.query.filter(
                 ShiftAdjustment.driver_id == driver_id,
                 ShiftAdjustment.adjustment_date.in_(added_holiday_dates),
             ).delete(synchronize_session='fetch')
+
+        _refresh_extra_request_statuses_for_dates(newly_added_dates)
 
         db.session.commit()
 
@@ -624,6 +829,10 @@ def register(app):
             success_msg += f" Removed {removed_swaps} swap(s) that overlapped the selected holiday range."
         if removed_adjustments:
             success_msg += f" Removed {removed_adjustments} adjustment(s) on new time-off date(s)."
+        if assignments_removed:
+            success_msg += f" Removed {assignments_removed} extra-car assignment(s) on new time-off date(s)."
+        if slots_increased:
+            success_msg += f" Increased required slots on {slots_increased} extra-car request(s) due to new time off."
 
         flash(success_msg, "success")
         return redirect(url_for("scheduling"))
@@ -764,6 +973,13 @@ def register(app):
             flash("End date must be on or after start date.", "warning")
             return jsonify({"success": False, "message": "End date must be on or after start date"}), 400
 
+        existing_holiday_dates = {
+            row.holiday_date
+            for row in DriverHoliday.query.filter(
+                DriverHoliday.driver_id == driver_id,
+            ).all()
+        }
+
         try:
             # Remove the original edited block
             DriverHoliday.query.filter(
@@ -814,12 +1030,19 @@ def register(app):
                     added_holiday_dates.append(current_date)
                 current_date += timedelta(days=1)
 
+            newly_added_dates = [d for d in added_holiday_dates if d not in existing_holiday_dates]
+            slots_increased_fast_path = _increase_extra_slots_for_new_time_off(driver, newly_added_dates, timings_dict)
+            assignments_removed, slots_increased_from_removed_assignments = _remove_extra_assignments_for_new_time_off(driver, newly_added_dates)
+            slots_increased = slots_increased_fast_path + slots_increased_from_removed_assignments
+
             removed_adjustments = 0
             if added_holiday_dates:
                 removed_adjustments = ShiftAdjustment.query.filter(
                     ShiftAdjustment.driver_id == driver_id,
                     ShiftAdjustment.adjustment_date.in_(added_holiday_dates),
                 ).delete(synchronize_session='fetch')
+
+            _refresh_extra_request_statuses_for_dates(newly_added_dates)
 
             db.session.commit()
             success_msg = f"Time off updated for {driver.formatted_name()}."
@@ -829,6 +1052,10 @@ def register(app):
                 success_msg += f" Removed {removed_swaps} swap(s) that overlapped the selected holiday range."
             if removed_adjustments:
                 success_msg += f" Removed {removed_adjustments} adjustment(s) on new time-off date(s)."
+            if assignments_removed:
+                success_msg += f" Removed {assignments_removed} extra-car assignment(s) on new time-off date(s)."
+            if slots_increased:
+                success_msg += f" Increased required slots on {slots_increased} extra-car request(s) due to new time off."
             flash(success_msg, "success")
             return jsonify({"success": True, "message": f"Time off updated for {driver.formatted_name()}"})
         except Exception:

@@ -2,7 +2,7 @@ from flask import render_template, request, redirect, url_for, flash, jsonify
 from datetime import datetime, timedelta
 
 from extensions import db
-from models import Driver, ShiftTiming, ExtraCarRequest, ExtraCarAssignment
+from models import Driver, DriverHoliday, ShiftAdjustment, ShiftTiming, ExtraCarRequest, ExtraCarAssignment
 from constants import EXTRA_CAR_MIN_PARTIAL_HOURS
 from utils import (
     json_error,
@@ -12,6 +12,7 @@ from utils import (
     require_driver,
     validate_extra_car_assignment, interval_within_any_segment,
     resolve_request_relative_datetime, is_school_term_operational_day,
+    get_driver_shifts_for_date,
 )
 
 
@@ -33,6 +34,173 @@ def register(app):
             redirect_factory=lambda: redirect(url_for("extra_cars")),
             category=category,
         )
+
+    def _iter_interval_dates(start_dt, end_dt):
+        """Yield each date touched by [start_dt, end_dt)."""
+        if end_dt > start_dt:
+            final_date = (end_dt - timedelta(seconds=1)).date()
+        else:
+            final_date = start_dt.date()
+        cursor = start_dt.date()
+        while cursor <= final_date:
+            yield cursor
+            cursor += timedelta(days=1)
+
+    def _merge_assignment_notes(existing_notes, auto_note):
+        """Merge user notes with an auto note shown in the assignment notes column."""
+        base = (existing_notes or "").strip()
+        if not base:
+            return auto_note
+        return f"{base} | {auto_note}"
+
+    def _driver_has_matching_shift_window(driver, req_start_dt, req_end_dt, timings_dict):
+        """Return True when driver has a normal shift exactly matching request window."""
+        entries = get_driver_shifts_for_date(
+            driver,
+            req_start_dt.date(),
+            timings_dict=timings_dict,
+            include_swaps=True,
+            ignore_holiday=True,
+        )
+        for entry in entries:
+            if entry.get('shift_type') == 'day_off':
+                continue
+            start_time = entry.get('start_time')
+            end_time = entry.get('end_time')
+            if start_time is None or end_time is None:
+                continue
+
+            shift_start = datetime.combine(req_start_dt.date(), start_time)
+            shift_end = datetime.combine(req_start_dt.date(), end_time)
+            if shift_end <= shift_start:
+                shift_end += timedelta(days=1)
+
+            if shift_start == req_start_dt and shift_end == req_end_dt:
+                return True
+        return False
+
+    def _upsert_partial_day_adjustments_for_reinstated_shift(driver, req_start_dt, req_end_dt, timings_dict):
+        """Preserve off-hours around a request by writing late-start/early-finish adjustments."""
+        entries = get_driver_shifts_for_date(
+            driver,
+            req_start_dt.date(),
+            timings_dict=timings_dict,
+            include_swaps=True,
+            ignore_holiday=True,
+        )
+
+        adjustments_written = 0
+        for entry in entries:
+            if entry.get('shift_type') == 'day_off':
+                continue
+
+            start_time = entry.get('start_time')
+            end_time = entry.get('end_time')
+            if start_time is None or end_time is None:
+                continue
+
+            shift_start = datetime.combine(req_start_dt.date(), start_time)
+            shift_end = datetime.combine(req_start_dt.date(), end_time)
+            if shift_end <= shift_start:
+                shift_end += timedelta(days=1)
+
+            if req_end_dt <= shift_start or req_start_dt >= shift_end:
+                continue
+
+            if shift_start < req_start_dt < shift_end and req_start_dt.date() == shift_start.date():
+                late_start = ShiftAdjustment.query.filter_by(
+                    driver_id=driver.id,
+                    adjustment_date=shift_start.date(),
+                    adjustment_type='late_start',
+                ).first()
+                if late_start:
+                    late_start.adjusted_time = req_start_dt.time()
+                else:
+                    db.session.add(
+                        ShiftAdjustment(
+                            driver_id=driver.id,
+                            adjustment_date=shift_start.date(),
+                            adjustment_type='late_start',
+                            adjusted_time=req_start_dt.time(),
+                            notes='Auto-created from extra-car assignment while on time off.',
+                        )
+                    )
+                adjustments_written += 1
+
+            if shift_start < req_end_dt < shift_end:
+                early_finish = ShiftAdjustment.query.filter_by(
+                    driver_id=driver.id,
+                    adjustment_date=shift_start.date(),
+                    adjustment_type='early_finish',
+                ).first()
+                if early_finish:
+                    early_finish.adjusted_time = req_end_dt.time()
+                else:
+                    db.session.add(
+                        ShiftAdjustment(
+                            driver_id=driver.id,
+                            adjustment_date=shift_start.date(),
+                            adjustment_type='early_finish',
+                            adjusted_time=req_end_dt.time(),
+                            notes='Auto-created from extra-car assignment while on time off.',
+                        )
+                    )
+                adjustments_written += 1
+
+        return adjustments_written
+
+    def _intervals_cover_window(intervals, window_start, window_end):
+        """Return True when intervals fully cover [window_start, window_end)."""
+        clipped = []
+        for start_dt, end_dt in intervals:
+            start = max(start_dt, window_start)
+            end = min(end_dt, window_end)
+            if end > start:
+                clipped.append((start, end))
+
+        if not clipped:
+            return False
+
+        clipped.sort(key=lambda item: item[0])
+        merged_start, merged_end = clipped[0]
+        if merged_start > window_start:
+            return False
+
+        for start_dt, end_dt in clipped[1:]:
+            if start_dt > merged_end:
+                return False
+            if end_dt > merged_end:
+                merged_end = end_dt
+
+        return merged_end >= window_end
+
+    def _reinstated_shift_plus_assignment_covers_request(driver, req_start_dt, req_end_dt, asgn_start_dt, asgn_end_dt, timings_dict):
+        """Return True when base shift coverage + assignment covers the full request window."""
+        shift_intervals = []
+        entries = get_driver_shifts_for_date(
+            driver,
+            req_start_dt.date(),
+            timings_dict=timings_dict,
+            include_swaps=True,
+            ignore_holiday=True,
+        )
+        for entry in entries:
+            if entry.get('shift_type') == 'day_off':
+                continue
+            start_time = entry.get('start_time')
+            end_time = entry.get('end_time')
+            if start_time is None or end_time is None:
+                continue
+
+            shift_start = datetime.combine(req_start_dt.date(), start_time)
+            shift_end = datetime.combine(req_start_dt.date(), end_time)
+            if shift_end <= shift_start:
+                shift_end += timedelta(days=1)
+            shift_intervals.append((shift_start, shift_end))
+
+        all_intervals = list(shift_intervals)
+        all_intervals.append((asgn_start_dt, asgn_end_dt))
+        return _intervals_cover_window(all_intervals, req_start_dt, req_end_dt)
 
     @app.route("/extra-cars")
     def extra_cars():
@@ -374,6 +542,29 @@ def register(app):
                 })
 
         timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
+
+        # If this is a shift-type request and the driver's normal shift matches the
+        # request window AND they have a holiday covering those dates, the add route
+        # will automatically remove the holiday — skip conflict validation here.
+        if req.request_type == 'shift_type' and _driver_has_matching_shift_window(
+            driver, proposed_start, proposed_end, timings_dict
+        ):
+            from models import DriverHoliday
+            has_holiday = any(
+                DriverHoliday.query.filter_by(
+                    driver_id=driver.id, holiday_date=d
+                ).first()
+                for d in _iter_interval_dates(proposed_start, proposed_end)
+            )
+            if has_holiday:
+                return jsonify({
+                    "success": True,
+                    "valid": True,
+                    "errors": [],
+                    "suggested_start": proposed_start.strftime("%H:%M"),
+                    "suggested_end": proposed_end.strftime("%H:%M"),
+                })
+
         is_valid, errors, suggested_start, suggested_end = validate_extra_car_assignment(
             driver, req, proposed_start, proposed_end, timings_dict
         )
@@ -440,6 +631,34 @@ def register(app):
             if proposed_end <= proposed_start:
                 proposed_end += timedelta(days=1)
 
+        timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
+
+        if req.request_type == 'shift_type' and _driver_has_matching_shift_window(driver, req_start, req_end, timings_dict):
+            holidays_removed = 0
+            for touched_date in _iter_interval_dates(req_start, req_end):
+                holiday = DriverHoliday.query.filter_by(driver_id=driver.id, holiday_date=touched_date).first()
+                if holiday:
+                    db.session.delete(holiday)
+                    holidays_removed += 1
+
+            if holidays_removed:
+                if not req.unlimited:
+                    req.required_slots = max(0, (req.required_slots or 0) - 1)
+
+                if req.required_slots == 0:
+                    req.status = 'FILLED'
+                else:
+                    _, suggested_status = req.compute_coverage()
+                    if req.status != 'CLOSED':
+                        req.status = suggested_status
+
+                db.session.commit()
+                flash(
+                    f"Removed time off for {driver.formatted_name()} and reduced required slots to {req.required_slots}.",
+                    "success",
+                )
+                return redirect(url_for("extra_cars"))
+
         if not req.unlimited and available_segments is not None:
             if not interval_within_any_segment(proposed_start, proposed_end, available_segments):
                 suggested_start, suggested_end = req.get_recommended_available_window()
@@ -451,7 +670,6 @@ def register(app):
                 else:
                     return _extra_cars_redirect("Proposed assignment exceeds available capacity.")
 
-        timings_dict = {st.shift_type: st for st in ShiftTiming.query.all()}
         is_valid, errors, suggested_start, suggested_end = validate_extra_car_assignment(
             driver, req, proposed_start, proposed_end, timings_dict
         )
@@ -474,6 +692,40 @@ def register(app):
                 f"Driver assignment must be at least {EXTRA_CAR_MIN_PARTIAL_HOURS:g} hours.",
             )
 
+        holiday_dates_removed = []
+        for touched_date in _iter_interval_dates(final_start, final_end):
+            holiday = DriverHoliday.query.filter_by(driver_id=driver.id, holiday_date=touched_date).first()
+            if holiday:
+                db.session.delete(holiday)
+                holiday_dates_removed.append(touched_date)
+
+        adjustments_written = 0
+        consumed_slot_via_reinstatement = False
+        assignment_auto_note = None
+        if holiday_dates_removed:
+            adjustments_written = _upsert_partial_day_adjustments_for_reinstated_shift(
+                driver,
+                req_start,
+                req_end,
+                timings_dict,
+            )
+
+            if not req.unlimited and _reinstated_shift_plus_assignment_covers_request(
+                driver,
+                req_start,
+                req_end,
+                final_start,
+                final_end,
+                timings_dict,
+            ):
+                req.required_slots = max(0, (req.required_slots or 0) - 1)
+                consumed_slot_via_reinstatement = True
+
+            note_suffix = " and slot demand adjusted" if consumed_slot_via_reinstatement else ""
+            assignment_auto_note = (
+                f"AUTO: worked while booked time off; holiday removed{note_suffix}."
+            )
+
         if final_start != proposed_start or final_end != proposed_end:
             flash(
                 f"Assignment adjusted to non-overlapping time: {final_start.strftime('%H:%M')}–{final_end.strftime('%H:%M')}.",
@@ -486,7 +738,7 @@ def register(app):
             driver_id=driver.id,
             start_time=final_start.time(),
             end_time=final_end.time(),
-            notes=notes,
+            notes=_merge_assignment_notes(notes, assignment_auto_note) if assignment_auto_note else notes,
         )
         db.session.add(assignment)
         db.session.flush()
@@ -497,6 +749,12 @@ def register(app):
             req.status = new_status
 
         db.session.commit()
+
+        if adjustments_written:
+            flash(
+                "Created schedule adjustment(s) to preserve booked-off hours outside the requested window.",
+                "info",
+            )
 
         flash(
             f"{driver.formatted_name()} added to extra car request "

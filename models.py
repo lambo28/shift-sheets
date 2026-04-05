@@ -460,7 +460,7 @@ class ExtraCarRequest(db.Model):
 
         required = self.required_slots or 0
         if required <= 0:
-            return [(req_start, req_end)]
+            return []
 
         min_hours = EXTRA_CAR_MIN_PARTIAL_HOURS
         breakpoints = {req_start, req_end}
@@ -595,7 +595,9 @@ class ExtraCarRequest(db.Model):
             new_status = 'PARTIALLY_FILLED' if has_any_coverage else 'OPEN'
         else:
             required = self.required_slots or 0
-            if filled_slots >= required > 0:
+            if required <= 0:
+                new_status = 'FILLED'
+            elif filled_slots >= required > 0:
                 new_status = 'FILLED'
             elif has_any_coverage:
                 new_status = 'PARTIALLY_FILLED'
