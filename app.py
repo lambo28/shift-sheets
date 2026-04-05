@@ -146,10 +146,7 @@ def _shift_abbrev_filter(shift_type, all_shifts_str=''):
 
 @app.context_processor
 def utility_processor():
-    ui_theme = get_app_setting('ui_theme', 'light')
-    if ui_theme not in ('light', 'dark'):
-        ui_theme = 'light'
-    return dict(datetime=datetime, bundle_url=bundle_url, ui_theme=ui_theme)
+    return dict(datetime=datetime, bundle_url=bundle_url)
 
 # -----------------------------------------------------------------------------
 # Route Registration

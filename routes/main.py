@@ -124,19 +124,3 @@ def register(app):
 
         return render_template("cars_working.html", timings=all_timings_dict)
 
-    @app.route("/theme/toggle", methods=["POST"])
-    def toggle_theme():
-        """Toggle UI theme between light and dark from the top navigation."""
-        ui_theme = get_app_setting('ui_theme', 'light')
-        if ui_theme not in ('light', 'dark'):
-            ui_theme = 'light'
-        next_theme = 'dark' if ui_theme == 'light' else 'light'
-
-        set_app_setting('ui_theme', next_theme)
-        db.session.commit()
-        flash(f"Theme switched to {next_theme} mode.", "success")
-
-        next_url = (request.form.get('next') or '').strip()
-        if next_url and next_url.startswith('/'):
-            return redirect(next_url)
-        return redirect(url_for('index'))
