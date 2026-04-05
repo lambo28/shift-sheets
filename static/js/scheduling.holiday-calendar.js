@@ -182,8 +182,7 @@
                 const dayData = getShiftsForDate(dateStr);
                 if (isInSchoolTerm(dateStr)) classes += ' cal-school-term';
 
-                const dayWorkingShifts = ((dayData && dayData.shifts) || []).filter(function (s) { return s.shift_type !== 'day_off'; });
-                const isDayWorking = dayWorkingShifts.length > 0;
+                const isDayWorking = Boolean(dayData && dayData.has_base_working_shift);
                 const isSwapWorkDay = Boolean(dayData && dayData.has_swap_work);
 
                 if (selectedDriverId && (!isDayWorking || isSwapWorkDay || dateStr < minSelectableDateStr)) classes += ' cal-disabled';

@@ -1772,6 +1772,103 @@ class TestSwapRoutes:
         assert ShiftSwap.query.count() == 2
         assert ShiftAdjustment.query.filter_by(adjustment_date=date(2026, 6, 2)).count() == 0
 
+    def test_add_swap_auto_reduces_conflicting_extra_assignment(self, client, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'morning', '06:00', '14:00')
+            make_shift_timing(db, 'long_day', '06:00', '16:00')
+            ref = date(2026, 6, 1)
+            pattern = make_pattern(db, 'Swap Extra Trim Pattern', 7,
+                ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            driver = make_driver(db, '77', 'Swap Extra Trim Driver')
+            make_assignment(db, driver, pattern, ref, start_day_of_cycle=1)
+
+            req = ExtraCarRequest(
+                date=date(2026, 6, 2),
+                request_type='time_window',
+                window_start=time(16, 0),
+                window_end=time(2, 0),
+                unlimited=False,
+                required_slots=1,
+                status='OPEN',
+            )
+            db.session.add(req)
+            db.session.flush()
+
+            assignment = ExtraCarAssignment(
+                request_id=req.id,
+                driver_id=driver.id,
+                start_time=time(16, 0),
+                end_time=time(2, 0),
+                notes='Original full window',
+            )
+            db.session.add(assignment)
+            db.session.commit()
+            driver_id = driver.id
+            assignment_id = assignment.id
+
+        resp = client.post('/scheduling/swap/add', data={
+            'driver_id': driver_id,
+            'give_up_date': '2026-06-01',
+            'work_date': '2026-06-02',
+            'work_shift_type': 'long_day',
+            'approved_by': 'Manager Name',
+            'notes': 'Swap onto extra date',
+        }, follow_redirects=True)
+
+        assert resp.status_code == 200
+        assert ShiftSwap.query.count() == 1
+
+        updated = db.session.get(ExtraCarAssignment, assignment_id)
+        assert updated is not None
+        assert updated.start_time == time(16, 0)
+        assert updated.end_time == time(22, 0)
+        assert 'AUTO: adjusted after swap' in (updated.notes or '')
+
+    def test_add_swap_auto_removes_extra_assignment_when_valid_window_too_short(self, client, db):
+        with flask_app.app_context():
+            make_shift_timing(db, 'morning', '06:00', '14:00')
+            make_shift_timing(db, 'extended', '08:00', '23:00')
+            ref = date(2026, 6, 1)
+            pattern = make_pattern(db, 'Swap Extra Remove Pattern', 7,
+                ['morning', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off', 'day_off'])
+            driver = make_driver(db, '78', 'Swap Extra Remove Driver')
+            make_assignment(db, driver, pattern, ref, start_day_of_cycle=1)
+
+            req = ExtraCarRequest(
+                date=date(2026, 6, 2),
+                request_type='time_window',
+                window_start=time(23, 30),
+                window_end=time(2, 0),
+                unlimited=False,
+                required_slots=1,
+                status='OPEN',
+            )
+            db.session.add(req)
+            db.session.flush()
+
+            db.session.add(ExtraCarAssignment(
+                request_id=req.id,
+                driver_id=driver.id,
+                start_time=time(23, 30),
+                end_time=time(2, 0),
+                notes='Original short window',
+            ))
+            db.session.commit()
+            driver_id = driver.id
+
+        resp = client.post('/scheduling/swap/add', data={
+            'driver_id': driver_id,
+            'give_up_date': '2026-06-01',
+            'work_date': '2026-06-02',
+            'work_shift_type': 'extended',
+            'approved_by': 'Manager Name',
+            'notes': 'Swap onto very late extra date',
+        }, follow_redirects=True)
+
+        assert resp.status_code == 200
+        assert ShiftSwap.query.count() == 1
+        assert ExtraCarAssignment.query.count() == 0
+
     def test_swap_can_use_holiday_covered_working_day_as_give_up_and_restore_on_delete(self, client, db):
         with flask_app.app_context():
             make_shift_timing(db, 'morning', '06:00', '14:00')

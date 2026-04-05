@@ -169,7 +169,7 @@
 
 .holiday-calendar .cal-timeoff i,
 .holiday-calendar .cal-timeoff .scheduling-type-white-icon {
-    color: #fff !important;
+    color: #000 !important;
 }
 
 .holiday-calendar .cal-timeoff {
@@ -401,6 +401,13 @@
 .holiday-calendar:not(.compact).cal-disabled-state td.cal-day.cal-school-term,
 .holiday-calendar:not(.compact).cal-disabled-state td.cal-day.cal-school-term:hover,
 .holiday-calendar:not(.compact) td.cal-day.cal-school-term:hover {
+    background: #e8f5e9 !important;
+}
+
+.holiday-calendar.compact td.cal-day.cal-school-term,
+.holiday-calendar.compact td.cal-day.cal-school-term:hover,
+.holiday-calendar.compact.cal-disabled-state td.cal-day.cal-school-term,
+.holiday-calendar.compact.cal-disabled-state td.cal-day.cal-school-term:hover {
     background: #e8f5e9 !important;
 }
 

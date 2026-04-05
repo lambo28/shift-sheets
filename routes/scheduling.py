@@ -1,6 +1,7 @@
 from flask import render_template, request, redirect, url_for, flash, jsonify
 from datetime import datetime, timedelta, time
 
+from constants import EXTRA_CAR_MIN_PARTIAL_HOURS
 from extensions import db
 from models import (
     Driver, ShiftTiming, ShiftAdjustment, ShiftSwap,
@@ -14,6 +15,7 @@ from utils import (
     parse_date_string, parse_time_string, parse_positive_int,
     require_driver, require_date,
     validate_adjustment_time, validate_swap, check_adjustment_deletion_rest_violation,
+    validate_extra_car_assignment,
     group_consecutive_holidays,
     get_driver_shifts_for_date,
     is_driver_on_holiday, is_split_shift_day, driver_has_working_shift_on_date,
@@ -239,6 +241,116 @@ def register(app):
 
             _, new_status = req.compute_coverage()
             req.status = new_status
+
+    def _merge_extra_assignment_note(existing_notes, auto_note):
+        """Append an auto note to existing notes without duplication."""
+        existing_text = (existing_notes or '').strip()
+        if not existing_text:
+            return auto_note
+        if auto_note in existing_text:
+            return existing_text
+        return f"{existing_text}\n{auto_note}"
+
+    def _reconcile_extra_assignments_after_swap(driver, work_date, timings_dict):
+        """Trim or remove extra assignments on work_date that conflict after a swap.
+
+        Returns ``(trimmed_count, removed_count)``.
+        """
+        assignments = (
+            ExtraCarAssignment.query
+            .join(ExtraCarRequest)
+            .filter(
+                ExtraCarAssignment.driver_id == driver.id,
+                ExtraCarRequest.date == work_date,
+            )
+            .order_by(ExtraCarAssignment.id.asc())
+            .all()
+        )
+
+        if not assignments:
+            return 0, 0
+
+        trimmed_count = 0
+        removed_count = 0
+        impacted_requests = {}
+        auto_note = (
+            "AUTO: adjusted after swap to satisfy max 16h duty span / 8h rest rule."
+        )
+
+        for assignment in assignments:
+            req = assignment.request
+            req_start, req_end = req.get_time_window()
+            if not req_start or not req_end:
+                continue
+
+            proposed_start = assignment.effective_start() or req_start
+            proposed_end = assignment.effective_end() or req_end
+            if not proposed_start or not proposed_end or proposed_end <= proposed_start:
+                continue
+
+            is_valid, _errors, suggested_start, suggested_end = validate_extra_car_assignment(
+                driver,
+                req,
+                proposed_start,
+                proposed_end,
+                timings_dict,
+            )
+            if is_valid:
+                continue
+
+            final_start = suggested_start
+            final_end = suggested_end
+
+            if not final_start or not final_end or final_end <= final_start:
+                db.session.delete(assignment)
+                removed_count += 1
+                impacted_requests[req.id] = req
+                continue
+
+            if final_start == proposed_start and final_end == proposed_end:
+                db.session.delete(assignment)
+                removed_count += 1
+                impacted_requests[req.id] = req
+                continue
+
+            final_duration_hours = (final_end - final_start).total_seconds() / 3600
+            if final_duration_hours < EXTRA_CAR_MIN_PARTIAL_HOURS:
+                db.session.delete(assignment)
+                removed_count += 1
+                impacted_requests[req.id] = req
+                continue
+
+            candidate_valid, _candidate_errors, _candidate_suggested_start, _candidate_suggested_end = validate_extra_car_assignment(
+                driver,
+                req,
+                final_start,
+                final_end,
+                timings_dict,
+            )
+            if not candidate_valid:
+                db.session.delete(assignment)
+                removed_count += 1
+                impacted_requests[req.id] = req
+                continue
+
+            start_changed = final_start.time() != (assignment.start_time or req_start.time())
+            end_changed = final_end.time() != (assignment.end_time or req_end.time())
+            if start_changed or end_changed:
+                assignment.start_time = final_start.time()
+                assignment.end_time = final_end.time()
+                assignment.notes = _merge_extra_assignment_note(assignment.notes, auto_note)
+                trimmed_count += 1
+                impacted_requests[req.id] = req
+
+        for req in impacted_requests.values():
+            _, new_status = req.compute_coverage()
+            if req.status != 'CLOSED':
+                req.status = new_status
+
+        if trimmed_count or removed_count:
+            db.session.flush()
+
+        return trimmed_count, removed_count
 
     @app.route("/scheduling")
     def scheduling():
@@ -1414,6 +1526,12 @@ def register(app):
                     )
                     db.session.delete(adj)
 
+        reconciled_extra_trimmed, reconciled_extra_removed = _reconcile_extra_assignments_after_swap(
+            driver,
+            work_date,
+            all_timings,
+        )
+
         db.session.commit()
 
         shift_type_labels = ', '.join(
@@ -1435,6 +1553,16 @@ def register(app):
                 f" Removed {len(removed_invalid_adjustment_details)} adjustment(s) on "
                 f"{work_date.strftime('%d/%m/%Y')} as they are no longer valid for the swapped shift "
                 f"({', '.join(removed_invalid_adjustment_details)})."
+            )
+        if reconciled_extra_trimmed:
+            success_message += (
+                f" Automatically reduced {reconciled_extra_trimmed} extra assignment(s) on "
+                f"{work_date.strftime('%d/%m/%Y')} to keep duty/rest rules valid."
+            )
+        if reconciled_extra_removed:
+            success_message += (
+                f" Automatically removed {reconciled_extra_removed} extra assignment(s) on "
+                f"{work_date.strftime('%d/%m/%Y')} because no valid minimum-duration window remained."
             )
         if removed_holiday_dates:
             removed_holiday_text = ", ".join(d.strftime('%d/%m/%Y') for d in removed_holiday_dates)

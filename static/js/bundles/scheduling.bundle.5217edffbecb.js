@@ -502,7 +502,7 @@ function buildUnifiedCalendarCellContent(dayData) {
     const baseContentHtml = `${shiftBadges.join('')}${timeOffHtml}`;
     const contentHtml = baseContentHtml
         ? `${baseContentHtml}`
-        : '<small class="text-muted">No shift</small>';
+        : (extraShiftTooltip ? '' : '<small class="text-muted">No shift</small>');
 
     const iconCount =
         (shiftBadges.length + (timeOffHtml ? 1 : 0))
@@ -732,8 +732,7 @@ function escapeHtml(str) {
                 const dayData = getShiftsForDate(dateStr);
                 if (isInSchoolTerm(dateStr)) classes += ' cal-school-term';
 
-                const dayWorkingShifts = ((dayData && dayData.shifts) || []).filter(function (s) { return s.shift_type !== 'day_off'; });
-                const isDayWorking = dayWorkingShifts.length > 0;
+                const isDayWorking = Boolean(dayData && dayData.has_base_working_shift);
                 const isSwapWorkDay = Boolean(dayData && dayData.has_swap_work);
 
                 if (selectedDriverId && (!isDayWorking || isSwapWorkDay || dateStr < minSelectableDateStr)) classes += ' cal-disabled';
@@ -974,6 +973,41 @@ function escapeHtml(str) {
     let adjServerValidationPassed = false;
     let adjValidationTimer = null;
 
+    const schoolTermRanges = [];
+    const schoolClosureDates = new Set();
+
+    function loadSchoolTerms() {
+        const el = document.getElementById('schoolTermsDataEl');
+        if (!el) return;
+        try {
+            const starts = JSON.parse(el.getAttribute('data-term-starts') || '[]');
+            const ends = JSON.parse(el.getAttribute('data-term-ends') || '[]');
+            const closures = JSON.parse(el.getAttribute('data-closure-dates') || '[]');
+            for (let i = 0; i < starts.length; i++) {
+                if (starts[i] && ends[i]) {
+                    schoolTermRanges.push({ start: String(starts[i]), end: String(ends[i]) });
+                }
+            }
+            closures.forEach(function (dateStr) {
+                if (dateStr) schoolClosureDates.add(String(dateStr));
+            });
+        } catch (e) { }
+    }
+
+    function isWeekendISO(dateStr) {
+        if (!dateStr) return false;
+        const parsed = new Date(`${dateStr}T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) return false;
+        const day = parsed.getDay();
+        return day === 0 || day === 6;
+    }
+
+    function isInSchoolTerm(dateStr) {
+        if (isWeekendISO(dateStr)) return false;
+        if (schoolClosureDates.has(dateStr)) return false;
+        return schoolTermRanges.some(function (r) { return dateStr >= r.start && dateStr <= r.end; });
+    }
+
     async function fetchAdjustmentDriverShifts(driverId, monthStr) {
         if (!driverId) {
             adjDriverShiftData = null;
@@ -1128,6 +1162,8 @@ function escapeHtml(str) {
         const shifts = dayData && Array.isArray(dayData.shifts) ? dayData.shifts : [];
         const workingShifts = shifts.filter(shift => shift.shift_type !== 'day_off');
         const nonExtraWorkingShifts = workingShifts.filter(shift => !shift.is_extra);
+        const hasBaseWorkingShift = !!(dayData && dayData.has_base_working_shift);
+        const isWithinTimeOffBlock = !!(dayData && dayData.is_within_time_off_block);
         const isSplitShiftDay = nonExtraWorkingShifts.length >= 2;
 
         if (isSplitShiftDay) {
@@ -1138,7 +1174,14 @@ function escapeHtml(str) {
             return;
         }
 
-        if (workingShifts.length > 0) {
+        if (isWithinTimeOffBlock) {
+            adjSelectedDateAllowsAdjustment = false;
+            statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is booked as time off in this date block.</span>';
+            scheduleAdjustmentAutoValidation();
+            return;
+        }
+
+        if (hasBaseWorkingShift) {
             adjSelectedDateAllowsAdjustment = true;
             statusEl.innerHTML = '';
             scheduleAdjustmentAutoValidation();
@@ -1228,6 +1271,7 @@ function escapeHtml(str) {
             let classes = 'cal-day';
             if (isToday) classes += ' cal-today';
             if (isSelected) classes += ' cal-selected';
+            if (isInSchoolTerm(dateStr)) classes += ' cal-school-term';
 
             const dayData = getAdjustmentShiftsForDate(dateStr);
 
@@ -1235,7 +1279,9 @@ function escapeHtml(str) {
                 const dayShifts = (dayData && dayData.shifts) || [];
                 const dayWorkingShifts = dayShifts.filter(function (s) { return s.shift_type !== 'day_off'; });
                 const dayNonExtraShifts = dayWorkingShifts.filter(function (s) { return !s.is_extra; });
-                if (dateStr < minSelectableDateStr || !dayWorkingShifts.length || dayNonExtraShifts.length >= 2) {
+                const hasBaseWorkingShift = !!(dayData && dayData.has_base_working_shift);
+                const isWithinTimeOffBlock = !!(dayData && dayData.is_within_time_off_block);
+                if (dateStr < minSelectableDateStr || !hasBaseWorkingShift || isWithinTimeOffBlock || dayNonExtraShifts.length >= 2) {
                     classes += ' cal-disabled';
                 }
             }
@@ -1277,6 +1323,8 @@ function escapeHtml(str) {
     function initAdjustmentCalendar() {
         const body = document.getElementById('adjCalBody');
         if (!body) return;
+
+        loadSchoolTerms();
 
         const prev = document.getElementById('adjCalPrev');
         const next = document.getElementById('adjCalNext');
@@ -1458,6 +1506,41 @@ async function validateSwapForm() {
     let swapGiveUpDate = null;
     let swapWorkDate = null;
 
+    const schoolTermRanges = [];
+    const schoolClosureDates = new Set();
+
+    function loadSchoolTerms() {
+        const el = document.getElementById('schoolTermsDataEl');
+        if (!el) return;
+        try {
+            const starts = JSON.parse(el.getAttribute('data-term-starts') || '[]');
+            const ends = JSON.parse(el.getAttribute('data-term-ends') || '[]');
+            const closures = JSON.parse(el.getAttribute('data-closure-dates') || '[]');
+            for (let i = 0; i < starts.length; i++) {
+                if (starts[i] && ends[i]) {
+                    schoolTermRanges.push({ start: String(starts[i]), end: String(ends[i]) });
+                }
+            }
+            closures.forEach(function (dateStr) {
+                if (dateStr) schoolClosureDates.add(String(dateStr));
+            });
+        } catch (e) { }
+    }
+
+    function isWeekendISO(dateStr) {
+        if (!dateStr) return false;
+        const parsed = new Date(`${dateStr}T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) return false;
+        const day = parsed.getDay();
+        return day === 0 || day === 6;
+    }
+
+    function isInSchoolTerm(dateStr) {
+        if (isWeekendISO(dateStr)) return false;
+        if (schoolClosureDates.has(dateStr)) return false;
+        return schoolTermRanges.some(function (r) { return dateStr >= r.start && dateStr <= r.end; });
+    }
+
     function swapFormatDateISO(dateValue) {
         const year = dateValue.getFullYear();
         const month = String(dateValue.getMonth() + 1).padStart(2, '0');
@@ -1517,18 +1600,14 @@ async function validateSwapForm() {
     function isSwapDayWorkingDay(dateStr) {
         const dayData = getSwapDayData(dateStr);
         if (!dayData) return false;
-        if (dayData.is_holiday) return !!dayData.has_base_working_shift;
-        return (
-            (dayData.shifts && dayData.shifts.some(shift => shift.shift_type !== 'day_off'))
-            || !!dayData.has_base_working_shift
-        );
+        return !!dayData.has_base_working_shift;
     }
 
     function isSwapDayOffDay(dateStr) {
         const dayData = getSwapDayData(dateStr);
         if (!dayData) return false;
         if (dayData.is_holiday || dayData.is_within_time_off_block) return false;
-        const hasWorkingShift = dayData.shifts && dayData.shifts.some(shift => shift.shift_type !== 'day_off');
+        const hasWorkingShift = !!dayData.has_base_working_shift;
         return !hasWorkingShift || !!dayData.has_swap_work;
     }
 
@@ -1596,7 +1675,7 @@ async function validateSwapForm() {
             const dayData = getSwapDayData(dateStr);
             const visuals = buildUnifiedCalendarCellContent(dayData);
             const inlineRowHtml = `${visuals.contentHtml}${visuals.extraShiftIconHtml}${visuals.lateStartIconHtml}${visuals.earlyFinishIconHtml}`;
-            const hasWorkingShift = !!(dayData?.shifts && dayData.shifts.some(shift => shift.shift_type !== 'day_off'));
+            const hasWorkingShift = !!dayData?.has_base_working_shift;
             const hasBaseWorkingShift = !!dayData?.has_base_working_shift;
             const isHoliday = !!dayData?.is_holiday;
             const isWithinTimeOffBlock = !!dayData?.is_within_time_off_block;
@@ -1605,7 +1684,7 @@ async function validateSwapForm() {
             // Only treat as a valid off day if the driver actually has a scheduled entry for this day
             // (shifts can be day_off type). An empty shifts array means no schedule at all → not selectable.
             const hasScheduledEntries = !!(dayData && Array.isArray(dayData.shifts) && dayData.shifts.length > 0);
-            const isOffDay = !isHoliday && !hasWorkingShift && hasScheduledEntries;
+            const isOffDay = !isHoliday && !hasBaseWorkingShift && hasScheduledEntries;
             const isBeforeMinimumDate = dateStr < minSelectableDateStr;
 
             let classes = 'cal-day';
@@ -1633,6 +1712,7 @@ async function validateSwapForm() {
 
             if (dateStr === todayStr) classes += ' cal-today';
             if (dateStr === selectedDate) classes += ' cal-selected';
+            if (isInSchoolTerm(dateStr)) classes += ' cal-school-term';
             if (swapSelectedDriverId && !isClickable) classes += ' cal-disabled';
             if (dayData?.has_swap_give_up) classes += ' cal-has-swap-giveup';
             if (dayData?.has_swap_work) classes += ' cal-has-swap-work';
@@ -1796,6 +1876,8 @@ async function validateSwapForm() {
         const giveUpBody = document.getElementById('swapGiveUpCalBody');
         const workBody = document.getElementById('swapWorkCalBody');
         if (!giveUpBody || !workBody) return;
+
+        loadSchoolTerms();
 
         // Give-up calendar navigation
         const giveUpPrev = document.getElementById('swapGiveUpCalPrev');

@@ -142,7 +142,7 @@ function buildUnifiedCalendarCellContent(dayData) {
     const baseContentHtml = `${shiftBadges.join('')}${timeOffHtml}`;
     const contentHtml = baseContentHtml
         ? `${baseContentHtml}`
-        : '<small class="text-muted">No shift</small>';
+        : (extraShiftTooltip ? '' : '<small class="text-muted">No shift</small>');
 
     const iconCount =
         (shiftBadges.length + (timeOffHtml ? 1 : 0))

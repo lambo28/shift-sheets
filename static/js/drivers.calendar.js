@@ -145,6 +145,7 @@ function renderDriverCalendar(data) {
         const workingShifts = (day.shifts || []).filter((shift) => shift.shift_type !== 'day_off' && shift.label !== 'OFF');
         const standardShifts = workingShifts.filter((shift) => !shift.is_extra);
         const extraShifts = workingShifts.filter((shift) => shift.is_extra);
+        const customExtraShifts = extraShifts.filter((shift) => shift.is_custom_time);
 
         const toWindow = (shift) => {
             const startMinutes = toMinutes(shift.start_time);
@@ -156,12 +157,11 @@ function renderDriverCalendar(data) {
         };
 
         const allWindows = workingShifts.map(toWindow).filter(Boolean);
-        const standardWindows = standardShifts.map(toWindow).filter(Boolean);
 
-        // Check if any shift has custom times or if there are adjustments/extras
-        const hasCustomTimes = workingShifts.some((shift) => shift.is_custom_time);
+        // Keep bottom time for custom standard shifts, custom extras, and late/early adjustments.
+        const hasCustomTimes = standardShifts.some((shift) => shift.is_custom_time);
         const hasAdjustments = lateStart || earlyFinish;
-        const shouldShowBottomTime = hasCustomTimes || extraShifts.length > 0 || hasAdjustments;
+        const shouldShowBottomTime = hasCustomTimes || customExtraShifts.length > 0 || hasAdjustments;
 
         if (!day.is_holiday && !hasDayOffShift && allWindows.length && shouldShowBottomTime) {
             const allStart = Math.min(...allWindows.map((window) => window.start));

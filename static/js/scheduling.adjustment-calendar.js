@@ -20,6 +20,41 @@
     let adjServerValidationPassed = false;
     let adjValidationTimer = null;
 
+    const schoolTermRanges = [];
+    const schoolClosureDates = new Set();
+
+    function loadSchoolTerms() {
+        const el = document.getElementById('schoolTermsDataEl');
+        if (!el) return;
+        try {
+            const starts = JSON.parse(el.getAttribute('data-term-starts') || '[]');
+            const ends = JSON.parse(el.getAttribute('data-term-ends') || '[]');
+            const closures = JSON.parse(el.getAttribute('data-closure-dates') || '[]');
+            for (let i = 0; i < starts.length; i++) {
+                if (starts[i] && ends[i]) {
+                    schoolTermRanges.push({ start: String(starts[i]), end: String(ends[i]) });
+                }
+            }
+            closures.forEach(function (dateStr) {
+                if (dateStr) schoolClosureDates.add(String(dateStr));
+            });
+        } catch (e) { }
+    }
+
+    function isWeekendISO(dateStr) {
+        if (!dateStr) return false;
+        const parsed = new Date(`${dateStr}T00:00:00`);
+        if (Number.isNaN(parsed.getTime())) return false;
+        const day = parsed.getDay();
+        return day === 0 || day === 6;
+    }
+
+    function isInSchoolTerm(dateStr) {
+        if (isWeekendISO(dateStr)) return false;
+        if (schoolClosureDates.has(dateStr)) return false;
+        return schoolTermRanges.some(function (r) { return dateStr >= r.start && dateStr <= r.end; });
+    }
+
     async function fetchAdjustmentDriverShifts(driverId, monthStr) {
         if (!driverId) {
             adjDriverShiftData = null;
@@ -174,6 +209,8 @@
         const shifts = dayData && Array.isArray(dayData.shifts) ? dayData.shifts : [];
         const workingShifts = shifts.filter(shift => shift.shift_type !== 'day_off');
         const nonExtraWorkingShifts = workingShifts.filter(shift => !shift.is_extra);
+        const hasBaseWorkingShift = !!(dayData && dayData.has_base_working_shift);
+        const isWithinTimeOffBlock = !!(dayData && dayData.is_within_time_off_block);
         const isSplitShiftDay = nonExtraWorkingShifts.length >= 2;
 
         if (isSplitShiftDay) {
@@ -184,7 +221,14 @@
             return;
         }
 
-        if (workingShifts.length > 0) {
+        if (isWithinTimeOffBlock) {
+            adjSelectedDateAllowsAdjustment = false;
+            statusEl.innerHTML = '<span class="text-warning"><i class="fas fa-exclamation-triangle me-1"></i>Driver is booked as time off in this date block.</span>';
+            scheduleAdjustmentAutoValidation();
+            return;
+        }
+
+        if (hasBaseWorkingShift) {
             adjSelectedDateAllowsAdjustment = true;
             statusEl.innerHTML = '';
             scheduleAdjustmentAutoValidation();
@@ -274,6 +318,7 @@
             let classes = 'cal-day';
             if (isToday) classes += ' cal-today';
             if (isSelected) classes += ' cal-selected';
+            if (isInSchoolTerm(dateStr)) classes += ' cal-school-term';
 
             const dayData = getAdjustmentShiftsForDate(dateStr);
 
@@ -281,7 +326,9 @@
                 const dayShifts = (dayData && dayData.shifts) || [];
                 const dayWorkingShifts = dayShifts.filter(function (s) { return s.shift_type !== 'day_off'; });
                 const dayNonExtraShifts = dayWorkingShifts.filter(function (s) { return !s.is_extra; });
-                if (dateStr < minSelectableDateStr || !dayWorkingShifts.length || dayNonExtraShifts.length >= 2) {
+                const hasBaseWorkingShift = !!(dayData && dayData.has_base_working_shift);
+                const isWithinTimeOffBlock = !!(dayData && dayData.is_within_time_off_block);
+                if (dateStr < minSelectableDateStr || !hasBaseWorkingShift || isWithinTimeOffBlock || dayNonExtraShifts.length >= 2) {
                     classes += ' cal-disabled';
                 }
             }
@@ -323,6 +370,8 @@
     function initAdjustmentCalendar() {
         const body = document.getElementById('adjCalBody');
         if (!body) return;
+
+        loadSchoolTerms();
 
         const prev = document.getElementById('adjCalPrev');
         const next = document.getElementById('adjCalNext');
