@@ -1,6 +1,7 @@
 import sqlite3
 from datetime import datetime, timedelta
 
+from app import Driver, db as _db
 from backup_utils import create_auto_backup, create_temp_backup_copy, list_auto_backups, prune_auto_backups
 
 
@@ -80,3 +81,29 @@ def test_settings_page_lists_available_auto_backups(client, app, tmp_path):
     body = response.get_data(as_text=True)
     assert 'shift-sheets.auto-backup-20260405.db' in body
     assert 'Last backup completed:' in body
+
+
+def test_clear_database_rejects_wrong_confirmation_word(client, app, db):
+    with app.app_context():
+        _db.session.add(Driver(driver_number='101', name='Keep Me', car_type='Standard'))
+        _db.session.commit()
+
+    response = client.post('/settings/database/clear', data={'confirm_word': 'WRONG'}, follow_redirects=True)
+
+    assert response.status_code == 200
+    assert 'Type DELETE to confirm.' in response.get_data(as_text=True)
+    with app.app_context():
+        assert Driver.query.count() == 1
+
+
+def test_clear_database_deletes_records_with_delete_confirmation(client, app, db):
+    with app.app_context():
+        _db.session.add(Driver(driver_number='102', name='Delete Me', car_type='Standard'))
+        _db.session.commit()
+
+    response = client.post('/settings/database/clear', data={'confirm_word': 'DELETE'}, follow_redirects=True)
+
+    assert response.status_code == 200
+    assert 'Database cleared successfully.' in response.get_data(as_text=True)
+    with app.app_context():
+        assert Driver.query.count() == 0

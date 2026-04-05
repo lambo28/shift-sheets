@@ -16,7 +16,6 @@ from backup_utils import (
     list_auto_backups,
     looks_like_sqlite_db,
     next_auto_backup_time,
-    prune_auto_backups,
     resolve_auto_backup_path,
 )
 from utils import (
@@ -248,21 +247,6 @@ def register(app):
         flash(message, 'success' if success else 'error')
         return redirect(url_for('settings'))
 
-    @app.route('/settings/backup/auto/prune', methods=['POST'])
-    def prune_auto_backups_now():
-        """Delete automatic backups beyond retention immediately."""
-        db_path = get_sqlite_database_path(app.config)
-        if db_path is None:
-            flash('Automatic backups are only supported for SQLite deployments.', 'error')
-            return redirect(url_for('settings'))
-
-        removed_count = prune_auto_backups(db_path, retention_days=AUTO_BACKUP_RETENTION_DAYS)
-        if removed_count > 0:
-            flash(f'Removed {removed_count} old automatic backup file(s).', 'success')
-        else:
-            flash('No old automatic backups needed removal.', 'info')
-        return redirect(url_for('settings'))
-
     @app.route('/settings/backup/restore', methods=['POST'])
     def restore_backup():
         """Restore database from uploaded SQLite backup file."""
@@ -299,6 +283,26 @@ def register(app):
                     temp_file.unlink()
                 except Exception:
                     pass
+
+        return redirect(url_for('settings'))
+
+    @app.route('/settings/database/clear', methods=['POST'])
+    def clear_database():
+        """Danger action: wipe all application records after explicit confirmation."""
+        confirmation_word = (request.form.get('confirm_word') or '').strip().upper()
+        if confirmation_word != 'DELETE':
+            flash('Database clear cancelled. Type DELETE to confirm.', 'error')
+            return redirect(url_for('settings'))
+
+        try:
+            db.session.remove()
+            for table in reversed(db.metadata.sorted_tables):
+                db.session.execute(table.delete())
+            db.session.commit()
+            flash('Database cleared successfully.', 'success')
+        except Exception as exc:
+            db.session.rollback()
+            flash(f'Failed to clear database: {exc}', 'error')
 
         return redirect(url_for('settings'))
 

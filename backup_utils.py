@@ -7,7 +7,7 @@ import tempfile
 
 
 AUTO_BACKUP_HOUR = 2
-AUTO_BACKUP_RETENTION_DAYS = 28
+AUTO_BACKUP_RETENTION_DAYS = 45
 
 
 def get_sqlite_database_path(config):

@@ -2,6 +2,8 @@ services:
   shift_web:
     build: .
     container_name: shift_web
+    environment:
+      - TZ=Europe/London
     ports:
       - "5000:5000"
     volumes:
